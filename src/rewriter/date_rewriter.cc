@@ -935,7 +935,7 @@ std::vector<std::string> GetConversions(const DateRewriter::DateData &data,
                                         cm.month(), cm.day(), cm.hour(),
                                         cm.minute()));
       // YMMDDHMM
-      results.push_back(absl::StrFormat("%d%2.2d%2.2d%2d%2.2d", cm.year(),
+      results.push_back(absl::StrFormat("%d%2.2d%2.2d%2.2d%2.2d", cm.year(),
                                         cm.month(), cm.day(), cm.hour(),
                                         cm.minute()));
       break;
