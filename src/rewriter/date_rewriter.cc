@@ -834,9 +834,9 @@ bool DateRewriter::ConvertDateWithYear(uint32_t year, uint32_t month,
     return false;
   }
   // Generate "Y/MM/DD", "Y-MM-DD", "YMMDD" and "Y年M月D日" formats.
+  results->push_back(absl::StrFormat("%d%2.2d%2.2d", year, month, day));
   results->push_back(absl::StrFormat("%d/%2.2d/%2.2d", year, month, day));
   results->push_back(absl::StrFormat("%d-%2.2d-%2.2d", year, month, day));
-  results->push_back(absl::StrFormat("%d%2.2d%2.2d", year, month, day));
   results->push_back(absl::StrFormat("%d年%d月%d日", year, month, day));
   return true;
 }
@@ -932,10 +932,6 @@ std::vector<std::string> GetConversions(const DateRewriter::DateData &data,
     case DATE_AND_CURRENT_TIME: {
       // Y/MM/DD H:MM
       results.push_back(absl::StrFormat("%d/%2.2d/%2.2d %2d:%2.2d", cm.year(),
-                                        cm.month(), cm.day(), cm.hour(),
-                                        cm.minute()));
-      // YMMDDHMM
-      results.push_back(absl::StrFormat("%d%2.2d%2.2d%2.2d%2.2d", cm.year(),
                                         cm.month(), cm.day(), cm.hour(),
                                         cm.minute()));
       break;

@@ -556,7 +556,7 @@ TEST_F(DateRewriterTest, ConvertDateTest) {
 
   // Furthermore, 400 dividable year is leap year.
   EXPECT_THAT(DateRewriter::ConvertDateWithYear(2000, 2, 29),
-              ElementsAre("2000/02/29", "2000-02-29", "20000229" "2000年2月29日"));
+              ElementsAre("2000/02/29", "2000-02-29", "20000229", "2000年2月29日"));
 
   EXPECT_FALSE(DateRewriter::ConvertDateWithYear(0, 1, 1, &results));
   EXPECT_FALSE(DateRewriter::ConvertDateWithYear(2000, 13, 1, &results));
