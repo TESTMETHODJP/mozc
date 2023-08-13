@@ -62,8 +62,18 @@ namespace mozc::win32 {
 // Returned HResult values must not be discarded.
 class [[nodiscard]] HResult {
  public:
+  // Default construction is disallowed. Explicitly call HResultOk to construct
+  // HResult for S_OK.
   HResult() = delete;
+
+  // Constructs HResult with the error code hr.
   constexpr explicit HResult(const HRESULT hr) noexcept : hr_(hr) {}
+
+  // Assigns an HRESULT value.
+  HResult& operator=(const HRESULT hr) noexcept {
+    hr_ = hr;
+    return *this;
+  }
 
   // Implicitly converts to HRESULT. This implicit conversion is necessary for
   // the RETURN_IF_FAILED_HRESULT macro to work both HRESULT and HResultOr<T>
@@ -82,18 +92,20 @@ class [[nodiscard]] HResult {
   //    // return hr;  // compile error
   //    return hr.Succeeded();
   // }
-  template <typename T, typename = std::enable_if_t<
-                            !std::is_same_v<T, HRESULT> && std::is_scalar_v<T>>>
+  template <typename T,
+            std::enable_if_t<!std::is_same_v<T, HRESULT> && std::is_scalar_v<T>,
+                             std::nullptr_t> = nullptr>
   operator T() = delete;
 
+  // Returns the result of the SUCCEEDED macro.
   [[nodiscard]] constexpr bool Succeeded() const noexcept {
     return SUCCEEDED(hr_);
   }
 
-  [[nodiscard]] ABSL_DEPRECATED(
-      "Use Succeeded() instead.") constexpr bool ok() const noexcept {
-    return Succeeded();
-  }
+  // Returns the result of the FAILED macro.
+  [[nodiscard]] constexpr bool Failed() const noexcept { return FAILED(hr_); }
+
+  // Returns the HRESULT value.
   constexpr HRESULT hr() const noexcept { return hr_; }
 
   inline void swap(HResult& other) noexcept {

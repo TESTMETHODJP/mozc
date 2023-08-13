@@ -77,7 +77,6 @@
 #include "rewriter/rewriter_interface.h"
 #include "session/request_test_util.h"
 #include "testing/gmock.h"
-#include "testing/googletest.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
 #include "transliteration/transliteration.h"
@@ -181,7 +180,7 @@ class InsertDummyWordsRewriter : public RewriterInterface {
 
 }  // namespace
 
-class ConverterTest : public ::testing::Test {
+class ConverterTest : public testing::TestWithTempUserProfile {
  protected:
   enum PredictorType {
     STUB_PREDICTOR,
@@ -233,7 +232,8 @@ class ConverterTest : public ::testing::Test {
 
     std::unique_ptr<PredictorInterface> (*predictor_factory)(
         std::unique_ptr<PredictorInterface>,
-        std::unique_ptr<PredictorInterface>) = nullptr;
+        std::unique_ptr<PredictorInterface>, const ConverterInterface *) =
+        nullptr;
     bool enable_content_word_learning = false;
 
     switch (predictor_type) {
@@ -272,7 +272,8 @@ class ConverterTest : public ::testing::Test {
     CHECK(user_history_predictor);
 
     auto ret_predictor = (*predictor_factory)(
-        std::move(dictionary_predictor), std::move(user_history_predictor));
+        std::move(dictionary_predictor), std::move(user_history_predictor),
+        converter_and_data.converter.get());
     CHECK(ret_predictor);
     return ret_predictor;
   }
@@ -416,7 +417,6 @@ class ConverterTest : public ::testing::Test {
   const commands::Request &default_request() const { return default_request_; }
 
  private:
-  const testing::ScopedTempUserProfileDirectory scoped_profile_dir_;
   const testing::MockDataManager mock_data_manager_;
   const commands::Request default_request_;
   mozc::usage_stats::scoped_usage_stats_enabler usage_stats_enabler_;
@@ -1274,7 +1274,8 @@ TEST_F(ConverterTest, VariantExpansionForSuggestion) {
                          segmenter.get(), pos_matcher, suggestion_filter),
                      std::make_unique<UserHistoryPredictor>(
                          dictionary.get(), &pos_matcher,
-                         suppression_dictionary.get(), false)),
+                         suppression_dictionary.get(), false),
+                     &converter),
                  std::make_unique<RewriterImpl>(&converter, &data_manager,
                                                 &pos_group, kNullDictionary),
                  immutable_converter.get());

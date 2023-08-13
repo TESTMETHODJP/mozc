@@ -35,7 +35,7 @@
       'sources': [
         'tool/mozc_tool_main.cc',
       ],
-      'mac_bundle_resources': ['../data/mac/qt.conf'],
+      'mac_bundle_resources': ['<(mozc_oss_src_dir)/data/mac/qt.conf'],
       'dependencies': [
         'config_dialog_mac',
         'gen_mozc_tool_info_plist',
@@ -47,6 +47,7 @@
           'action': [
             '<(python)', '../build_tools/change_reference_mac.py',
             '--qtdir', '<(qt_dir)',
+            '--qtver', '<(qt_ver)',
             '--target',
             '${BUILT_PRODUCTS_DIR}/<(product_name).app/Contents/MacOS/<(product_name)',
           ],

@@ -30,9 +30,7 @@
 #include "base/system_util.h"
 
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
-#include <sstream>
 #include <string>
 
 #include "base/const.h"
@@ -70,11 +68,14 @@
 
 #include "base/win32/wide_char.h"
 #include "base/win32/win_util.h"
+#include "absl/strings/str_cat.h"
 #else  // _WIN32
 #include <pwd.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#endif  // _WIN32
+
+#include "absl/container/fixed_array.h"
+#endif  // !_WIN32
 
 namespace mozc {
 namespace {
@@ -498,22 +499,14 @@ std::string SystemUtil::GetUserNameAsString() {
   const BOOL result = ::GetUserName(wusername, &name_size);
   DCHECK_NE(FALSE, result);
   return win32::WideToUtf8(wusername);
-#endif  // _WIN32
-
-#if defined(__ANDROID__)
-  // Android doesn't seem to support getpwuid_r.
-  struct passwd *ppw = getpwuid(geteuid());
-  CHECK(ppw != nullptr);
-  return ppw->pw_name;
-#elif defined(__APPLE__) || defined(__linux__) || defined(__wasm__)
+#else   // _WIN32
+  const int bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+  CHECK_NE(bufsize, -1);
+  absl::FixedArray<char> buf(bufsize);
   struct passwd pw, *ppw;
-  char buf[1024];
-  CHECK_EQ(0, getpwuid_r(geteuid(), &pw, buf, sizeof(buf), &ppw));
+  CHECK_EQ(0, getpwuid_r(geteuid(), &pw, buf.data(), buf.size(), &ppw));
   return pw.pw_name;
-#endif  // __APPLE__ || __linux__ || __wasm__
-
-  // If none of the above platforms is specified, the compiler raises an error
-  // because of no return value.
+#endif  // !_WIN32
 }
 
 #ifdef _WIN32
@@ -699,7 +692,7 @@ std::string SystemUtil::GetDesktopNameAsString() {
     return "";
   }
 
-  return (session_id + "." + window_station_name + "." + desktop_name);
+  return absl::StrCat(session_id, ".", window_station_name, ".", desktop_name);
 #endif  // _WIN32
 }
 
@@ -743,33 +736,6 @@ bool SystemUtil::EnsureVitalImmutableDataIsAvailable() {
   return true;
 }
 #endif  // _WIN32
-
-bool SystemUtil::IsWindows7OrLater() {
-#ifdef _WIN32
-  static const bool result = ::IsWindows7OrGreater();
-  return result;
-#else   // _WIN32
-  return false;
-#endif  // _WIN32
-}
-
-bool SystemUtil::IsWindows8OrLater() {
-#ifdef _WIN32
-  static const bool result = ::IsWindows8OrGreater();
-  return result;
-#else   // _WIN32
-  return false;
-#endif  // _WIN32
-}
-
-bool SystemUtil::IsWindows8_1OrLater() {
-#ifdef _WIN32
-  static const bool result = ::IsWindows8Point1OrGreater();
-  return result;
-#else   // _WIN32
-  return false;
-#endif  // _WIN32
-}
 
 namespace {
 volatile mozc::SystemUtil::IsWindowsX64Mode g_is_windows_x64_mode =

@@ -43,6 +43,7 @@ import optparse
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 from build_tools import mozc_version
@@ -62,6 +63,7 @@ from build_tools.util import RunOrDie
 from build_tools.util import RunOrDieError
 
 SRC_DIR = '.'
+OSS_SRC_DIR = '.'
 # We need to obtain the absolute path of this script before change directory.
 # Note that if any import above has already changed the current
 # directory, this code cannot work anymore.
@@ -71,20 +73,6 @@ SRC_DIR = '.'
 ABS_SCRIPT_DIR = CaseAwareAbsPath(os.path.dirname(__file__))
 MOZC_ROOT = ABS_SCRIPT_DIR
 EXT_THIRD_PARTY_DIR = os.path.join(MOZC_ROOT, 'third_party')
-
-# Gtk2 candidate window is deprecated.
-# The build rules and code will be removed in future.
-#   https://github.com/google/mozc/issues/567
-# Qt5 candidate window built by Bazel is the alternative.
-#   https://github.com/google/mozc/blob/master/docs/build_mozc_in_docker.md
-USE_DEPRECATED_GTK_RENDERER = False
-
-# Ibus build is no longer supported by GYP build.
-# The build rules and code will be removed in future.
-#   https://github.com/google/mozc/issues/567
-# Bazel build is the alternative.
-#   https://github.com/google/mozc/blob/master/docs/build_mozc_in_docker.md
-USE_UNSUPPORTED_IBUS_BUILD = False
 
 sys.path.append(SRC_DIR)
 
@@ -110,7 +98,6 @@ def GetBuildShortBaseName(target_platform):
       'Windows': 'out_win',
       'Mac': 'out_mac',
       'Linux': 'out_linux',
-      'iOS': 'out_ios',
   }
 
   if target_platform not in platform_dict:
@@ -156,10 +143,12 @@ def GetGypFileNames(options):
   for name in mozc_top_level_names:
     gyp_file_names.extend(glob.glob(name + '/*.gyp'))
   # Include subdirectories of data/test/session/scenario
-  gyp_file_names.extend(glob.glob('%s/data/test/session/scenario/*.gyp' %
-                                  SRC_DIR))
-  gyp_file_names.extend(glob.glob('%s/data/test/session/scenario/*/*.gyp' %
-                                  SRC_DIR))
+  gyp_file_names.extend(
+      glob.glob('%s/data/test/session/scenario/*.gyp' % OSS_SRC_DIR)
+  )
+  gyp_file_names.extend(
+      glob.glob('%s/data/test/session/scenario/*/*.gyp' % OSS_SRC_DIR)
+  )
   # Include subdirectories of data_manager
   gyp_file_names.extend(glob.glob('%s/data_manager/*/*.gyp' % SRC_DIR))
   # Include subdirectory of dictionary
@@ -170,9 +159,7 @@ def GetGypFileNames(options):
   if options.target_platform == 'Windows':
     gyp_file_names.extend(glob.glob('%s/win32/*/*.gyp' % SRC_DIR))
   elif options.target_platform == 'Linux':
-    gyp_file_names.extend(glob.glob('%s/unix/emacs/*.gyp' % SRC_DIR))
-    if USE_UNSUPPORTED_IBUS_BUILD:
-      gyp_file_names.extend('%s/unix/ibus/*.gyp' % SRC_DIR)
+    gyp_file_names.extend(glob.glob('%s/unix/emacs/*.gyp' % OSS_SRC_DIR))
   gyp_file_names.sort()
   return gyp_file_names
 
@@ -225,6 +212,21 @@ def GetDefaultQtPath():
   if possible_qt_path.exists():
     return possible_qt_path
   return None
+
+
+def GetQtMajorVersion(qtdir: str) -> int:
+  """Returns the Qt major version."""
+  if IsWindows():
+    moc_filename = 'moc.exe'
+  else:
+    moc_filename = 'moc'
+  moc = pathlib.Path(qtdir, 'bin', moc_filename).resolve()
+  if not moc.exists():
+    return None
+  result = subprocess.run([str(moc), '--version'], check=True,
+                          stdout=subprocess.PIPE)
+  qt_full_ver = result.stdout.decode('utf-8').split(' ')[1]
+  return int(qt_full_ver.split('.')[0])
 
 
 def ParseGypOptions(args):
@@ -296,21 +298,10 @@ def ExpandMetaTarget(options, meta_target_name):
     return dependencies + [meta_target_name]
 
   if target_platform == 'Linux':
-    CheckGtkBuild(options)
-    CheckIbusBuild(options)
     targets = [SRC_DIR + '/server/server.gyp:mozc_server',
                SRC_DIR + '/gui/gui.gyp:mozc_tool']
-    if USE_DEPRECATED_GTK_RENDERER:
-      # Gtk candidate window built by mozc_renderer is no longer
-      # included in the package alias.
-      # USE_DEPRECATED_GTK_RENDERER should be False unless the code is modified.
-      targets.append(SRC_DIR + '/renderer/renderer.gyp:mozc_renderer')
-    if USE_UNSUPPORTED_IBUS_BUILD:
-      # GYP no longer support Ibus builds.
-      # USE_UNSUPPORTED_IBUS_BUILD should be False unless the code is modified.
-      targets.append(SRC_DIR + '/unix/ibus/ibus.gyp:ibus_mozc')
   elif target_platform == 'Mac':
-    targets = [SRC_DIR + '/mac/mac.gyp:codesign_DiskImage']
+    targets = [OSS_SRC_DIR + '/mac/mac.gyp:codesign_DiskImage']
   elif target_platform == 'Windows':
     targets = [
         'out_win/%s:mozc_win32_build32' % config,
@@ -322,48 +313,12 @@ def ExpandMetaTarget(options, meta_target_name):
   return dependencies + targets
 
 
-def CheckIbusBuild(options):
-  """Check if targets contains ibus builds without the command flag."""
-  if options.no_ibus_build:
-    return
-
-  message = [
-      'The GYP build no longer support IBus client and renderer.',
-      'https://github.com/google/mozc/issues/567',
-      '',
-      'The Bazel build is the alternative.',
-      'https://github.com/google/mozc/blob/master/docs/build_mozc_in_docker.md',
-      '',
-      'Please add the --no_ibus_build flag to confirm it.',
-  ]
-  PrintErrorAndExit('\n'.join(message))
-
-
-def CheckGtkBuild(options):
-  """Check if targets contains gtk builds without the command flag."""
-  if options.no_gtk_build:
-    return
-
-  message = [
-      'The GYP build no longer support the IBus renderer with GTK.',
-      'https://github.com/google/mozc/issues/567',
-      '',
-      'The new renderer with Qt for Bazel build is the alternative.',
-      'https://github.com/google/mozc/blob/master/docs/build_mozc_in_docker.md',
-      '',
-      'Please add the --no_gtk_build flag to continue build_mozc.py.',
-  ]
-  PrintErrorAndExit('\n'.join(message))
-
-
 def ParseBuildOptions(args):
   """Parses command line options for the build command."""
   parser = optparse.OptionParser(usage='Usage: %prog build [options]')
   AddCommonOptions(parser)
   parser.add_option('--configuration', '-c', dest='configuration',
                     default='Debug', help='specify the build configuration.')
-  parser.add_option('--no_gtk_build', action='store_true')
-  parser.add_option('--no_ibus_build', action='store_true')
 
   (options, args) = parser.parse_args(args)
 
@@ -429,7 +384,7 @@ def GypMain(options, unused_args):
   """The main function for the 'gyp' command."""
   # Generate a version definition file.
   logging.info('Generating version definition file...')
-  template_path = '%s/%s' % (SRC_DIR, options.version_file)
+  template_path = '%s/%s' % (OSS_SRC_DIR, options.version_file)
   version_path = '%s/mozc_version.txt' % SRC_DIR
   version_override = os.environ.get('MOZC_VERSION', None)
   GenerateVersionFile(template_path, version_path, options.target_platform,
@@ -517,31 +472,27 @@ def GypMain(options, unused_args):
   if options.branding:
     gyp_options.extend(['-D', 'branding=%s' % options.branding])
 
-  # Gtk configurations
-  # Gtk2 candidate window is deprecated.
-  # USE_DEPRECATED_GTK_RENDERER should be False unless the code is modified.
-  if USE_DEPRECATED_GTK_RENDERER:
-    gyp_options.extend(['-D', 'enable_gtk_renderer=1'])
-
   # Qt configurations
+  qt_dir = None
+  qt_ver = None
   if options.noqt:
     gyp_options.extend(['-D', 'use_qt=NO'])
-    gyp_options.extend(['-D', 'qt_dir='])
-  elif target_platform == 'Linux':
-    gyp_options.extend(['-D', 'use_qt=YES'])
-    gyp_options.extend(['-D', 'qt_dir='])
-
-    # Check if Qt libraries are installed.
-    if not PkgExists('Qt5Core', 'Qt5Gui', 'Qt5Widgets'):
-      PrintErrorAndExit('Qt is required to build GUI Tool. '
-                        'Specify --noqt to skip building GUI Tool.')
-
   else:
     gyp_options.extend(['-D', 'use_qt=YES'])
-    if options.qtdir:
-      gyp_options.extend(['-D', 'qt_dir=%s' % os.path.abspath(options.qtdir)])
-    else:
-      gyp_options.extend(['-D', 'qt_dir='])
+    if target_platform == 'Linux':
+      if PkgExists('Qt6Core', 'Qt6Gui', 'Qt6Widgets'):
+        qt_ver = 6
+      if PkgExists('Qt5Core', 'Qt5Gui', 'Qt5Widgets'):
+        qt_ver = 5
+      else:
+        PrintErrorAndExit('Qt is required to build GUI Tool. '
+                          'Specify --noqt to skip building GUI Tool.')
+    elif options.qtdir:
+      qt_dir = os.path.abspath(options.qtdir)
+      qt_ver = GetQtMajorVersion(options.qtdir)
+
+  gyp_options.extend(['-D', 'qt_dir=' + (qt_dir or '')])
+  gyp_options.extend(['-D', 'qt_ver=' + str(qt_ver or '')])
 
   if target_platform == 'Windows' and options.wix_dir:
     gyp_options.extend(['-D', 'use_wix=YES'])
@@ -572,10 +523,6 @@ def GypMain(options, unused_args):
       )
     gyp_options.extend(['-G', 'msvs_version=%s' % options.msvs_version])
 
-  if (target_platform == 'Linux' and
-      '%s/unix/ibus/ibus.gyp' % SRC_DIR in gyp_file_names):
-    gyp_options.extend(['-D', 'use_libibus=1'])
-
   if options.server_dir:
     gyp_options.extend([
         '-D', 'server_dir=%s' % os.path.abspath(options.server_dir)])
@@ -605,7 +552,7 @@ def GypMain(options, unused_args):
     out_dir = os.path.join(MOZC_ROOT, 'out_win')
     UpdateEnvironmentFilesForWindows(out_dir)
 
-  if IsWindows() and (not options.noqt):
+  if IsWindows() and qt_dir and qt_ver:
     # When Windows build is configured to use DLL version of Qt, copy Qt's DLLs
     # and debug symbols into Mozc's build directory. This is important because:
     # - We can easily back up all the artifacts if relevant product binaries and
@@ -615,33 +562,32 @@ def GypMain(options, unused_args):
     # Perhaps the following code can also be implemented in gyp, but we atopt
     # this ad hock workaround as a first step.
     # TODO(yukawa): Implement the following logic in gyp, if magically possible.
-    abs_qtdir = os.path.abspath(options.qtdir)
-    abs_qt_bin_dir = os.path.join(abs_qtdir, 'bin')
-    abs_qt_lib_dir = os.path.join(abs_qtdir, 'lib')
+    abs_qt_bin_dir = os.path.join(qt_dir, 'bin')
+    abs_qt_lib_dir = os.path.join(qt_dir, 'lib')
     abs_out_win = GetBuildBaseName(target_platform)
     abs_out_win_debug_dynamic = os.path.join(abs_out_win, 'DebugDynamic')
     abs_out_win_release_dynamic = os.path.join(abs_out_win, 'ReleaseDynamic')
     copy_script = os.path.join(ABS_SCRIPT_DIR, 'build_tools',
                                'copy_dll_and_symbol.py')
     copy_params = [{
-        'basenames': 'Qt5Cored;Qt5Guid;Qt5Widgetsd',
+        'basenames': f'Qt{qt_ver}Cored;Qt{qt_ver}Guid;Qt{qt_ver}Widgetsd',
         'dll_paths': abs_qt_bin_dir,
         'pdb_paths': abs_qt_lib_dir,
         'target_dir': abs_out_win_debug_dynamic,
     }, {
-        'basenames': 'Qt5Core;Qt5Gui;Qt5Widgets',
+        'basenames': f'Qt{qt_ver}Core;Qt{qt_ver}Gui;Qt{qt_ver}Widgets',
         'dll_paths': abs_qt_bin_dir,
         'pdb_paths': abs_qt_lib_dir,
         'target_dir': abs_out_win_release_dynamic,
     }, {
         'basenames': 'qwindowsd',
-        'dll_paths': os.path.join(abs_qtdir, 'plugins', 'platforms'),
-        'pdb_paths': os.path.join(abs_qtdir, 'plugins', 'platforms'),
+        'dll_paths': os.path.join(qt_dir, 'plugins', 'platforms'),
+        'pdb_paths': os.path.join(qt_dir, 'plugins', 'platforms'),
         'target_dir': os.path.join(abs_out_win_debug_dynamic, 'platforms'),
     }, {
         'basenames': 'qwindows',
-        'dll_paths': os.path.join(abs_qtdir, 'plugins', 'platforms'),
-        'pdb_paths': os.path.join(abs_qtdir, 'plugins', 'platforms'),
+        'dll_paths': os.path.join(qt_dir, 'plugins', 'platforms'),
+        'pdb_paths': os.path.join(qt_dir, 'plugins', 'platforms'),
         'target_dir': os.path.join(abs_out_win_release_dynamic, 'platforms'),
     }]
     for copy_param in copy_params:
@@ -659,6 +605,10 @@ def GetNinjaPath():
   """Returns the path to Ninja."""
   ninja = 'ninja'
   if IsWindows():
+    possible_ninja_path = pathlib.Path(ABS_SCRIPT_DIR).joinpath(
+        'third_party', 'ninja', 'ninja.exe').resolve()
+    if possible_ninja_path.exists():
+      return str(possible_ninja_path)
     ninja = 'ninja.exe'
   return ninja
 
@@ -727,28 +677,6 @@ def RunTest(binary_path, output_dir, options):
   RemoveFile(tmp_xml_path)
 
 
-def RunTestOnIos(binary_path, output_dir, _):
-  """Run test with options.
-
-  Args:
-    binary_path: The path of unittest.
-    output_dir: The directory of output results.
-    _: Unused arg for the compatibility with RunTest.
-  """
-  iossim = '%s/third_party/iossim/iossim' % MOZC_ROOT
-  binary_filename = os.path.basename(binary_path)
-  tmp_xml_path = os.path.join(output_dir, '%s.xml.running' % binary_filename)
-  env_options = [
-      '-e', 'GUNIT_OUTPUT=xml:%s' % tmp_xml_path,
-      '-e', 'GTEST_OUTPUT=xml:%s' % tmp_xml_path,
-  ]
-  RunOrDie([iossim] + env_options + [binary_path])
-
-  xml_path = os.path.join(output_dir, '%s.xml' % binary_filename)
-  CopyFile(tmp_xml_path, xml_path)
-  RemoveFile(tmp_xml_path)
-
-
 def RunTests(target_platform, configuration, parallel_num):
   """Run built tests actually.
 
@@ -780,10 +708,6 @@ def RunTests(target_platform, configuration, parallel_num):
   test_function = RunTest
   if target_platform == 'Windows':
     executable_suffix = '.exe'
-  elif target_platform == 'iOS':
-    executable_suffix = '.app'
-    test_function = RunTestOnIos
-    parallel_num = 1
 
   test_binaries = glob.glob(
       os.path.join(base_path, '*_test' + executable_suffix))
@@ -820,7 +744,7 @@ def RunTests(target_platform, configuration, parallel_num):
       try:
         test_function(binary, gtest_report_dir, options)
       except RunOrDieError as e:
-        logging.error(e)
+        logging.exception(e)
         failed_tests.append(binary)
   else:
     launcher = test_launcher.TestLauncher(gtest_report_dir)

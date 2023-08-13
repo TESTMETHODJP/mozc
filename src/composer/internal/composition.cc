@@ -89,6 +89,13 @@ size_t Composition::InsertInput(size_t pos, CompositionInput input) {
     input.set_is_new_input(false);
   }
 
+  // If the chunk is empty as the result of AddCompositionInput above, removes
+  // the empty chunk.
+  if (left_chunk->raw().empty() && left_chunk->conversion().empty() &&
+      left_chunk->pending().empty()) {
+    chunks_.erase(left_chunk);
+  }
+
   return GetPosition(Transliterators::LOCAL, right_chunk);
 }
 
@@ -277,7 +284,7 @@ void Composition::GetExpandedStringsWithTransliterator(
 
   CharChunkList::const_iterator it;
   for (it = chunks_.begin(); it != std::prev(chunks_.end()); ++it) {
-    it->AppendFixedResult(transliterator, base);
+    it->AppendResult(transliterator, base);
   }
 
   chunks_.back().AppendTrimedResult(transliterator, base);

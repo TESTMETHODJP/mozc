@@ -492,9 +492,7 @@ mozc_cc_library(
         ":rewriter_util",
         "//base:japanese_util",
         "//base:logging",
-        "//base:singleton",
         "//base:util",
-        "//config:config_handler",
         "//converter:converter_interface",
         "//converter:segments",
         "//data_manager:data_manager_interface",
@@ -560,8 +558,6 @@ mozc_cc_test(
     deps = [
         ":emoticon_rewriter",
         "//base:logging",
-        "//base:system_util",
-        "//base:util",
         "//config:config_handler",
         "//converter:segments",
         "//data_manager/testing:mock_data_manager",
@@ -625,6 +621,7 @@ mozc_cc_library(
         "//base:logging",
         "//base:util",
         "//converter:segments",
+        "//dictionary:pos_matcher",
         "//protocol:commands_cc_proto",
         "//request:conversion_request",
         "//testing:gunit_prod",
@@ -642,6 +639,8 @@ mozc_cc_test(
     deps = [
         ":english_variants_rewriter",
         "//converter:segments",
+        "//data_manager/testing:mock_data_manager",
+        "//dictionary:pos_matcher",
         "//protocol:commands_cc_proto",
         "//request:conversion_request",
         "//testing:gunit_main",
@@ -879,6 +878,7 @@ mozc_cc_binary(
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -966,6 +966,7 @@ mozc_cc_library(
         ":rewriter_util",
         "//base:logging",
         "//base:port",
+        "//base/strings:assign",
         "//converter:segments",
         "//data_manager:data_manager_interface",
         "//data_manager:serialized_dictionary",

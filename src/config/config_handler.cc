@@ -39,7 +39,9 @@
 #include "base/config_file_stream.h"
 #include "base/hash.h"
 #include "base/logging.h"
+#include "base/port.h"
 #include "base/singleton.h"
+#include "base/strings/assign.h"
 #include "base/system_util.h"
 #include "base/version.h"
 #include "protocol/config.pb.h"
@@ -65,13 +67,9 @@ void AddCharacterFormRule(const char *group,
 bool GetPlatformSpecificDefaultEmojiSetting() {
   // Disable Unicode emoji conversion by default on specific platforms.
   bool use_emoji_conversion_default = true;
-#if defined(_WIN32)
-  if (!SystemUtil::IsWindows8OrLater()) {
+  if constexpr (TargetIsAndroid()) {
     use_emoji_conversion_default = false;
   }
-#elif defined(__ANDROID__)
-  use_emoji_conversion_default = false;
-#endif  // defined(_WIN32), defined(__ANDROID__)
   return use_emoji_conversion_default;
 }
 
@@ -158,7 +156,7 @@ void ConfigHandlerImpl::SetConfigInternal(const Config &config) {
 }
 
 void ConfigHandlerImpl::SetConfig(const Config &config) {
-  uint64_t hash = Hash::Fingerprint(config.SerializeAsString());
+  uint64_t hash = Fingerprint(config.SerializeAsString());
 
   absl::MutexLock lock(&mutex_);
 
@@ -183,7 +181,8 @@ void ConfigHandlerImpl::SetConfig(const Config &config) {
       "# This is a text-based config file for debugging.\n"
       "# Nothing happens when you edit this file manually.\n");
   debug_content += output_config.DebugString();
-  ConfigFileStream::AtomicUpdate(filename_ + ".txt", debug_content);
+  ConfigFileStream::AtomicUpdate(absl::StrCat(filename_, ".txt"),
+                                 debug_content);
 #endif  // DEBUG
 
   SetConfigInternal(output_config);
@@ -214,7 +213,7 @@ void ConfigHandlerImpl::ReloadUnlocked() {
 void ConfigHandlerImpl::SetConfigFileName(const absl::string_view filename) {
   absl::MutexLock lock(&mutex_);
   VLOG(1) << "set new config file name: " << filename;
-  filename_ = std::string(filename);
+  strings::Assign(filename_, filename);
   ReloadUnlocked();
 }
 

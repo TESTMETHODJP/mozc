@@ -64,7 +64,8 @@ python build_tools/update_deps.py
 
 In this step, additional build dependencies will be downloaded.
 
-  * [Qt 5.15.9](https://download.qt.io/archive/qt/5.15/5.15.9/submodules/qtbase-everywhere-opensource-src-5.15.9.tar.xz)
+  * [Ninja 1.11.0](https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-mac.zip)
+  * [Qt 5.15.10](https://download.qt.io/archive/qt/5.15/5.15.10/submodules/qtbase-everywhere-opensource-src-5.15.10.tar.xz)
   * [git submodules](../.gitmodules)
 
 You can specify `--noqt` option if you would like to use your own Qt binaries.

@@ -283,7 +283,7 @@ mozc_cc_library(
     srcs = ["hash.cc"],
     hdrs = ["hash.h"],
     deps = [
-        ":port",
+        ":logging",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -294,7 +294,6 @@ mozc_cc_test(
     requires_full_emulation = False,
     deps = [
         ":hash",
-        ":port",
         "//testing:gunit_main",
     ],
 )
@@ -618,9 +617,11 @@ mozc_cc_library(
         ":port",
         ":singleton",
         ":util",
+        "//base/strings:zstring_view",
         "//bazel/win32:aux_ulib",  # win_util
         "//bazel/win32:imm32",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
@@ -1158,6 +1159,7 @@ mozc_cc_library(
     hdrs = ["thread2.h"],
     deps = [
         ":thread",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/synchronization",
     ],

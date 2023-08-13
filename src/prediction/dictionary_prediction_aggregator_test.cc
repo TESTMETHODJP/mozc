@@ -87,10 +87,11 @@ class DictionaryPredictionAggregatorTestPeer {
       const dictionary::DictionaryInterface *suffix_dictionary,
       const dictionary::PosMatcher *pos_matcher,
       std::unique_ptr<PredictionAggregatorInterface>
-          single_kanji_prediction_aggregator)
+          single_kanji_prediction_aggregator,
+      const void *user_arg)
       : aggregator_(data_manager, converter, immutable_converter, dictionary,
                     suffix_dictionary, pos_matcher,
-                    std::move(single_kanji_prediction_aggregator)) {}
+                    std::move(single_kanji_prediction_aggregator), user_arg) {}
   virtual ~DictionaryPredictionAggregatorTestPeer() = default;
 
   PredictionTypes AggregatePredictionForRequest(
@@ -415,7 +416,8 @@ class MockDataAndAggregator {
   // nullptr is passed to the |suffix_dictionary|, MockDataManager's suffix
   // dictionary is used.
   // Note that |suffix_dictionary| is owned by this class.
-  void Init(const DictionaryInterface *suffix_dictionary = nullptr) {
+  void Init(const DictionaryInterface *suffix_dictionary = nullptr,
+            const void *user_arg = nullptr) {
     pos_matcher_.Set(data_manager_.GetPosMatcherData());
     mock_dictionary_ = new MockDictionary;
     single_kanji_prediction_aggregator_ =
@@ -432,7 +434,7 @@ class MockDataAndAggregator {
     aggregator_ = std::make_unique<DictionaryPredictionAggregatorTestPeer>(
         data_manager_, &converter_, &mock_immutable_converter_,
         dictionary_.get(), suffix_dictionary_.get(), &pos_matcher_,
-        absl::WrapUnique(single_kanji_prediction_aggregator_));
+        absl::WrapUnique(single_kanji_prediction_aggregator_), user_arg);
   }
 
   MockDictionary *mutable_dictionary() { return mock_dictionary_; }
@@ -1158,15 +1160,21 @@ TEST_F(DictionaryPredictionAggregatorTest, MobileUnigram) {
     EXPECT_CALL(*mock, LookupPredictive(StrEq("とうきょう"), _, _))
         .WillRepeatedly(InvokeCallbackWithTokens(std::vector<Token>{
             {"とうきょう", "東京", 100, kPosId, kPosId, Token::NONE},
-            {"とうきょう", "TOKYO", 100, kPosId, kPosId, Token::NONE},
+            {"とうきょう", "TOKYO", 200, kPosId, kPosId, Token::NONE},
             {"とうきょうと", "東京都", 110, kPosId, kPosId, Token::NONE},
+            {"とうきょう", "東京", 120, kPosId, kPosId, Token::NONE},
+            {"とうきょう", "TOKYO", 120, kPosId, kPosId, Token::NONE},
             {"とうきょうわん", "東京湾", 120, kPosId, kPosId, Token::NONE},
             {"とうきょうえき", "東京駅", 130, kPosId, kPosId, Token::NONE},
             {"とうきょうべい", "東京ベイ", 140, kPosId, kPosId, Token::NONE},
             {"とうきょうゆき", "東京行", 150, kPosId, kPosId, Token::NONE},
             {"とうきょうしぶ", "東京支部", 160, kPosId, kPosId, Token::NONE},
             {"とうきょうてん", "東京店", 170, kPosId, kPosId, Token::NONE},
-            {"とうきょうがす", "東京ガス", 180, kPosId, kPosId, Token::NONE}}));
+            {"とうきょうがす", "東京ガス", 180, kPosId, kPosId, Token::NONE},
+            {"とうきょう!", "東京!", 1100, kPosId, kPosId, Token::NONE},
+            {"とうきょう!?", "東京!?", 1200, kPosId, kPosId, Token::NONE},
+            {"とうきょう", "東京❤", 1300, kPosId, kPosId, Token::NONE},
+        }));
   }
 
   std::vector<Result> results;
@@ -1182,7 +1190,15 @@ TEST_F(DictionaryPredictionAggregatorTest, MobileUnigram) {
     }
   }
   // Should not have same prefix candidates a lot.
-  EXPECT_LE(prefix_count, 6);
+  EXPECT_LE(prefix_count, 11);
+  // Candidates that predict symbols should not be handled as the redundant
+  // candidates.
+  const absl::string_view kExpected[] = {
+      "東京", "TOKYO", "東京!", "東京!?", "東京❤",
+  };
+  for (int i = 0; i < ABSL_ARRAYSIZE(kExpected); ++i) {
+    EXPECT_EQ(results[i].value, kExpected[i]);
+  }
 }
 
 // We are not sure what should we suggest after the end of sentence for now.
@@ -1619,17 +1635,18 @@ TEST_F(DictionaryPredictionAggregatorTest, AggregateRealtimeConversion) {
     // "Watashino" | "Namaeha" | "Nakanodesu"
     Segments segments;
 
-    Segment *segment = segments.add_segment();
-    segment->set_key("わたしの");
-    segment->add_candidate()->value = "Watashino";
+    auto add_segment = [&segments](absl::string_view key,
+                                   absl::string_view value) {
+      Segment *segment = segments.add_segment();
+      segment->set_key(key);
+      Segment::Candidate *candidate = segment->add_candidate();
+      candidate->key = std::string(key);
+      candidate->value = std::string(value);
+    };
 
-    segment = segments.add_segment();
-    segment->set_key("なまえは");
-    segment->add_candidate()->value = "Namaeha";
-
-    segment = segments.add_segment();
-    segment->set_key("なかのです");
-    segment->add_candidate()->value = "Nakanodesu";
+    add_segment("わたしの", "Watashino");
+    add_segment("なまえは", "Namaeha");
+    add_segment("なかのです", "Nakanodesu");
 
     EXPECT_CALL(*data_and_aggregator->mutable_converter(),
                 StartConversionForRequest(_, _))
@@ -1845,18 +1862,30 @@ TEST_F(DictionaryPredictionAggregatorTest, AggregateZeroQuerySuffixPrediction) {
 
   PrependHistorySegments(kHistoryKey, kHistoryValue, &segments);
 
-  std::vector<Result> results;
+  {
+    std::vector<Result> results;
 
-  // Candidates generated by AggregateZeroQuerySuffixPrediction should
-  // have SUFFIX type.
-  aggregator.AggregateZeroQuerySuffixPrediction(*suggestion_convreq_, segments,
-                                                &results);
-  EXPECT_FALSE(results.empty());
-  for (size_t i = 0; i < results.size(); ++i) {
-    EXPECT_EQ(results[i].types, SUFFIX);
-    // Zero query
-    EXPECT_TRUE(Segment::Candidate::DICTIONARY_PREDICTOR_ZERO_QUERY_SUFFIX &
-                results[i].source_info);
+    // Candidates generated by AggregateZeroQuerySuffixPrediction should
+    // have SUFFIX type.
+    aggregator.AggregateZeroQuerySuffixPrediction(*suggestion_convreq_,
+                                                  segments, &results);
+    EXPECT_FALSE(results.empty());
+    for (size_t i = 0; i < results.size(); ++i) {
+      EXPECT_EQ(results[i].types, SUFFIX);
+      // Zero query
+      EXPECT_TRUE(Segment::Candidate::DICTIONARY_PREDICTOR_ZERO_QUERY_SUFFIX &
+                  results[i].source_info);
+    }
+  }
+  {
+    // If the feature is disabled and `results` is nonempty, nothing should be
+    // generated.
+    request_->mutable_decoder_experiment_params()
+        ->set_disable_zero_query_suffix_prediction(true);
+    std::vector<Result> results = {Result()};
+    aggregator.AggregateZeroQuerySuffixPrediction(*suggestion_convreq_,
+                                                  segments, &results);
+    EXPECT_EQ(results.size(), 1);
   }
 }
 
@@ -2017,7 +2046,8 @@ TEST_F(DictionaryPredictionAggregatorTest,
   std::set<std::string> values;
   for (const auto &result : results) {
     EXPECT_EQ(result.types, TYPING_CORRECTION);
-    // Should not have the smaller cost than the original entry wcost (= 0).
+    // Should not have the smaller cost than the original entry wcost (=
+    // 0).
     EXPECT_GE(result.wcost, 0);
     values.insert(result.value);
   }

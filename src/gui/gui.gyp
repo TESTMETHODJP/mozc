@@ -51,7 +51,6 @@
         'base/singleton_window_helper.cc',
         'base/table_util.cc',
         'base/util.cc',
-        'base/win_util.cc',
         'base/window_title_modifier.cc',
       ],
       'dependencies': [
@@ -67,6 +66,13 @@
       ],
       'includes': [
         'qt_libraries.gypi',
+      ],
+      'conditions': [
+        ['OS=="win"', {
+          'sources': [
+            'base/win_util.cc',
+          ],
+        }],
       ],
     },
     {
@@ -123,7 +129,7 @@
           '<(subdir)/<(qrc_base_name).qrc',
           '<(subdir)/<(qrc_base_name)_en.qm',
           '<(subdir)/<(qrc_base_name)_ja.qm',
-          '../data/images/product_icon_32bpp-128.png',
+          '<(mozc_oss_src_dir)/data/images/product_icon_32bpp-128.png',
         ],
       },
       'includes': [
@@ -687,6 +693,7 @@
                   'action': [
                     '<(python)', '../build_tools/change_reference_mac.py',
                     '--qtdir', '<(qt_dir)',
+                    '--qtver', '<(qt_ver)',
                     '--target',
                     '${BUILT_PRODUCTS_DIR}/GuiTool_lib.framework/Versions/A/GuiTool_lib',
                   ],
@@ -800,7 +807,7 @@
             {
               'action_name': 'generate normal info plist',
               'inputs': [
-                '../data/mac/mozc_tool_info',
+                '<(mozc_oss_src_dir)/data/mac/mozc_tool_info',
               ],
               'outputs': [
                 '<(gen_out_dir)/mozc_tool_info',
@@ -808,7 +815,7 @@
               'action': [
                 '<(python)', '../build_tools/tweak_info_plist.py',
                 '--output', '<(gen_out_dir)/mozc_tool_info',
-                '--input', '../data/mac/mozc_tool_info',
+                '--input', '<(mozc_oss_src_dir)/data/mac/mozc_tool_info',
                 '--version_file', '../mozc_version.txt',
                 '--branding', '<(branding)',
               ],
@@ -816,7 +823,7 @@
             {
               'action_name': 'generate hidden info plist',
               'inputs': [
-                '../data/mac/hidden_mozc_tool_info',
+                '<(mozc_oss_src_dir)/data/mac/hidden_mozc_tool_info',
               ],
               'outputs': [
                 '<(gen_out_dir)/hidden_mozc_tool_info',
@@ -824,7 +831,7 @@
               'action': [
                 '<(python)', '../build_tools/tweak_info_plist.py',
                 '--output', '<(gen_out_dir)/hidden_mozc_tool_info',
-                '--input', '../data/mac/hidden_mozc_tool_info',
+                '--input', '<(mozc_oss_src_dir)/data/mac/hidden_mozc_tool_info',
                 '--version_file', '../mozc_version.txt',
                 '--branding', '<(branding)',
               ],
@@ -838,7 +845,7 @@
             {
               'action_name': 'generate_config_dialog_english_strings',
               'inputs': [
-                '../data/mac/ConfigDialog/English.lproj/InfoPlist.strings',
+                '<(mozc_oss_src_dir)/data/mac/ConfigDialog/English.lproj/InfoPlist.strings',
               ],
               'outputs': [
                 '<(gen_out_dir)/ConfigDialog/English.lproj/InfoPlist.strings',
@@ -848,14 +855,14 @@
                 '--output',
                 '<(gen_out_dir)/ConfigDialog/English.lproj/InfoPlist.strings',
                 '--input',
-                '../data/mac/ConfigDialog/English.lproj/InfoPlist.strings',
+                '<(mozc_oss_src_dir)/data/mac/ConfigDialog/English.lproj/InfoPlist.strings',
                 '--branding', '<(branding)',
               ],
             },
             {
               'action_name': 'generate_config_dialog_japanese_strings',
               'inputs': [
-                '../data/mac/ConfigDialog/Japanese.lproj/InfoPlist.strings',
+                '<(mozc_oss_src_dir)/data/mac/ConfigDialog/Japanese.lproj/InfoPlist.strings',
               ],
               'outputs': [
                 '<(gen_out_dir)/ConfigDialog/Japanese.lproj/InfoPlist.strings',
@@ -865,7 +872,7 @@
                 '--output',
                 '<(gen_out_dir)/ConfigDialog/Japanese.lproj/InfoPlist.strings',
                 '--input',
-                '../data/mac/ConfigDialog/Japanese.lproj/InfoPlist.strings',
+                '<(mozc_oss_src_dir)/data/mac/ConfigDialog/Japanese.lproj/InfoPlist.strings',
                 '--branding', '<(branding)',
               ],
             },
@@ -878,7 +885,7 @@
             {
               'action_name': 'mozc_tool_lib info.plist',
               'inputs': [
-                '../data/mac/mozc_tool_lib_info',
+                '<(mozc_oss_src_dir)/data/mac/mozc_tool_lib_info',
               ],
               'outputs': [
                 '<(gen_out_dir)/mozc_tool_lib_info',
@@ -886,7 +893,7 @@
               'action': [
                 '<(python)', '../build_tools/tweak_info_plist.py',
                 '--output', '<(gen_out_dir)/mozc_tool_lib_info',
-                '--input', '../data/mac/mozc_tool_lib_info',
+                '--input', '<(mozc_oss_src_dir)/data/mac/mozc_tool_lib_info',
                 '--version_file', '../mozc_version.txt',
                 '--branding', '<(branding)',
               ],
@@ -929,13 +936,13 @@
             'INFOPLIST_FILE': '<(gen_out_dir)/mozc_tool_info',
           },
           'mac_bundle_resources': [
-            '../data/images/mac/product_icon.icns',
+            '<(mozc_oss_src_dir)/data/images/mac/product_icon.icns',
             '<(gen_out_dir)/ConfigDialog/English.lproj/InfoPlist.strings',
             '<(gen_out_dir)/ConfigDialog/Japanese.lproj/InfoPlist.strings',
           ],
           'conditions': [
             ['use_qt=="YES"', {
-              'mac_bundle_resources': ['../data/mac/qt.conf'],
+              'mac_bundle_resources': ['<(mozc_oss_src_dir)/data/mac/qt.conf'],
               'sources': [
                 'tool/mozc_tool_main.cc',
               ],
@@ -951,6 +958,7 @@
                   'action': [
                     '<(python)', '../build_tools/change_reference_mac.py',
                     '--qtdir', '<(qt_dir)',
+                    '--qtver', '<(qt_ver)',
                     '--target',
                     '${BUILT_PRODUCTS_DIR}/<(product_name).app/Contents/MacOS/<(product_name)',
                   ],
@@ -982,9 +990,9 @@
             'INFOPLIST_FILE': '<(gen_out_dir)/mozc_tool_info',
           },
           'mac_bundle_resources': [
-            '../data/images/mac/product_icon.icns',
-            '../data/mac/DictionaryTool/English.lproj/InfoPlist.strings',
-            '../data/mac/DictionaryTool/Japanese.lproj/InfoPlist.strings',
+            '<(mozc_oss_src_dir)/data/images/mac/product_icon.icns',
+            '<(mozc_oss_src_dir)/data/mac/DictionaryTool/English.lproj/InfoPlist.strings',
+            '<(mozc_oss_src_dir)/data/mac/DictionaryTool/Japanese.lproj/InfoPlist.strings',
           ],
           'includes': [
             'mac_gui.gypi',
@@ -1029,7 +1037,7 @@
             'INFOPLIST_FILE': '<(gen_out_dir)/mozc_tool_info',
           },
           'mac_bundle_resources': [
-            '../data/images/mac/product_icon.icns',
+            '<(mozc_oss_src_dir)/data/images/mac/product_icon.icns',
           ],
           'includes': [
             'mac_gui.gypi',

@@ -35,9 +35,7 @@ load(
 )
 
 package(
-    default_visibility = [
-        "//:__subpackages__",
-    ],
+    default_visibility = ["//:__subpackages__"],
 )
 
 mozc_cc_library(
@@ -52,6 +50,7 @@ mozc_cc_library(
         "//base:japanese_util",
         "//base:logging",
         "//base:util",
+        "//base/strings:assign",
         "//base/strings:unicode",
         "//composer/internal:composition",
         "//composer/internal:composition_input",

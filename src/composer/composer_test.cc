@@ -3514,6 +3514,131 @@ TEST_F(ComposerTest, SimultaneousInputWithSpecialKey6) {
   EXPECT_EQ(GetPreedit(composer_.get()), "おととお");
 }
 
+// Confirms empty entries (e.g. the 大⇔小 key to は) are skipped. b/289217346
+TEST_F(ComposerTest, SkipEmptyEntries) {
+  // Rules are extracted from data/preedit/toggle_flick-hiragana.tsv
+  // specified from Request::TOGGLE_FLICK_TO_HIRAGANA.
+  table_->AddRuleWithAttributes("6", "", "{?}は",
+                                NEW_CHUNK | NO_TRANSLITERATION);
+  // "*" is the raw input for the 大⇔小 key.
+  table_->AddRule("{?}は*", "", "{*}ば");
+  // "`" is the raw input for the sliding up of the 大⇔小 key.
+  table_->AddRuleWithAttributes("`", "", "", NO_TRANSLITERATION);
+  table_->AddRuleWithAttributes("*", "", "", NO_TRANSLITERATION);
+
+  // Type は from 6
+  ASSERT_TRUE(InsertKeyWithMode("6", commands::HIRAGANA, composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "は");
+
+  // Slide up the 大⇔小 key to try to make は smaller, but it's invalid.
+  ASSERT_TRUE(InsertKeyWithMode("`", commands::HIRAGANA, composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "は");
+
+  // Tap the 大⇔小 key to make は to ば. It should work regardless the above
+  // step.
+  ASSERT_TRUE(InsertKeyWithMode("*", commands::HIRAGANA, composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "ば");
+}
+
+// Confirm that N in the middle of composing text is not removed where the
+// character form is fullwidth. (b/241724792)
+TEST_F(ComposerTest, NBforeN_WithFullWidth) {
+  table_->AddRule("na", "な", "");
+  table_->AddRule("n", "ん", "");
+  table_->AddRule("nn", "ん", "");
+  table_->AddRule("a", "あ", "");
+
+  CharacterFormManager *manager =
+      CharacterFormManager::GetCharacterFormManager();
+  manager->SetDefaultRule();
+  manager->AddPreeditRule("a", Config::FULL_WIDTH);
+
+  ASSERT_TRUE(InsertKey("a", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あ");
+
+  ASSERT_TRUE(InsertKey("n", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あｎ");
+
+  composer_->MoveCursorLeft();
+  ASSERT_TRUE(InsertKey("n", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あｎｎ");
+
+  std::string left, focused, right;
+  composer_->GetPreedit(&left, &focused, &right);
+  EXPECT_EQ(left, "あｎ");
+  EXPECT_EQ(focused, "ｎ");
+  EXPECT_EQ(right, "");
+
+  std::string queries_base;
+  std::set<std::string> queries_expanded;
+  composer_->GetQueriesForPrediction(&queries_base, &queries_expanded);
+  EXPECT_EQ(queries_base, "あn");
+
+  std::string prediction;
+  composer_->GetQueryForPrediction(&prediction);
+  EXPECT_EQ(prediction, "あnn");
+
+  ASSERT_TRUE(InsertKey("a", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あなｎ");
+
+  composer_->GetPreedit(&left, &focused, &right);
+  EXPECT_EQ(left, "あな");
+  EXPECT_EQ(focused, "ｎ");
+  EXPECT_EQ(right, "");
+
+  composer_->GetQueryForPrediction(&prediction);
+  EXPECT_EQ(prediction, "あな");
+}
+
+// Confirm that N in the middle of composing text is not removed where the
+// character form is halfwidth. (b/241724792)
+TEST_F(ComposerTest, NBforeN_WithHalfWidth) {
+  table_->AddRule("na", "な", "");
+  table_->AddRule("n", "ん", "");
+  table_->AddRule("nn", "ん", "");
+  table_->AddRule("a", "あ", "");
+
+  CharacterFormManager *manager =
+      CharacterFormManager::GetCharacterFormManager();
+  manager->SetDefaultRule();
+  manager->AddPreeditRule("a", Config::HALF_WIDTH);
+
+  ASSERT_TRUE(InsertKey("a", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あ");
+
+  ASSERT_TRUE(InsertKey("n", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あn");
+
+  composer_->MoveCursorLeft();
+  ASSERT_TRUE(InsertKey("n", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あnn");
+
+  std::string left, focused, right;
+  composer_->GetPreedit(&left, &focused, &right);
+  EXPECT_EQ(left, "あn");
+  EXPECT_EQ(focused, "n");
+  EXPECT_EQ(right, "");
+
+  std::string queries_base;
+  std::set<std::string> queries_expanded;
+  composer_->GetQueriesForPrediction(&queries_base, &queries_expanded);
+  EXPECT_EQ(queries_base, "あn");
+
+  std::string prediction;
+  composer_->GetQueryForPrediction(&prediction);
+  EXPECT_EQ(prediction, "あnn");
+
+  ASSERT_TRUE(InsertKey("a", composer_.get()));
+  EXPECT_EQ(GetPreedit(composer_.get()), "あなn");
+  composer_->GetPreedit(&left, &focused, &right);
+  EXPECT_EQ(left, "あな");
+  EXPECT_EQ(focused, "n");
+  EXPECT_EQ(right, "");
+
+  composer_->GetQueryForPrediction(&prediction);
+  EXPECT_EQ(prediction, "あな");
+}
+
 TEST_F(ComposerTest, SpellCheckerServiceTest) {
   table_->AddRule("a", "あ", "");
   table_->AddRule("i", "い", "");

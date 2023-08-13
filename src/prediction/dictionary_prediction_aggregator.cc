@@ -103,7 +103,15 @@ bool IsEnableSingleKanjiPrediction(const ConversionRequest &request) {
 // Returns true if the |target| may be redundant result.
 bool MaybeRedundant(const absl::string_view reference,
                     const absl::string_view target) {
-  return absl::StartsWith(target, reference);
+  if (!absl::StartsWith(target, reference)) {
+    return false;
+  }
+  const absl::string_view suffix = target.substr(reference.size());
+  if (suffix.empty()) {
+    return true;
+  }
+  const Util::ScriptType script_type = Util::GetScriptType(suffix);
+  return (script_type != Util::EMOJI && script_type != Util::UNKNOWN_SCRIPT);
 }
 
 bool IsLatinInputMode(const ConversionRequest &request) {
@@ -121,6 +129,12 @@ bool IsQwertyMobileTable(const ConversionRequest &request) {
 bool IsLanguageAwareInputEnabled(const ConversionRequest &request) {
   const auto lang_aware = request.request().language_aware_input();
   return lang_aware == Request::LANGUAGE_AWARE_SUGGESTION;
+}
+
+bool IsZeroQuerySuffixPredictionDisabled(const ConversionRequest &request) {
+  return request.request()
+      .decoder_experiment_params()
+      .disable_zero_query_suffix_prediction();
 }
 
 // Returns true if |segments| contains number history.
@@ -473,11 +487,12 @@ DictionaryPredictionAggregator::DictionaryPredictionAggregator(
     const ImmutableConverterInterface *immutable_converter,
     const dictionary::DictionaryInterface *dictionary,
     const dictionary::DictionaryInterface *suffix_dictionary,
-    const dictionary::PosMatcher *pos_matcher)
+    const dictionary::PosMatcher *pos_matcher, const void *user_arg)
     : DictionaryPredictionAggregator(
           data_manager, converter, immutable_converter, dictionary,
           suffix_dictionary, pos_matcher,
-          std::make_unique<SingleKanjiPredictionAggregator>(data_manager)) {}
+          std::make_unique<SingleKanjiPredictionAggregator>(data_manager),
+          user_arg) {}
 
 DictionaryPredictionAggregator::DictionaryPredictionAggregator(
     const DataManagerInterface &data_manager,
@@ -487,7 +502,8 @@ DictionaryPredictionAggregator::DictionaryPredictionAggregator(
     const dictionary::DictionaryInterface *suffix_dictionary,
     const dictionary::PosMatcher *pos_matcher,
     std::unique_ptr<PredictionAggregatorInterface>
-        single_kanji_prediction_aggregator)
+        single_kanji_prediction_aggregator,
+    const void *user_arg)
     : converter_(converter),
       immutable_converter_(immutable_converter),
       dictionary_(dictionary),
@@ -793,7 +809,6 @@ bool DictionaryPredictionAggregator::PushBackTopConversionResult(
 
   results->push_back(Result());
   Result *result = &results->back();
-  result->key = segments.conversion_segment(0).key();
   result->lid = tmp_segments.conversion_segment(0).candidate(0).lid;
   result->rid =
       tmp_segments
@@ -814,6 +829,7 @@ bool DictionaryPredictionAggregator::PushBackTopConversionResult(
     const Segment &segment = tmp_segments.conversion_segment(i);
     const Segment::Candidate &candidate = segment.candidate(0);
     result->value.append(candidate.value);
+    result->key.append(candidate.key);
     result->wcost += candidate.wcost;
 
     uint32_t encoded_lengths;
@@ -1365,8 +1381,11 @@ void DictionaryPredictionAggregator::
       // typing correction annotation is not necessary.
       if (!query.is_kana_modifier_insensitive_only) {
         result.types |= TYPING_CORRECTION;
-        result.types |= EXTENDED_TYPING_CORRECTION;
       }
+      // EXTENDED_TYPING_CORRECTION is added to all candidates generated
+      // with the new composition spellchecker. They include
+      // kana modifier insensitive correction.
+      result.types |= EXTENDED_TYPING_CORRECTION;
       result.wcost += query.cost;
       result.cost += query.cost;
       results->emplace_back(std::move(result));
@@ -1544,15 +1563,17 @@ void DictionaryPredictionAggregator::AggregateZeroQuerySuffixPrediction(
     // input mode. For example, we do not need "です", "。" just after "when".
     return;
   }
-  // Uses larger cutoff (kPredictionMaxResultsSize) in order to consider
-  // all suffix entries.
-  const size_t cutoff_threshold = kPredictionMaxResultsSize;
-  const std::string kEmptyHistoryKey = "";
-  GetPredictiveResults(
-      *suffix_dictionary_, kEmptyHistoryKey, request, segments, SUFFIX,
-      cutoff_threshold,
-      Segment::Candidate::DICTIONARY_PREDICTOR_ZERO_QUERY_SUFFIX, zip_code_id_,
-      unknown_id_, results);
+  if (results->empty() || !IsZeroQuerySuffixPredictionDisabled(request)) {
+    // Uses larger cutoff (kPredictionMaxResultsSize) in order to consider
+    // all suffix entries.
+    const size_t cutoff_threshold = kPredictionMaxResultsSize;
+    const std::string kEmptyHistoryKey = "";
+    GetPredictiveResults(
+        *suffix_dictionary_, kEmptyHistoryKey, request, segments, SUFFIX,
+        cutoff_threshold,
+        Segment::Candidate::DICTIONARY_PREDICTOR_ZERO_QUERY_SUFFIX,
+        zip_code_id_, unknown_id_, results);
+  }
 }
 
 void DictionaryPredictionAggregator::AggregateEnglishPrediction(

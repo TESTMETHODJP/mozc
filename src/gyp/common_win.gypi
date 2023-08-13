@@ -325,10 +325,12 @@
       'UNICODE',
       'WIN32',
       'WIN32_LEAN_AND_MEAN',
+      'WINVER=0x0A00',
       '_ATL_ALL_WARNINGS',
       '_ATL_ALLOW_CHAR_UNSIGNED',
       '_ATL_CSTRING_EXPLICIT_CONSTRUCTORS',
       '_ATL_NO_HOSTING',
+      '_ATL_NO_AUTOMATIC_NAMESPACE',
       '_CRT_SECURE_NO_DEPRECATE',
       '_MIDL_USE_GUIDDEF_',
       '_STL_MSVC',
@@ -336,7 +338,7 @@
       '_WIN32',
       '_WIN32_WINNT=0x0A00',
       '_WINDOWS',
-      '_WTL_NO_WTYPES',  # TODO(yuryu): Remove after upgrading to WTL 10.
+      '_WTL_NO_AUTOMATIC_NAMESPACE',
     ],
     'include_dirs': [
       '<@(absl_include_dirs)',
@@ -365,10 +367,8 @@
         'AdditionalOptions': [
           '/Zc:strictStrings',
           '/utf-8',
-          '/std:c++17',
-          # MSVC 2017 apparently fails to build abseil-cpp/absl/types/compare.h
-          # if __cpp_inline_variables is defined.
-          '/U __cpp_inline_variables',  # Undefine the variable
+          '/std:c++20',
+          '/Zc:__cplusplus',
         ],
       },
       'VCLinkerTool': {
@@ -405,13 +405,5 @@
         ],
       },
     },
-    'conditions': [
-      ['MSVS_VERSION=="2017"', {
-        'defines': [
-            # Workaround for WIL https://github.com/microsoft/wil/issues/25
-            '__WI_LIBCPP_HAS_NO_IS_AGGREGATE',
-        ],
-      }],
-    ],
   },
 }

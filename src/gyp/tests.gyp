@@ -65,20 +65,12 @@
         }],
         ['target_platform=="Mac"', {
           'dependencies': [
-            '../mac/mac.gyp:mac_all_test',
-          ],
-        }],
-        ['target_platform=="iOS"', {
-          'dependencies!': [
-            '../client/client_test.gyp:client_all_test',
-            '../gui/gui.gyp:gui_all_test',
-            '../ipc/ipc.gyp:ipc_all_test',
-            '../renderer/renderer.gyp:renderer_all_test',
+            '<(mozc_oss_src_dir)/mac/mac.gyp:mac_all_test',
           ],
         }],
         ['target_platform=="Linux"', {
           'dependencies': [
-            '../unix/emacs/emacs.gyp:emacs_all_test',
+            '<(mozc_oss_src_dir)/unix/emacs/emacs.gyp:emacs_all_test',
           ],
         }],
       ],

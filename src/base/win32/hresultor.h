@@ -102,40 +102,40 @@ class [[nodiscard]] HResultOr
   //
   // This constructor is implicit if std::is_convertible_v<U> is true.
   template <typename U,
-            typename std::enable_if_t<
+            std::enable_if_t<
                 !std::is_same_v<T, U> && std::is_constructible_v<T, const U&> &&
                     !std::is_convertible_v<const U&, T> &&
                     !hresultor_internal::
                         IsConstructibleOrConvertibleFromHResultOrV<T, U>,
-                int> = 0>
+                std::nullptr_t> = nullptr>
   constexpr explicit HResultOr(const HResultOr<U>& other) : Base(other) {}
 
-  template <typename U,
-            typename std::enable_if_t<
-                !std::is_same_v<T, U> && std::is_constructible_v<T, U> &&
-                    !std::is_convertible_v<U&&, T> &&
-                    !hresultor_internal::
-                        IsConstructibleOrConvertibleFromHResultOrV<T, U>,
-                int> = 0>
+  template <
+      typename U,
+      std::enable_if_t<!std::is_same_v<T, U> && std::is_constructible_v<T, U> &&
+                           !std::is_convertible_v<U&&, T> &&
+                           !hresultor_internal::
+                               IsConstructibleOrConvertibleFromHResultOrV<T, U>,
+                       std::nullptr_t> = nullptr>
   constexpr explicit HResultOr(HResultOr<U>&& other) : Base(std::move(other)) {}
 
   template <typename U,
-            typename std::enable_if_t<
+            std::enable_if_t<
                 !std::is_same_v<T, U> && std::is_constructible_v<T, const U&> &&
                     std::is_convertible_v<const U&, T> &&
                     !hresultor_internal::
                         IsConstructibleOrConvertibleFromHResultOrV<T, U>,
-                int> = 0>
+                std::nullptr_t> = nullptr>
   constexpr HResultOr(const HResultOr<U>& other)  // NOLINT(runtime/explicit)
       : Base(other) {}
 
-  template <typename U,
-            typename std::enable_if_t<
-                !std::is_same_v<T, U> && std::is_constructible_v<T, U> &&
-                    std::is_convertible_v<U&&, T> &&
-                    !hresultor_internal::
-                        IsConstructibleOrConvertibleFromHResultOrV<T, U>,
-                int> = 0>
+  template <
+      typename U,
+      std::enable_if_t<!std::is_same_v<T, U> && std::is_constructible_v<T, U> &&
+                           std::is_convertible_v<U&&, T> &&
+                           !hresultor_internal::
+                               IsConstructibleOrConvertibleFromHResultOrV<T, U>,
+                       std::nullptr_t> = nullptr>
   constexpr HResultOr(HResultOr<U>&& other)  // NOLINT(runtime/explicit)
       : Base(std::move(other)) {}
 
@@ -152,26 +152,26 @@ class [[nodiscard]] HResultOr
   //  // ...
   //  foo = HResultOk(42);
   template <typename U,
-            typename std::enable_if_t<
+            std::enable_if_t<
                 !std::is_same_v<T, U> && std::is_constructible_v<T, const U&> &&
                     std::is_assignable_v<T&, const U&> &&
                     !(hresultor_internal::
                           IsConstructibleOrConvertibleFromHResultOrV<T, U> ||
                       hresultor_internal::IsAssignableFromHResultOrV<T, U>),
-                int> = 0>
+                std::nullptr_t> = nullptr>
   constexpr HResultOr& operator=(const HResultOr<U>& other) {
     this->Assign(other);
     return *this;
   }
 
   template <typename U,
-            typename std::enable_if_t<
+            std::enable_if_t<
                 !std::is_same_v<T, U> && std::is_constructible_v<T, U> &&
                     std::is_assignable_v<T&, U> &&
                     !(hresultor_internal::
                           IsConstructibleOrConvertibleFromHResultOrV<T, U> ||
                       hresultor_internal::IsAssignableFromHResultOrV<T, U>),
-                int> = 0>
+                std::nullptr_t> = nullptr>
   constexpr HResultOr& operator=(HResultOr<U>&& other) {
     this->Assign(std::move(other));
     return *this;
@@ -206,26 +206,26 @@ class [[nodiscard]] HResultOr
   // instead of
   //   HResultOr<int> i(42);
   template <typename U,
-            typename std::enable_if_t<
+            std::enable_if_t<
                 std::is_constructible_v<T, U> && std::is_convertible_v<U, T> &&
                     !std::is_same_v<absl::remove_cvref_t<U>, HResultOr> &&
                     !std::is_same_v<absl::remove_cvref_t<U>, HResult> &&
                     !std::is_same_v<absl::remove_cvref_t<U>, std::in_place_t> &&
                     !std::is_convertible_v<U, HResultOr> &&
                     !hresultor_internal::IsConvertibleToHResultLikeV<U>,
-                int> = 0>
+                std::nullptr_t> = nullptr>
   constexpr HResultOr(U&& value)  // NOLINT(runtime/explicit)
       : Base(std::in_place, std::forward<U>(value)) {}
 
   template <typename U,
-            typename std::enable_if_t<
+            std::enable_if_t<
                 std::is_constructible_v<T, U> && !std::is_convertible_v<U, T> &&
                     !std::is_same_v<absl::remove_cvref_t<U>, std::in_place_t> &&
                     !std::is_same_v<absl::remove_cvref_t<U>, HResultOr> &&
                     !std::is_same_v<absl::remove_cvref_t<U>, HResult> &&
                     !std::is_convertible_v<U, HResultOr> &&
                     !hresultor_internal::IsConvertibleToHResultLikeV<U>,
-                int> = 0>
+                std::nullptr_t> = nullptr>
   constexpr explicit HResultOr(U&& value)
       : Base(std::in_place, std::forward<U>(value)) {}
 
@@ -234,11 +234,13 @@ class [[nodiscard]] HResultOr
   //  1. remove_cvref<U> is not HResultOr<T>,
   //  2. T is constructible and assignable from U, and
   //  3. U is not convertible to HResult or HRESULT.
-  template <typename U,
-            typename = std::enable_if_t<
-                !std::is_same_v<absl::remove_cvref_t<U>, HResultOr> &&
-                std::is_constructible_v<T, U> && std::is_assignable_v<T&, U> &&
-                !hresultor_internal::IsConvertibleToHResultLikeV<T>>>
+  template <
+      typename U,
+      std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<U>, HResultOr> &&
+                           std::is_constructible_v<T, U> &&
+                           std::is_assignable_v<T&, U> &&
+                           !hresultor_internal::IsConvertibleToHResultLikeV<T>,
+                       std::nullptr_t> = nullptr>
   constexpr HResultOr& operator=(U&& value) {
     if (has_value()) {
       **this = std::forward<U>(value);
@@ -287,24 +289,24 @@ class [[nodiscard]] HResultOr
   using Base::error;
 
   ABSL_DEPRECATED("Use error() instead.")
-  constexpr HRESULT hr() const noexcept { return hr_; }
+  constexpr HRESULT hr() const noexcept { return error(); }
 
   // value() tests has_value() with `CHECK()` and returns the value.
   constexpr T& value() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     CHECK(has_value());
-    return value_;
+    return this->value_;
   }
   constexpr const T& value() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     CHECK(has_value());
-    return value_;
+    return this->value_;
   }
   constexpr T&& value() && ABSL_ATTRIBUTE_LIFETIME_BOUND {
     CHECK(has_value());
-    return std::move(value_);
+    return std::move(this->value_);
   }
   constexpr const T&& value() const&& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     CHECK(has_value());
-    return std::move(value_);
+    return std::move(this->value_);
   }
 
   // operator*() returns the value. Requires has_value() == true.
@@ -328,14 +330,14 @@ class [[nodiscard]] HResultOr
   template <typename U>
   constexpr T value_or(U&& default_value) const& {
     if (has_value()) {
-      return value_;
+      return this->value_;
     }
     return std::forward<U>(default_value);
   }
   template <typename U>
   constexpr T value_or(U&& default_value) && {
     if (has_value()) {
-      return std::move(value_);
+      return std::move(this->value_);
     }
     return std::forward<U>(default_value);
   }
@@ -350,10 +352,10 @@ class [[nodiscard]] HResultOr
       if (has_value()) {
         const HRESULT other_hr = other.hr();
         other.ConstructValue(*std::move(*this));
-        AssignHResult(other_hr);
+        this->AssignHResult(other_hr);
       } else {
         const HRESULT this_hr = hr();
-        ConstructValue(*std::move(other));
+        this->ConstructValue(*std::move(other));
         other.AssignHResult(this_hr);
       }
     }

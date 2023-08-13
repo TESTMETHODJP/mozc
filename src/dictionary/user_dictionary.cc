@@ -44,6 +44,7 @@
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/singleton.h"
+#include "base/strings/assign.h"
 #include "base/thread.h"
 #include "base/util.h"
 #include "dictionary/dictionary_interface.h"
@@ -115,7 +116,7 @@ class UserDictionaryFileManager {
 
   void SetFileName(const absl::string_view filename) {
     absl::MutexLock l(&mutex_);
-    filename_ = std::string(filename);
+    strings::Assign(filename_, filename);
   }
 
  private:
@@ -177,9 +178,8 @@ class UserDictionary::TokensIndex {
         DCHECK(user_dictionary::UserDictionary_PosType_IsValid(entry.pos()));
         static_assert(user_dictionary::UserDictionary_PosType_PosType_MAX <=
                       std::numeric_limits<char>::max());
-        const uint64_t fp =
-            Hash::Fingerprint(reading + "\t" + entry.value() + "\t" +
-                              static_cast<char>(entry.pos()));
+        const uint64_t fp = Fingerprint(reading + "\t" + entry.value() + "\t" +
+                                        static_cast<char>(entry.pos()));
         if (!seen.insert(fp).second) {
           VLOG(1) << "Found dup item";
           continue;
@@ -196,7 +196,7 @@ class UserDictionary::TokensIndex {
           const absl::string_view comment =
               absl::StripAsciiWhitespace(entry.comment());
           for (auto &token : tokens) {
-            token.comment = std::string(comment);
+            strings::Assign(token.comment, comment);
             if (is_shortcuts &&
                 token.has_attribute(UserPos::Token::SUGGESTION_ONLY)) {
               // Words fed by Android shortcut are registered as SUGGESTION_ONLY

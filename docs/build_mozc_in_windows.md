@@ -52,7 +52,7 @@ python3 -m pip install six requests
 ### Download the repository from GitHub
 
 ```
-git clone https://github.com/google/mozc.git --recursive
+git clone https://github.com/google/mozc.git
 cd mozc\src
 ```
 
@@ -66,9 +66,10 @@ python build_tools/update_deps.py
 
 In this step, additional build dependencies will be downloaded.
 
+  * [Ninja 1.11.0](https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-win.zip)
+  * [Qt 6.5.2](https://download.qt.io/archive/qt/6.5/6.5.2/submodules/qtbase-everywhere-src-6.5.2.tar.xz)
   * [WiX 3.14.0.6526](https://wixtoolset.org/downloads/v3.14.0.6526/wix314-binaries.zip)
-  * [Qt 5.15.9](https://download.qt.io/archive/qt/5.15/5.15.9/submodules/qtbase-everywhere-opensource-src-5.15.9.tar.xz)
-  * [Jom 1.1.3](https://download.qt.io/official_releases/jom/jom_1_1_3.zip)
+  * [git submodules](../.gitmodules)
 
 You can skip this step if you would like to manually download these libraries.
 
@@ -112,12 +113,9 @@ python build_mozc.py build -c Release package
 If you want to build Mozc with your own Qt binaries, specify `--qtdir` option as follows.
 
 ```
-python build_mozc.py gyp --qtdir=C:\Qt\Qt5.15.2\msvc2019
+python build_mozc.py gyp --qtdir=<your Qt directory>
 python build_mozc.py build -c Release package
 ```
-
-The directory of Qt (`C:\Qt\Qt5.12.2\msvc2019` in this example) differs
-based on Qt version.
 
 If you need debug information, you can build debug version of Mozc as follows.
 

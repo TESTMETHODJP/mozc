@@ -213,11 +213,6 @@
             'win32_renderer_core_test',
           ],
         }],
-        ['target_platform=="Linux" and enable_gtk_renderer==1', {
-          'dependencies': [
-            'gtk_renderer_test',
-          ],
-        }],
       ],
     },
   ],
@@ -260,8 +255,8 @@
           ],
           'dependencies': [
             '../base/win32/base_win32.gyp:win_font_test_helper',
-            '../data/test/renderer/win32/test_data.gyp:install_test_data',
-            '../data/test/renderer/win32/test_data.gyp:test_spec_proto',
+            '<(mozc_oss_src_dir)/data/test/renderer/win32/test_data.gyp:install_test_data',
+            '<(mozc_oss_src_dir)/data/test/renderer/win32/test_data.gyp:test_spec_proto',
             '../protobuf/protobuf.gyp:protobuf',
             '../testing/testing.gyp:gtest_main',
             '../testing/testing.gyp:mozctest',
@@ -394,8 +389,8 @@
             'mac/mac_view_util.mm',
           ],
           'mac_bundle_resources': [
-            '../data/images/mac/candidate_window_logo.tiff',
-            '../data/images/mac/product_icon.icns',
+            '<(mozc_oss_src_dir)/data/images/mac/candidate_window_logo.tiff',
+            '<(mozc_oss_src_dir)/data/images/mac/product_icon.icns',
           ],
           'dependencies': [
             '../base/absl.gyp:absl_base',
@@ -454,106 +449,6 @@
                 '--branding', '<(branding)',
               ],
             },
-          ],
-        },
-      ],
-    }],
-    ['target_platform=="Linux" and enable_gtk_renderer==1', {
-      'targets': [
-        {
-          # Meta target to set up build environment for gtk+-2.0.
-          # Required 'cflags' and 'link_settings' will be automatically
-          # injected into any target which directly or indirectly depends
-          # on this target.
-          'target_name': 'gtk2_build_environment',
-          'type': 'none',
-          'variables': {
-            'target_pkgs' : [
-              'glib-2.0',
-              'gobject-2.0',
-              'gthread-2.0',
-              'gtk+-2.0',
-              'gdk-2.0',
-            ],
-          },
-          'all_dependent_settings': {
-            'cflags': [
-              '<!@(pkg-config --cflags <@(target_pkgs))',
-            ],
-            'link_settings': {
-              'libraries': [
-                '<!@(pkg-config --libs-only-l <@(target_pkgs))',
-              ],
-              'ldflags': [
-                '<!@(pkg-config --libs-only-L <@(target_pkgs))',
-              ],
-            },
-          },
-        },
-        {
-          'target_name': 'mozc_renderer_lib',
-          'type': 'static_library',
-          'sources': [
-            'unix/cairo_factory.cc',
-            'unix/cairo_wrapper.cc',
-            'unix/candidate_window.cc',
-            'unix/draw_tool.cc',
-            'unix/font_spec.cc',
-            'unix/gtk_window_base.cc',
-            'unix/gtk_wrapper.cc',
-            'unix/infolist_window.cc',
-            'unix/pango_wrapper.cc',
-            'unix/text_renderer.cc',
-            'unix/unix_renderer.cc',
-            'unix/unix_server.cc',
-            'unix/window_manager.cc',
-          ],
-          'dependencies': [
-            '../base/absl.gyp:absl_strings',
-            '../base/absl.gyp:absl_synchronization',
-            '../base/base.gyp:base',
-            '../client/client.gyp:client',
-            '../config/config.gyp:stats_config_util',
-            '../ipc/ipc.gyp:ipc',
-            '../protocol/protocol.gyp:genproto_config_proto#host',
-            '../protocol/protocol.gyp:renderer_proto',
-            'gtk2_build_environment',
-            'renderer_server',
-            'renderer_style_handler',
-            'table_layout',
-            'window_util',
-            'init_mozc_renderer',
-          ],
-        },
-        {
-          'target_name': 'mozc_renderer',
-          'type': 'executable',
-          'sources': [
-            'unix/gtk_renderer_main.cc',
-          ],
-          'dependencies': [
-            '../base/base.gyp:crash_report_handler',
-            'mozc_renderer_lib',
-          ],
-        },
-        {
-          'target_name': 'gtk_renderer_test',
-          'type': 'executable',
-          'sources': [
-            'unix/candidate_window_test.cc',
-            'unix/draw_tool_test.cc',
-            'unix/font_spec_test.cc',
-            'unix/gtk_window_base_test.cc',
-            'unix/infolist_window_test.cc',
-            'unix/text_renderer_test.cc',
-            'unix/unix_renderer_test.cc',
-            'unix/unix_server_test.cc',
-            'unix/window_manager_test.cc',
-          ],
-          'dependencies': [
-            '../testing/testing.gyp:gtest_main',
-        '../testing/testing.gyp:mozctest',
-            'mozc_renderer_lib',
           ],
         },
       ],
