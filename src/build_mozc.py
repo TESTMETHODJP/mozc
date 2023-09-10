@@ -135,7 +135,9 @@ def GetGypFileNames(options):
   """Gets the list of gyp file names."""
   gyp_file_names = []
   exclude_top_dirs = []
-  mozc_top_level_names = glob.glob('%s/*' % SRC_DIR)
+  mozc_top_level_names = glob.glob(f'{SRC_DIR}/*')
+  if SRC_DIR != OSS_SRC_DIR:
+    mozc_top_level_names += glob.glob(f'{OSS_SRC_DIR}/*')
 
   mozc_top_level_names = [x for x in mozc_top_level_names if
                           os.path.basename(x) not in exclude_top_dirs]
@@ -157,7 +159,7 @@ def GetGypFileNames(options):
   gyp_file_names.extend(glob.glob('%s/rewriter/*/*.gyp' % SRC_DIR))
   # Include subdirectory of win32 and breakpad for Windows
   if options.target_platform == 'Windows':
-    gyp_file_names.extend(glob.glob('%s/win32/*/*.gyp' % SRC_DIR))
+    gyp_file_names.extend(glob.glob('%s/win32/*/*.gyp' % OSS_SRC_DIR))
   elif options.target_platform == 'Linux':
     gyp_file_names.extend(glob.glob('%s/unix/emacs/*.gyp' % OSS_SRC_DIR))
   gyp_file_names.sort()
@@ -222,6 +224,8 @@ def GetQtMajorVersion(qtdir: str) -> int:
     moc_filename = 'moc'
   moc = pathlib.Path(qtdir, 'bin', moc_filename).resolve()
   if not moc.exists():
+    moc = pathlib.Path(qtdir, 'libexec', moc_filename).resolve()
+  if not moc.exists():
     return None
   result = subprocess.run([str(moc), '--version'], check=True,
                           stdout=subprocess.PIPE)
@@ -245,12 +249,6 @@ def ParseGypOptions(args):
                     help='use the specified version template file',
                     default='data/version/mozc_version_template.bzl')
   AddTargetPlatformOption(parser)
-
-  # Mac and Linux
-  parser.add_option('--warn_as_error', action='store_true',
-                    dest='warn_as_error', default=(default_branding != 'Mozc'),
-                    help='Treat compiler warning as error. This option is used '
-                    'on Mac and Linux.')
 
   # Linux
   parser.add_option('--server_dir', dest='server_dir',
@@ -298,14 +296,16 @@ def ExpandMetaTarget(options, meta_target_name):
     return dependencies + [meta_target_name]
 
   if target_platform == 'Linux':
-    targets = [SRC_DIR + '/server/server.gyp:mozc_server',
-               SRC_DIR + '/gui/gui.gyp:mozc_tool']
+    targets = [
+        SRC_DIR + '/server/server.gyp:mozc_server',
+        OSS_SRC_DIR + '/gui/gui.gyp:mozc_tool',
+    ]
   elif target_platform == 'Mac':
     targets = [OSS_SRC_DIR + '/mac/mac.gyp:codesign_DiskImage']
   elif target_platform == 'Windows':
     targets = [
         'out_win/%s:mozc_win32_build32' % config,
-        'out_win/%sDynamic:mozc_win32_build32_dynamic' % config,
+        'out_win/%sDynamic_x64:mozc_win32_build64_dynamic' % config,
         'out_win/%s_x64:mozc_win32_build64' % config,
         'out_win/%s:mozc_installers_win' % config,
     ]
@@ -482,7 +482,7 @@ def GypMain(options, unused_args):
     if target_platform == 'Linux':
       if PkgExists('Qt6Core', 'Qt6Gui', 'Qt6Widgets'):
         qt_ver = 6
-      if PkgExists('Qt5Core', 'Qt5Gui', 'Qt5Widgets'):
+      elif PkgExists('Qt5Core', 'Qt5Gui', 'Qt5Widgets'):
         qt_ver = 5
       else:
         PrintErrorAndExit('Qt is required to build GUI Tool. '
@@ -504,11 +504,6 @@ def GypMain(options, unused_args):
                       GetBuildBaseName(target_platform)])
   gyp_options.extend(['-D', 'build_short_base=%s' %
                       GetBuildShortBaseName(target_platform)])
-
-  if options.warn_as_error:
-    gyp_options.extend(['-D', 'warn_as_error=1'])
-  else:
-    gyp_options.extend(['-D', 'warn_as_error=0'])
 
   if version.IsDevChannel():
     gyp_options.extend(['-D', 'channel_dev=1'])
@@ -565,8 +560,9 @@ def GypMain(options, unused_args):
     abs_qt_bin_dir = os.path.join(qt_dir, 'bin')
     abs_qt_lib_dir = os.path.join(qt_dir, 'lib')
     abs_out_win = GetBuildBaseName(target_platform)
-    abs_out_win_debug_dynamic = os.path.join(abs_out_win, 'DebugDynamic')
-    abs_out_win_release_dynamic = os.path.join(abs_out_win, 'ReleaseDynamic')
+    abs_out_win_debug_dynamic = os.path.join(abs_out_win, 'DebugDynamic_x64')
+    abs_out_win_release_dynamic = os.path.join(abs_out_win,
+                                               'ReleaseDynamic_x64')
     copy_script = os.path.join(ABS_SCRIPT_DIR, 'build_tools',
                                'copy_dll_and_symbol.py')
     copy_params = [{
@@ -691,7 +687,7 @@ def RunTests(target_platform, configuration, parallel_num):
   # TODO(nona): move this function to build_tools/test_tools
   base_path = os.path.join(GetBuildBaseName(target_platform), configuration)
   if target_platform == 'Windows':
-    base_path += '_x64'
+    base_path += 'Dynamic_x64'
 
   options = []
 
@@ -744,7 +740,6 @@ def RunTests(target_platform, configuration, parallel_num):
       try:
         test_function(binary, gtest_report_dir, options)
       except RunOrDieError as e:
-        logging.exception(e)
         failed_tests.append(binary)
   else:
     launcher = test_launcher.TestLauncher(gtest_report_dir)
@@ -799,7 +794,7 @@ def RunTestsMain(options, args):
     # TODO(yukawa): Change the notation rule of 'targets' to reduce the gap
     # between Ninja and make.
     if target_platform == 'Windows':
-      targets.append('out_win/%s_x64:unittests' % options.configuration)
+      targets.append('out_win/%sDynamic_x64:unittests' % options.configuration)
     else:
       targets.append('%s/gyp/tests.gyp:unittests' % SRC_DIR)
 

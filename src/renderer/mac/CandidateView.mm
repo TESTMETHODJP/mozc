@@ -32,13 +32,13 @@
 #import "renderer/mac/CandidateView.h"
 
 #include "base/logging.h"
-#include "client/client_interface.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_style.pb.h"
+#include "absl/base/call_once.h"
+#include "client/client_interface.h"
 #include "renderer/mac/mac_view_util.h"
 #include "renderer/renderer_style_handler.h"
 #include "renderer/table_layout.h"
-#include "absl/base/call_once.h"
 
 using mozc::client::SendCommandInterface;
 using mozc::commands::Candidates;

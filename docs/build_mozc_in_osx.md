@@ -22,24 +22,28 @@ MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt
 open bazel-bin/mac/Mozc.pkg
 ```
 
-Hint: With the above build steps, the target CPU architecture of the binaries in
+💡 With the above build steps, the target CPU architecture of the binaries in
 `Mozc.pkg` is the same as the CPU architecture of the build environment.
 That is, if you build Mozc on arm64 environment, `Mozc.pkg` contains arm64
-binaries.
+binaries.  See the
+["how to specify target CPU architectures"](#how-to-specify-target-cpu-architectures)
+section below about how to do cross build.
 
-Hint: You can also download `Mozc.pkg` from GitHub Actions. Check [Build with GitHub Actions](#build-with-github-actions) for details.
+💡 You can also download `Mozc.pkg` from GitHub Actions.
+Check [Build with GitHub Actions](#build-with-github-actions) for details.
 
 ## Setup
 
 ### System Requirements
 
-64-bit macOS 10.14 and later versions are supported.
+64-bit macOS 11 and later versions are supported.
 
 ### Software Requirements
 
 Building on Mac requires the following software.
 
 * [Xcode](https://apps.apple.com/us/app/xcode/id497799835)
+  * Xcode 13 (macOS 13 SDK) or later
   * ⚠️Xcode Command Line Tools aren't sufficient.
 * [Bazel](https://docs.bazel.build/versions/master/install-os-x.html) for Bazel build
 * Python 3.9 or later with the following pip module.
@@ -65,7 +69,7 @@ python build_tools/update_deps.py
 In this step, additional build dependencies will be downloaded.
 
   * [Ninja 1.11.0](https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-mac.zip)
-  * [Qt 5.15.10](https://download.qt.io/archive/qt/5.15/5.15.10/submodules/qtbase-everywhere-opensource-src-5.15.10.tar.xz)
+  * [Qt 6.5.2](https://download.qt.io/archive/qt/6.5/6.5.2/submodules/qtbase-everywhere-src-6.5.2.tar.xz)
   * [git submodules](../.gitmodules)
 
 You can specify `--noqt` option if you would like to use your own Qt binaries.
@@ -84,6 +88,18 @@ You can also specify `--debug` option to build debug version of Mozc.
 python3 build_tools/build_qt.py --release --debug --confirm_license
 ```
 
+You can also specify `--macos_cpus` option, which has the same semantics as the
+[same name option in Bazel](https://bazel.build/reference/command-line-reference#flag--macos_cpus),
+for cross-build including building a Universal macOS Binary.
+
+```
+# Building x86_64 binaries regardless of the host CPU architecture.
+python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x86_64
+
+# Building Universal macOS Binary for both x86_64 and arm64.
+python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x86_64,arm64
+```
+
 You can skip this process if you have already installed Qt prebuilt binaries.
 
 -----
@@ -94,6 +110,22 @@ You can skip this process if you have already installed Qt prebuilt binaries.
 
 ```
 MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt
+open bazel-bin/mac/Mozc.pkg
+```
+
+#### How to specify target CPU architectures
+
+To build an Intel64 macOS binary regardless of the host CPU architecture.
+```
+python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x64_64
+MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt --macos_cpus=x64_64
+open bazel-bin/mac/Mozc.pkg
+```
+
+To build a Universal macOS Binary both x86_64 and arm64.
+```
+python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x86_64,arm64
+MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt --macos_cpus=x86_64,arm64
 open bazel-bin/mac/Mozc.pkg
 ```
 
@@ -175,7 +207,7 @@ For GYP build, Ninja and Packages are also required.
 First, you'll need to generate Xcode project using a tool called [GYP](https://chromium.googlesource.com/external/gyp).
 
 ```
-GYP_DEFINES="mac_sdk=10.15 mac_deployment_target=10.9" python3 build_mozc.py gyp
+GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=11.0" python3 build_mozc.py gyp
 ```
 
 You can customize the SDK version target OS version here.
@@ -189,7 +221,7 @@ python3 build_mozc.py build -c Release mac/mac.gyp:GoogleJapaneseInput
 If you want to build Mozc without Qt dependencies, specify `--noqt` option as follows.  Note that GUI tools will be built as a mock version that does nothing if you specify `--noqt`.
 
 ```
-GYP_DEFINES="mac_sdk=10.15 mac_deployment_target=10.9" python3 build_mozc.py gyp --noqt
+GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=11.0" python3 build_mozc.py gyp --noqt
 python3 build_mozc.py build -c Release mac/mac.gyp:GoogleJapaneseInput
 ```
 
@@ -203,7 +235,7 @@ GUI tools executables are linked with the libraries in `third_party/qt`. You mig
 
 You can also build an installer.
 ```
-GYP_DEFINES="mac_sdk=10.15 mac_deployment_target=10.9" python3 build_mozc.py gyp
+GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=11.0" python3 build_mozc.py gyp
 python3 build_mozc.py build -c Release :Installer
 ```
 

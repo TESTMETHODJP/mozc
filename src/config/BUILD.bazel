@@ -55,6 +55,7 @@ mozc_cc_library(
         "//protocol:config_cc_proto",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
     ],
 )
 
@@ -70,7 +71,7 @@ mozc_cc_test(
         "//base:clock_mock",
         "//base:file_util",
         "//base:system_util",
-        "//base:thread2",
+        "//base:thread",
         "//base/file:temp_dir",
         "//protocol:config_cc_proto",
         "//testing:gunit_main",
@@ -90,7 +91,6 @@ mozc_cc_library(
     deps = [
         ":config_handler",
         "//base:file_util",
-        "//base:port",
         "//base:singleton",
         "//base:system_util",
         "//protocol:config_cc_proto",

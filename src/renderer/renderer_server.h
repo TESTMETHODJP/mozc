@@ -34,17 +34,15 @@
 #include <memory>
 #include <string>
 
-#include "base/port.h"
 #include "ipc/ipc.h"
-#include "renderer/renderer_interface.h"
+#include "ipc/process_watch_dog.h"
 #include "absl/strings/string_view.h"
+#include "renderer/renderer_interface.h"
 
 namespace mozc {
 namespace renderer {
 
-class RendererInterface;
 class RendererServerSendCommand;
-class ParentApplicationWatchDog;
 
 // RendererServer base class. Implement Async* method.
 class RendererServer : public IPCServer {
@@ -94,7 +92,7 @@ class RendererServer : public IPCServer {
 
  private:
   uint32_t timeout_;
-  std::unique_ptr<ParentApplicationWatchDog> watch_dog_;
+  std::unique_ptr<ProcessWatchDog> watch_dog_;
   std::unique_ptr<RendererServerSendCommand> send_command_;
 };
 

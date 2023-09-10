@@ -85,7 +85,6 @@ mozc_cc_library(
         "//base:file_stream",
         "//base:file_util",
         "//base:logging",
-        "//base:port",
         "//base:util",
         "//base/container:serialized_string_array",
         "//converter:connector",
@@ -149,9 +148,9 @@ mozc_cc_library(
         "//base:file_util",
         "//base:logging",
         "//base:obfuscator_support",
-        "//base:port",
         "//base:status",
         "//base:util",
+        "//base/protobuf:message",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
@@ -201,6 +200,7 @@ mozc_cc_library(
         "//base:logging",
         "//base:obfuscator_support",
         "//base:util",
+        "//base/protobuf:message",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
     ],
@@ -213,7 +213,6 @@ mozc_cc_test(
     deps = [
         ":dataset_reader",
         ":dataset_writer",
-        "//base:port",
         "//base:random",
         "//base:util",
         "//testing:gunit_main",
@@ -263,7 +262,6 @@ mozc_cc_test(
     requires_full_emulation = False,
     deps = [
         ":serialized_dictionary",
-        "//base:port",
         "//base/container:serialized_string_array",
         "//testing:gunit_main",
         "@com_google_absl//absl/strings",
@@ -299,7 +297,6 @@ mozc_cc_library(
     name = "emoji_data",
     hdrs = ["emoji_data.h"],
     deps = [
-        "//base:port",
         "//base/container:serialized_string_array",
     ],
 )

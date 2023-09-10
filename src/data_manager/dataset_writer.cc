@@ -34,10 +34,10 @@
 
 #include "base/file_util.h"
 #include "base/logging.h"
-#include "base/port.h"
 #include "base/status.h"
 #include "base/unverified_sha1.h"
 #include "base/util.h"
+#include "base/protobuf/message.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 
@@ -83,7 +83,7 @@ void DataSetWriter::Finish(std::ostream *output) {
 
   CHECK(output->write(image_.data(), image_.size()));
   VLOG(1) << "Wrote data set of " << image_.size() << " bytes:\n"
-          << metadata_.Utf8DebugString();
+          << protobuf::Utf8Format(metadata_);
 }
 
 void DataSetWriter::AppendPadding(int alignment) {

@@ -32,7 +32,7 @@
     ['OS!="win"', {
       'targets': [
         {
-          'target_name': 'mozc_win32_build32_dynamic',
+          'target_name': 'mozc_win32_build64_dynamic',
           'type': 'none',
         },
       ],
@@ -40,10 +40,14 @@
     ['OS=="win"', {
       'targets': [
         {
-          'target_name': 'mozc_win32_build32_dynamic',
+          'target_name': 'mozc_win32_build64_dynamic',
           'type': 'none',
           'dependencies': [
-            '../../gui/gui.gyp:mozc_tool',
+            '<(mozc_oss_src_dir)/gui/gui.gyp:mozc_tool',
+            '<(mozc_oss_src_dir)/renderer/renderer.gyp:mozc_renderer',
+            '<(mozc_oss_src_dir)/server/server.gyp:mozc_server',
+            '../broker/broker.gyp:mozc_broker',
+            '../cache_service/cache_service.gyp:mozc_cache_service',
           ],
         },
       ],

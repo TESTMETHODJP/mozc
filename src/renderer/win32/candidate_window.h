@@ -32,8 +32,6 @@
 
 // clang-format off
 #include <windows.h>
-#define _ATL_NO_AUTOMATIC_NAMESPACE
-#define _WTL_NO_AUTOMATIC_NAMESPACE
 #include <atlbase.h>
 #include <atltypes.h>
 #include <atlwin.h>
@@ -47,9 +45,9 @@
 
 #include "base/const.h"
 #include "base/coordinates.h"
-#include "client/client_interface.h"
 #include "protocol/candidates.pb.h"
 #include "protocol/commands.pb.h"
+#include "client/client_interface.h"
 #include "renderer/table_layout.h"
 #include "renderer/win32/text_renderer.h"
 

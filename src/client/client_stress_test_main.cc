@@ -27,10 +27,13 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
-
-#include "client/client.h"
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -39,18 +42,15 @@
 #include <unistd.h>
 #endif  // _WIN32
 
-#include <memory>
-#include <ostream>
-#include <vector>
-
 #include "base/init_mozc.h"
 #include "base/logging.h"
 #include "protocol/renderer_command.pb.h"
-#include "renderer/renderer_client.h"
 #include "session/random_keyevents_generator.h"
 #include "absl/flags/flag.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "client/client.h"
+#include "renderer/renderer_client.h"
 
 // TODO(taku)
 // 1. multi-thread testing
@@ -124,13 +124,13 @@ int main(int argc, char **argv) {
         return 0;
       }
       if (absl::GetFlag(FLAGS_test_testsendkey)) {
-        VLOG(2) << "Sending to Server: " << keys[i].DebugString();
+        VLOG(2) << "Sending to Server: " << keys[i];
         client.TestSendKey(keys[i], &output);
         VLOG(2) << "Output of TestSendKey: " << MOZC_LOG_PROTOBUF(output);
         absl::SleepFor(absl::Milliseconds(10));
       }
 
-      VLOG(2) << "Sending to Server: " << keys[i].DebugString();
+      VLOG(2) << "Sending to Server: " << keys[i];
       client.SendKey(keys[i], &output);
       VLOG(2) << "Output of SendKey: " << MOZC_LOG_PROTOBUF(output);
 

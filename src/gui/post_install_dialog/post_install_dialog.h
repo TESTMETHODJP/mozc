@@ -30,15 +30,14 @@
 #ifndef MOZC_GUI_POST_INSTALL_DIALOG_POST_INSTALL_DIALOG_H_
 #define MOZC_GUI_POST_INSTALL_DIALOG_POST_INSTALL_DIALOG_H_
 
+#include <QWidget>
 #include <memory>
 
-#include "base/port.h"
+#include "gui/base/setup_util.h"
 #include "gui/post_install_dialog/ui_post_install_dialog.h"
 
 namespace mozc {
 namespace gui {
-
-class SetupUtil;
 
 // Shows additional information to the user after installation.
 // This dialog also set this IME as the default IME if it is closed
@@ -48,7 +47,6 @@ class PostInstallDialog : public QDialog, private Ui::PostInstallDialog {
 
  public:
   PostInstallDialog();
-  ~PostInstallDialog() override;
 
  protected slots:
   virtual void OnOk();

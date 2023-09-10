@@ -67,20 +67,18 @@
 
     # Sources for Proto3.
     'protobuf_sources': [
+      '<!@(<(glob_protobuf) . cpp_features.pb.cc descriptor.pb.cc)',
       '<!@(<(glob_protobuf) . "*.cc" --exclude "*.pb.cc" reflection_tester.cc)',
       '<!@(<(glob_protobuf) io "*.cc")',
       '<!@(<(glob_protobuf) stubs "*.cc")',
-      '<(protobuf_cpp_root)/descriptor.pb.cc',
       '<!@(<(glob) --notest --base <(protobuf_root)/third_party/utf8_range "*.cc")',
     ],
     # Sources for protoc (common part and C++ generator only).
     'protoc_sources': [
-      '<!@(<(glob_protobuf) . "*.cc" --exclude "*.pb.cc" reflection_tester.cc)',
-      '<!@(<(glob_protobuf) compiler "*.cc" --exclude main.cc)',
+      '<!@(<(glob_protobuf) compiler "*.cc" --exclude "*_tester.cc" fake_plugin.cc main.cc)',
+      '<!@(<(glob_protobuf) compiler/allowlists "*.cc")',
       '<!@(<(glob_protobuf) compiler/cpp "**/*.cc")',
-      '<!@(<(glob_protobuf) io "*.cc")',
       'custom_protoc_main.cc',
-      '<!@(<(glob) --notest --base <(protobuf_root)/third_party/utf8_range "*.cc")',
     ],
   },
   'targets': [
@@ -105,6 +103,7 @@
           'sources': ['<@(protobuf_sources)'],
           'dependencies': [
               '../base/absl.gyp:absl_log',
+              '../base/absl.gyp:absl_status',
               '../base/absl.gyp:absl_strings',
               '../base/absl.gyp:absl_synchronization',
           ],
@@ -127,15 +126,6 @@
             'USE_HEADERMAP': 'NO',
           },
           'conditions': [
-            ['(_toolset=="target" and (compiler_target=="clang" or compiler_target=="gcc")) or '
-             '(_toolset=="host" and (compiler_host=="clang" or compiler_host=="gcc"))', {
-              'cflags': [
-                '-Wno-invalid-noreturn',
-                '-Wno-tautological-constant-out-of-range-compare',
-                '-Wno-unused-const-variable',
-                '-Wno-unused-function',
-              ],
-            }],
             ['OS=="win"', {
               'defines!': [
                 'WIN32_LEAN_AND_MEAN',  # protobuf already defines this
@@ -177,16 +167,6 @@
             'USE_HEADERMAP': 'NO',
           },
           'conditions': [
-            ['(_toolset=="target" and (compiler_target=="clang" or compiler_target=="gcc")) or '
-             '(_toolset=="host" and (compiler_host=="clang" or compiler_host=="gcc"))', {
-              'cflags': [
-                '-Wno-invalid-noreturn',
-                '-Wno-tautological-constant-out-of-range-compare',
-                '-Wno-unused-const-variable',
-                '-Wno-unused-function',
-                '-Wno-unused-private-field',
-              ],
-            }],
             ['OS=="win"', {
               'defines!': [
                 'WIN32_LEAN_AND_MEAN',  # protobuf already defines this

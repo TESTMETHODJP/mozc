@@ -105,13 +105,6 @@ mozc_cc_library(
 mozc_cc_library(
     name = "port",
     hdrs = ["port.h"],
-    deps = mozc_select(
-        default = [
-            "//base",
-            "//base:port",
-        ],
-        oss = ["@com_google_absl//absl/base:core_headers"],
-    ),
 )
 
 mozc_cc_test(
@@ -215,31 +208,6 @@ mozc_cc_test(
 )
 
 mozc_cc_library(
-    name = "thread",
-    srcs = ["thread.cc"],
-    hdrs = ["thread.h"],
-    visibility = ["//:__subpackages__"],
-    deps = [
-        ":logging",
-        ":port",
-    ],
-)
-
-mozc_cc_test(
-    name = "thread_test",
-    size = "small",
-    srcs = [
-        "thread_test.cc",
-    ],
-    requires_full_emulation = False,
-    deps = [
-        ":thread",
-        "//testing:gunit_main",
-        "@com_google_absl//absl/time",
-    ],
-)
-
-mozc_cc_library(
     name = "singleton",
     srcs = ["singleton.cc"],
     hdrs = ["singleton.h"],
@@ -254,7 +222,7 @@ mozc_cc_test(
     requires_full_emulation = False,
     deps = [
         ":singleton",
-        ":thread2",
+        ":thread",
         "//testing:gunit_main",
         "@com_google_absl//absl/time",
     ],
@@ -304,7 +272,6 @@ mozc_cc_library(
     hdrs = ["clock.h"],
     deps = [
         ":singleton",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
     ],
 )
@@ -317,6 +284,7 @@ mozc_cc_test(
         ":clock",
         ":clock_mock",
         "//testing:gunit_main",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
 )
@@ -345,7 +313,6 @@ mozc_cc_library(
     ],
     deps = [
         ":logging",
-        ":port",
         "//base/strings:unicode",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
@@ -421,7 +388,6 @@ mozc_cc_library(
     hdrs = ["text_normalizer.h"],
     visibility = ["//:__subpackages__"],
     deps = [
-        ":port",
         ":util",
         "@com_google_absl//absl/strings",
     ],
@@ -447,7 +413,8 @@ mozc_cc_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":clock",
-        "@com_google_absl//absl/base:core_headers",
+        ":logging",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
 )
@@ -460,6 +427,7 @@ mozc_cc_test(
     deps = [
         ":clock_mock",
         "//testing:gunit_main",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
 )
@@ -473,7 +441,6 @@ mozc_cc_library(
     ],
     deps = [
         ":logging",
-        ":port",
         ":util",
         "//base/strings:zstring_view",
         "@com_google_absl//absl/base:core_headers",
@@ -485,8 +452,8 @@ mozc_cc_library(
         "@com_google_absl//absl/types:span",
     ] + mozc_select(
         windows = [
-            "//base/win32:scoped_handle",
             "//base/win32:wide_char",
+            "//third_party/wil",
         ],
     ),
 )
@@ -543,7 +510,6 @@ mozc_cc_library(
     ] + mozc_select(
         windows = [
             ":util",
-            "//base/win32:scoped_handle",
             "//base/win32:wide_char",
         ],
     ),
@@ -614,7 +580,6 @@ mozc_cc_library(
         ":environ",
         ":file_util",
         ":logging",
-        ":port",
         ":singleton",
         ":util",
         "//base/strings:zstring_view",
@@ -633,10 +598,10 @@ mozc_cc_library(
         ios = ["//base/mac:mac_util"],
         macos = ["//base/mac:mac_util"],
         windows = [
-            "//base/win32:scoped_handle",
             "//base/win32:wide_char",
             # win_util.h includes gunit_prod.h for FRIEND_TEST.
             "//testing:gunit_prod",
+            "//third_party/wil",
         ],
     ),
 )
@@ -650,7 +615,6 @@ mozc_cc_test(
         ":environ_mock",
         ":file_util",
         ":file_util_mock",
-        ":port",
         ":system_util",
         ":util",
         "//testing:gunit_main",
@@ -670,7 +634,6 @@ mozc_cc_library(
         ":const",
         ":file_util",
         ":logging",
-        ":port",
         ":system_util",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
@@ -678,7 +641,7 @@ mozc_cc_library(
         macos = ["//base/mac:mac_process"],
         windows = [
             "//base/win32:wide_char",
-            "//base/win32:scoped_handle",
+            "//third_party/wil",
         ],
     ),
 )
@@ -698,6 +661,12 @@ mozc_cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
     ] + mozc_select(
+        default = [
+            "//base/strings:zstring_view",
+            "@com_google_absl//absl/container:flat_hash_map",
+            "@com_google_absl//absl/status",
+            "@com_google_absl//absl/status:statusor",
+        ],
         windows = [
             "//base/win32:wide_char",
             "//base/win32:win_sandbox",
@@ -734,15 +703,14 @@ mozc_cc_library(
     deps = [
         ":const",
         ":logging",
-        ":port",
         ":system_util",
         ":util",
         "@com_google_absl//absl/strings",
     ] + mozc_select(
         windows = [
-            "//base/win32:scoped_handle",
             "//base/win32:wide_char",
             "//base/win32:win_sandbox",
+            "//third_party/wil",
         ],
     ),
 )
@@ -851,7 +819,6 @@ mozc_cc_library(
     deps = [
         ":logging",
         ":number_util",
-        ":port",
         ":util",
         "@com_google_absl//absl/strings",
     ] + mozc_select(
@@ -889,7 +856,6 @@ mozc_cc_library(
     deps = [
         ":bits",
         ":logging",
-        ":port",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
     ],
@@ -931,7 +897,6 @@ mozc_cc_library(
         ":logging",
         ":mmap",
         ":obfuscator_support",
-        ":port",
         ":random",
         ":singleton",
         ":system_util",
@@ -994,7 +959,7 @@ mozc_cc_binary(
     deps = [
         ":cpu_stats",
         ":init_mozc",
-        ":thread2",
+        ":thread",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
@@ -1137,7 +1102,6 @@ mozc_cc_test(
     deps = [
         ":embedded_file",
         ":file_util",
-        ":port",
         "//testing:gunit_main",
         "//testing:mozctest",
     ],
@@ -1154,11 +1118,9 @@ mozc_cc_library(
 )
 
 mozc_cc_library(
-    name = "thread2",
-    srcs = ["thread2.cc"],
-    hdrs = ["thread2.h"],
+    name = "thread",
+    hdrs = ["thread.h"],
     deps = [
-        ":thread",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/synchronization",
@@ -1166,10 +1128,10 @@ mozc_cc_library(
 )
 
 mozc_cc_test(
-    name = "thread2_test",
-    srcs = ["thread2_test.cc"],
+    name = "thread_test",
+    srcs = ["thread_test.cc"],
     deps = [
-        ":thread2",
+        ":thread",
         "//testing:gunit_main",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",

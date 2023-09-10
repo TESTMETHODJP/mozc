@@ -29,8 +29,6 @@
 
 #include "renderer/win32/text_renderer.h"
 
-#define _ATL_NO_AUTOMATIC_NAMESPACE
-#define _WTL_NO_AUTOMATIC_NAMESPACE
 #include <atlbase.h>
 #include <atlcom.h>
 #include <atltypes.h>
@@ -48,8 +46,8 @@
 
 #include "base/logging.h"
 #include "protocol/renderer_style.pb.h"
-#include "renderer/renderer_style_handler.h"
 #include "absl/types/span.h"
+#include "renderer/renderer_style_handler.h"
 
 namespace mozc {
 namespace renderer {

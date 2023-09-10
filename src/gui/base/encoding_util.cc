@@ -29,10 +29,10 @@
 
 #include "gui/base/encoding_util.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
-#include "base/port.h"
 #include "base/util.h"
 #include "absl/strings/string_view.h"
 

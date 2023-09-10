@@ -38,9 +38,8 @@
 #include <memory>
 #include <string>
 
-#include "base/port.h"
-#include "gui/config_dialog/ui_config_dialog.h"
 #include "protocol/config.pb.h"
+#include "gui/config_dialog/ui_config_dialog.h"
 
 namespace mozc {
 

@@ -94,11 +94,6 @@ void InsertCandidate(const absl::string_view key, const absl::string_view value,
   cand->content_value = std::string(value);
 }
 
-// "2011-04-18 15:06:31 (Mon)" UTC
-constexpr uint64_t kTestSeconds = 1303139191uLL;
-// micro seconds. it is random value.
-constexpr uint32_t kTestMicroSeconds = 588377u;
-
 Matcher<const Segment::Candidate *> ValueIs(absl::string_view value) {
   return Field(&Segment::Candidate::value, value);
 }
@@ -123,13 +118,10 @@ ACTION_P(InvokeCallbackWithUserDictionaryToken, value) {
 
 }  // namespace
 
-class DateRewriterTest : public ::testing::Test {
- private:
-  const mozc::testing::ScopedTempUserProfileDirectory scoped_tmp_profile_dir_;
-};
+class DateRewriterTest : public testing::TestWithTempUserProfile {};
 
 TEST_F(DateRewriterTest, DateRewriteTest) {
-  ClockMock mock_clock(kTestSeconds, kTestMicroSeconds);
+  ClockMock mock_clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
   Clock::SetClockForUnitTest(&mock_clock);
 
   DateRewriter rewriter;
@@ -1113,7 +1105,7 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsInsertPositionWithHistory) {
 }
 
 TEST_F(DateRewriterTest, ExtraFormatTest) {
-  ClockMock clock(kTestSeconds, kTestMicroSeconds);
+  ClockMock clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
   Clock::SetClockForUnitTest(&clock);
 
   MockDictionary dictionary;
@@ -1146,7 +1138,7 @@ TEST_F(DateRewriterTest, ExtraFormatTest) {
 }
 
 TEST_F(DateRewriterTest, ExtraFormatSyntaxTest) {
-  ClockMock clock(kTestSeconds, kTestMicroSeconds);
+  ClockMock clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
   Clock::SetClockForUnitTest(&clock);
 
   auto syntax_test = [](const absl::string_view input,

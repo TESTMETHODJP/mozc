@@ -42,7 +42,6 @@
 #include "base/clock_mock.h"
 #include "base/file_util.h"
 #include "base/logging.h"
-#include "base/port.h"
 #include "base/random.h"
 #include "storage/lru_cache.h"
 #include "testing/gmock.h"
@@ -50,6 +49,7 @@
 #include "testing/gunit.h"
 #include "absl/flags/flag.h"
 #include "absl/random/random.h"
+#include "absl/time/time.h"
 
 namespace mozc {
 namespace storage {
@@ -60,7 +60,7 @@ constexpr uint32_t kSeed = 0x76fef;  // Seed for fingerprint.
 void RunTest(LruStorage *storage, uint32_t size) {
   mozc::storage::LruCache<std::string, uint32_t> cache(size);
   std::set<std::string, std::less<>> used;
-  std::vector<std::pair<std::string, uint32_t> > values;
+  std::vector<std::pair<std::string, uint32_t>> values;
   mozc::Random random;
   for (int i = 0; i < size * 2; ++i) {
     const std::string key = random.Utf8String(
@@ -239,7 +239,7 @@ TEST_F(LruStorageTest, Merge) {
   {
     // Need to mock clock because old entries are removed on Open.  The maximum
     // timestamp set below is 50, so set the current time to 100.
-    ScopedClockMock clock(100, 0);
+    ScopedClockMock clock(absl::FromUnixSeconds(100));
 
     LruStorage::CreateStorageFile(file1.c_str(), 4, 8, kSeed);
     LruStorage::CreateStorageFile(file2.c_str(), 4, 4, kSeed);
@@ -282,7 +282,7 @@ TEST_F(LruStorageTest, Merge) {
   {
     // Need to mock clock because old entries are removed on Open.  The maximum
     // timestamp set below is 50, so set the current time to 100.
-    ScopedClockMock clock(100, 0);
+    ScopedClockMock clock(absl::FromUnixSeconds(100));
 
     LruStorage::CreateStorageFile(file1.c_str(), 4, 8, kSeed);
     LruStorage::CreateStorageFile(file2.c_str(), 4, 4, kSeed);
@@ -362,8 +362,8 @@ TEST_F(LruStorageTest, OpenOrCreateTest) {
 }
 
 TEST_F(LruStorageTest, Delete) {
-  ScopedClockMock clock(1, 0);
-  clock->SetAutoPutClockForward(1, 0);
+  ScopedClockMock clock(absl::FromUnixSeconds(1));
+  clock->AutoAdvance(absl::Seconds(1));
 
   constexpr size_t kValueSize = 4;
   constexpr size_t kNumElements = 4;
@@ -451,7 +451,7 @@ TEST_F(LruStorageTest, Delete) {
 }
 
 TEST_F(LruStorageTest, DeleteElementsBefore) {
-  ScopedClockMock clock(1, 0);
+  ScopedClockMock clock(absl::FromUnixSeconds(1));
 
   constexpr size_t kValueSize = 4;
   constexpr size_t kNumElements = 4;
@@ -461,7 +461,7 @@ TEST_F(LruStorageTest, DeleteElementsBefore) {
 
   // Auto advance clock after opening the file; otherwise OpenOrCreate()
   // advances the clock.
-  clock->SetAutoPutClockForward(1, 0);
+  clock->AutoAdvance(absl::Seconds(1));
 
   struct {
     const char *key;
@@ -501,7 +501,7 @@ TEST_F(LruStorageTest, DeleteElementsBefore) {
 }
 
 TEST_F(LruStorageTest, DeleteElementsUntouchedFor62Days) {
-  ScopedClockMock clock(1, 0);
+  ScopedClockMock clock(absl::FromUnixSeconds(1));
 
   constexpr size_t kValueSize = 4;
   constexpr size_t kNumElements = 4;
@@ -511,13 +511,13 @@ TEST_F(LruStorageTest, DeleteElementsUntouchedFor62Days) {
 
   // Auto advance clock after opening the file; otherwise OpenOrCreate()
   // advances the clock.
-  clock->SetAutoPutClockForward(1, 0);
+  clock->Advance(absl::Seconds(1));
 
   storage.Insert("1111", "aaaa");
   storage.Insert("2222", "bbbb");
 
   // Advance clock for 63 days.
-  clock->PutClockForward(63 * 24 * 60 * 60, 0);
+  clock->Advance(absl::Hours(63 * 24));
 
   // Insert newer elements.
   storage.Insert("3333", "cccc");
@@ -535,7 +535,7 @@ TEST_F(LruStorageTest, DeleteElementsUntouchedFor62Days) {
 }
 
 TEST_F(LruStorageTest, OldDataAreNotLookedUp) {
-  ScopedClockMock clock(1, 0);
+  ScopedClockMock clock(absl::FromUnixSeconds(1));
 
   constexpr size_t kValueSize = 4;
   constexpr size_t kNumElements = 4;
@@ -553,7 +553,7 @@ TEST_F(LruStorageTest, OldDataAreNotLookedUp) {
   EXPECT_TRUE(storage.Touch("2222"));
 
   // Advance clock for 63 days.
-  clock->PutClockForward(63 * 24 * 60 * 60, 0);
+  clock->Advance(absl::Hours(63 * 24));
 
   // Insert new elements.
   EXPECT_TRUE(storage.Insert("3333", "cccc"));

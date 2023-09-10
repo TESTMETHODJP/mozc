@@ -109,8 +109,6 @@
         'strings/internal/utf8_internal.cc',
         'system_util.cc',
         'text_normalizer.cc',
-        'thread.cc',
-        'thread2.cc',
         'util.cc',
       ],
       'dependencies': [
@@ -133,7 +131,6 @@
             'win32/win_util.cc',
           ],
           'dependencies': [
-            'scoped_handle',
             'absl.gyp:absl_base',
           ],
           'link_settings': {
@@ -201,14 +198,6 @@
       'dependencies': [
         'gen_version_def#host',
         'number_util',
-      ],
-    },
-    {
-      'target_name': 'scoped_handle',
-      'type': 'static_library',
-      'toolsets': ['host', 'target'],
-      'sources': [
-        'win32/scoped_handle.cc',
       ],
     },
     {

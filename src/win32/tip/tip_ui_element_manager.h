@@ -34,8 +34,8 @@
 #include <wil/com.h>
 #include <windows.h>
 
-#include "win32/tip/tip_text_service.h"
 #include "absl/container/flat_hash_map.h"
+#include "win32/tip/tip_text_service.h"
 
 namespace mozc {
 namespace win32 {

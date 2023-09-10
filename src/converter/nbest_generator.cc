@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -43,6 +44,9 @@
 #include "converter/segmenter.h"
 #include "converter/segments.h"
 #include "dictionary/pos_matcher.h"
+#include "dictionary/suppression_dictionary.h"
+#include "prediction/suggestion_filter.h"
+#include "request/conversion_request.h"
 
 namespace mozc {
 namespace {
@@ -95,16 +99,14 @@ NBestGenerator::NBestGenerator(const SuppressionDictionary *suppression_dic,
                                const Connector &connector,
                                const PosMatcher *pos_matcher,
                                const Lattice *lattice,
-                               const SuggestionFilter &suggestion_filter,
-                               bool apply_suggestion_filter_for_exact_match)
+                               const SuggestionFilter &suggestion_filter)
     : suppression_dictionary_(suppression_dic),
       segmenter_(segmenter),
       connector_(connector),
       pos_matcher_(pos_matcher),
       lattice_(lattice),
       freelist_(kFreeListSize),
-      filter_(suppression_dic, pos_matcher, suggestion_filter,
-              apply_suggestion_filter_for_exact_match) {
+      filter_(suppression_dic, pos_matcher, suggestion_filter) {
   DCHECK(suppression_dictionary_);
   DCHECK(segmenter);
   if (lattice_ == nullptr || !lattice_->has_lattice()) {
@@ -129,10 +131,15 @@ void NBestGenerator::Reset(const Node *begin_node, const Node *end_node,
 
   for (Node *node = lattice_->begin_nodes(end_node_->begin_pos);
        node != nullptr; node = node->bnext) {
-    if (node == end_node_ || (node->lid != end_node_->lid &&
-                              node->cost - end_node_->cost <= kCostDiff &&
-                              node->prev != end_node_->prev)) {
+    if (node == end_node_ ||
+        (node->lid != end_node_->lid &&
+         // node->cost can be smaller than end_node_->cost
+         std::abs(node->cost - end_node_->cost) <= kCostDiff &&
+         node->prev != end_node_->prev)) {
       // Push "EOS" nodes.
+      // Note:
+      // node->cost contains nodes' word cost.
+      // The word cost part will be adjusted as marginalized cost in Next().
       agenda_.Push(CreateNewElement(node, nullptr, node->cost, 0, 0, 0));
     }
   }
@@ -470,6 +477,7 @@ bool NBestGenerator::Next(const ConversionRequest &request,
       const int32_t gx = cost_diff + top->gx;
       // |lnode->cost| is heuristics function of A* search, h(x).
       // After Viterbi search, we already know an exact value of h(x).
+      // f(x) = h(x) + g(x): cost for the path
       const int32_t fx = lnode->cost + gx;
       const int32_t structure_gx = structure_cost_diff + top->structure_gx;
       const int32_t w_gx = wcost_diff + top->w_gx;
@@ -543,7 +551,7 @@ NBestGenerator::BoundaryCheckResult NBestGenerator::CheckOnlyEdge(
   const bool is_boundary = (lnode->node_type == Node::HIS_NODE ||
                             segmenter_->IsBoundary(*lnode, *rnode, true));
   if (is_edge != is_boundary) {
-    // on the edge, have a boudnary.
+    // on the edge, have a boundary.
     // not on the edge, not the case.
     return INVALID;
   } else {
@@ -559,7 +567,7 @@ NBestGenerator::BoundaryCheckResult NBestGenerator::CheckStrict(
                             segmenter_->IsBoundary(*lnode, *rnode, false));
 
   if (is_edge != is_boundary) {
-    // on the edge, have a boudnary.
+    // on the edge, have a boundary.
     // not on the edge, not the case.
     return INVALID;
   } else {
@@ -581,9 +589,12 @@ int NBestGenerator::InsertTopResult(const ConversionRequest &request,
   }
   DCHECK(!top_nodes_.empty());
 
-  const int cost = end_node_->cost - begin_node_->cost - end_node_->wcost;
+  // |cost| includes transition cost to left and right segments
+  const int cost = (end_node_->cost - end_node_->wcost) - begin_node_->cost;
+  // |structure_cost|: transition cost between nodes in segments
   const int structure_cost =
       end_node_->prev->cost - begin_node_->next->cost - total_wcost;
+  // |wcost|: nodes cost without transition costs
   const int wcost = end_node_->prev->cost - begin_node_->next->cost +
                     begin_node_->next->wcost;
 

@@ -31,16 +31,11 @@
 {
   'conditions': [['use_qt=="YES"', {
 
+  'includes': [
+    'qt_tool_dir.gypi',
+  ],
   'variables': {
-    'conditions': [
-      ['target_platform=="Linux"', {
-        'rcc_path': '<!(pkg-config --variable=host_bins Qt<(qt_ver)Core)/rcc',
-      }, 'qt_dir', {
-        'rcc_path': '<(qt_dir)/bin/rcc<(EXECUTABLE_SUFFIX)',
-      }, {
-        'rcc_path': 'rcc<(EXECUTABLE_SUFFIX)',
-      }],
-    ],
+    'rcc_path': '<(qt_tool_dir)/rcc<(EXECUTABLE_SUFFIX)',
   },
   # In order to specify file dependencies correctly (e.g. *.png), we need to use
   # 'actions' instead of 'rules'.

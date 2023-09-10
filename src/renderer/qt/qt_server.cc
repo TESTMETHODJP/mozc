@@ -29,6 +29,8 @@
 
 #include "renderer/qt/qt_server.h"
 
+#include <stdlib.h>
+
 #include <QApplication>
 #include <QMetaType>
 #include <algorithm>
@@ -38,10 +40,10 @@
 
 #include "base/logging.h"
 #include "base/system_util.h"
-#include "client/client_interface.h"
 #include "config/config_handler.h"
 #include "ipc/named_event.h"
 #include "protocol/renderer_command.pb.h"
+#include "client/client_interface.h"
 
 // By default, mozc_renderer quits when user-input continues to be
 // idle for 10min.
@@ -106,6 +108,11 @@ int QtServer::StartServer(int argc, char **argv) {
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 #endif  // QT_VERSION
+
+  // |QWidget::move()| never works with wayland platform backend. Always use
+  // 'xcb' platform backend.  https://github.com/google/mozc/issues/794
+  ::setenv("QT_QPA_PLATFORM", "xcb", 1);
+
   qRegisterMetaType<std::string>("std::string");
   QApplication app(argc, argv);
 

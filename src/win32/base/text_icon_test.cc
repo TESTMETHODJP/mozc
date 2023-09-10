@@ -30,8 +30,6 @@
 #include "win32/base/text_icon.h"
 
 // clang-format off
-#define _ATL_NO_AUTOMATIC_NAMESPACE
-#define _WTL_NO_AUTOMATIC_NAMESPACE
 #include <atlbase.h>
 #include <atlapp.h>
 #include <atlmisc.h>
@@ -49,7 +47,6 @@ namespace win32 {
 namespace {
 
 using ::testing::AssertionFailure;
-using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
 using ::WTL::CBitmap;
 using ::WTL::CIcon;

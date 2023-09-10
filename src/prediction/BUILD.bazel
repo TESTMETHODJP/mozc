@@ -76,10 +76,11 @@ mozc_cc_library(
         "//base:hash",
         "//base:japanese_util",
         "//base:logging",
-        "//base:thread2",
+        "//base:thread",
         "//base:util",
         "//base/container:freelist",
         "//base/container:trie",
+        "//base/protobuf:message",
         "//composer",
         "//converter:segments",
         "//dictionary:dictionary_interface",
@@ -96,6 +97,7 @@ mozc_cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
     ],
     alwayslink = 1,
 )
@@ -188,7 +190,6 @@ mozc_cc_library(
     srcs = ["result.cc"],
     hdrs = ["result.h"],
     visibility = [
-        "//prediction:__subpackages__",
     ],
     deps = [
         ":zero_query_dict",
@@ -447,7 +448,6 @@ mozc_cc_library(
     hdrs = ["zero_query_dict.h"],
     visibility = ["//visibility:private"],
     deps = [
-        "//base:port",
         "//base/container:serialized_string_array",
         "@com_google_absl//absl/strings",
     ],
@@ -460,7 +460,6 @@ mozc_cc_test(
     visibility = ["//visibility:private"],
     deps = [
         ":zero_query_dict",
-        "//base:port",
         "//base/container:serialized_string_array",
         "//testing:gunit_main",
         "@com_google_absl//absl/strings",

@@ -29,8 +29,6 @@
 
 #include "win32/base/text_icon.h"
 
-#define _ATL_NO_AUTOMATIC_NAMESPACE
-#define _WTL_NO_AUTOMATIC_NAMESPACE
 // clang-format off
 #include <atlbase.h>
 #include <atltypes.h>
@@ -45,7 +43,6 @@
 #include <memory>
 
 #include "base/logging.h"
-#include "base/port.h"
 #include "base/util.h"
 #include "absl/strings/string_view.h"
 

@@ -29,8 +29,6 @@
 
 #include "win32/tip/tip_ui_element_delegate.h"
 
-#define _ATL_NO_AUTOMATIC_NAMESPACE
-#define _WTL_NO_AUTOMATIC_NAMESPACE
 #include <atlbase.h>
 #include <atlstr.h>
 #include <msctf.h>
@@ -137,9 +135,6 @@ wil::unique_bstr GetResourceString(UINT resource_id) {
   str.LoadStringW(TipDllModule::module_handle(), resource_id);
   return MakeUniqueBSTR(std::wstring_view(str.GetBuffer(), str.GetLength()));
 }
-
-constexpr bool kIsIndicator = true;
-constexpr bool kIsNotIndicator = false;
 
 class TipUiElementDelegateImpl final : public TipUiElementDelegate {
  public:

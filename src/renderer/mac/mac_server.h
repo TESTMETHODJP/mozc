@@ -35,11 +35,10 @@
 #include <memory>
 #include <string>
 
-#include "base/port.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "renderer/renderer_interface.h"
 #include "renderer/renderer_server.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace renderer {
