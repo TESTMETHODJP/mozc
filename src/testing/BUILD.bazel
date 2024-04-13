@@ -36,11 +36,7 @@ load(
 )
 load("//bazel:run_build_tool.bzl", "mozc_run_build_tool")
 
-package(
-    default_visibility = [
-        "//:__subpackages__",
-    ],
-)
+package(default_visibility = ["//:__subpackages__"])
 
 alias(
     name = "testing",
@@ -113,8 +109,10 @@ mozc_cc_library(
 )
 
 mozc_cc_library(
-    name = "gunit_prod",
-    hdrs = ["gunit_prod.h"],
+    name = "friend_test",
+    hdrs = ["friend_test.h"],
+    deps = [
+    ],
 )
 
 mozc_cc_library(
@@ -124,10 +122,12 @@ mozc_cc_library(
     hdrs = ["testing_util.h"],
     deps = [
         ":gunit",
-        "//base:logging",
-        "//base/protobuf",
         "//base/protobuf:message",
         "//base/protobuf:text_format",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
@@ -217,13 +217,13 @@ mozc_cc_library(
         ":gunit",
         "//base:file_util",
         "//base:logging",
-        "//base:status",
         "//base:system_util",
         "//base/file:temp_dir",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

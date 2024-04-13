@@ -38,12 +38,20 @@
 #include <string>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/random/random.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/clock_mock.h"
 #include "base/container/trie.h"
 #include "base/file/temp_dir.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/random.h"
+#include "base/strings/unicode.h"
 #include "base/system_util.h"
 #include "base/util.h"
 #include "composer/composer.h"
@@ -52,13 +60,13 @@
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/dictionary_mock.h"
-#include "dictionary/pos_matcher.h"
 #include "dictionary/suppression_dictionary.h"
+#include "engine/modules.h"
 #include "prediction/user_history_predictor.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
-#include "session/request_test_util.h"
+#include "request/request_test_util.h"
 #include "storage/encrypted_string_storage.h"
 #include "storage/lru_cache.h"
 #include "testing/gmock.h"
@@ -66,13 +74,6 @@
 #include "testing/mozctest.h"
 #include "usage_stats/usage_stats.h"
 #include "usage_stats/usage_stats_testing_util.h"
-#include "absl/random/random.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 
 namespace mozc::prediction {
 namespace {
@@ -124,7 +125,7 @@ class UserHistoryPredictorTest : public testing::TestWithTempUserProfile {
   }
 
   SuppressionDictionary *GetSuppressionDictionary() {
-    return data_and_predictor_->suppression_dictionary.get();
+    return data_and_predictor_->modules.GetMutableSuppressionDictionary();
   }
 
   bool IsSuggested(UserHistoryPredictor *predictor, const absl::string_view key,
@@ -408,21 +409,16 @@ class UserHistoryPredictorTest : public testing::TestWithTempUserProfile {
 
  private:
   struct DataAndPredictor {
-    std::unique_ptr<MockDictionary> dictionary;
-    std::unique_ptr<SuppressionDictionary> suppression_dictionary;
+    engine::Modules modules;
     std::unique_ptr<UserHistoryPredictor> predictor;
-    dictionary::PosMatcher pos_matcher;
   };
 
   std::unique_ptr<DataAndPredictor> CreateDataAndPredictor() const {
     auto ret = std::make_unique<DataAndPredictor>();
-    testing::MockDataManager data_manager;
-    ret->dictionary = std::make_unique<MockDictionary>();
-    ret->suppression_dictionary = std::make_unique<SuppressionDictionary>();
-    ret->pos_matcher.Set(data_manager.GetPosMatcherData());
-    ret->predictor = std::make_unique<UserHistoryPredictor>(
-        ret->dictionary.get(), &ret->pos_matcher,
-        ret->suppression_dictionary.get(), false);
+    ret->modules.PresetDictionary(std::make_unique<MockDictionary>());
+    CHECK_OK(ret->modules.Init(std::make_unique<testing::MockDataManager>()));
+    ret->predictor =
+        std::make_unique<UserHistoryPredictor>(ret->modules, false);
     ret->predictor->WaitForSyncer();
     return ret;
   }
@@ -627,10 +623,12 @@ TEST_F(UserHistoryPredictorTest, UserHistoryPredictorTestSuggestion) {
     predictor->Finish(*convreq_, &segments);
 
     // All added items must be suggestion entries.
-    const UserHistoryPredictor::DicCache::Element *element;
-    for (element = predictor->dic_->Head(); element->next;
-         element = element->next) {
-      const user_history_predictor::UserHistory::Entry &entry = element->value;
+    for (const UserHistoryPredictor::DicCache::Element &element :
+         *predictor->dic_) {
+      if (!element.next) {
+        break;  // Except the last one.
+      }
+      const user_history_predictor::UserHistory::Entry &entry = element.value;
       EXPECT_TRUE(entry.has_suggestion_freq() && entry.suggestion_freq() == 1);
       EXPECT_TRUE(!entry.has_conversion_freq() && entry.conversion_freq() == 0);
     }
@@ -964,7 +962,7 @@ TEST_F(UserHistoryPredictorTest, UserHistoryPredictorTrailingPunctuation) {
 
 TEST_F(UserHistoryPredictorTest, TrailingPunctuationMobile) {
   UserHistoryPredictor *predictor = GetUserHistoryPredictorWithClearedHistory();
-  commands::RequestForUnitTest::FillMobileRequest(request_.get());
+  request_test_util::FillMobileRequest(request_.get());
   Segments segments;
 
   SetUpInputForConversion("です。", composer_.get(), &segments);
@@ -1872,7 +1870,7 @@ TEST_F(UserHistoryPredictorTest, IsValidEntry) {
   EXPECT_TRUE(predictor->IsValidEntryIgnoringRemovedField(entry));
 
   // An android pua emoji. It is obsolete and should return false.
-  Util::Ucs4ToUtf8(0xFE000, entry.mutable_value());
+  *entry.mutable_value() = Util::CodepointToUtf8(0xFE000);
   EXPECT_FALSE(predictor->IsValidEntry(entry));
   EXPECT_FALSE(predictor->IsValidEntryIgnoringRemovedField(entry));
 
@@ -1915,6 +1913,78 @@ TEST_F(UserHistoryPredictorTest, IsValidSuggestion) {
   entry.set_conversion_freq(10);
   EXPECT_TRUE(UserHistoryPredictor::IsValidSuggestion(
       UserHistoryPredictor::DEFAULT, 1, entry));
+}
+
+TEST_F(UserHistoryPredictorTest, IsValidSuggestionForMixedConversion) {
+  UserHistoryPredictor::Entry entry;
+
+  commands::Request request;
+  ConversionRequest conversion_request;
+  conversion_request.set_request(&request);
+
+  entry.set_suggestion_freq(1);
+  EXPECT_TRUE(UserHistoryPredictor::IsValidSuggestionForMixedConversion(
+      conversion_request, 1, entry));
+
+  entry.set_value("よろしくおねがいします。");  // too long
+  EXPECT_FALSE(UserHistoryPredictor::IsValidSuggestionForMixedConversion(
+      conversion_request, 1, entry));
+
+  entry.set_value("test");
+  entry.set_key("test");
+
+  auto *params = request.mutable_decoder_experiment_params();
+  params->set_enable_history_prediction_triggering_v2(true);
+
+  // Default param is always true.
+  for (int freq = 0; freq <= 10; ++freq) {
+    entry.set_suggestion_freq(freq);
+    for (int prefix_len = 0; prefix_len <= 4; ++prefix_len) {
+      EXPECT_TRUE(UserHistoryPredictor::IsValidSuggestionForMixedConversion(
+          conversion_request, prefix_len, entry));
+    }
+  }
+
+  // Uses new triggering logic.
+  params->set_enable_history_prediction_triggering_v2(true);
+  params->set_history_prediction_min_freq(2.0);
+  params->set_history_prediction_remaining_char_length_weight(0.5);
+
+  const int key_len = Util::CharsLen(entry.key());
+
+  for (int freq = 0; freq <= 10; ++freq) {
+    entry.set_suggestion_freq(freq);
+    for (int prefix_len = 0; prefix_len <= key_len; ++prefix_len) {
+      const bool expected = (freq - 2.0 - 0.5 * (key_len - prefix_len)) >= 0.0;
+      EXPECT_EQ(UserHistoryPredictor::IsValidSuggestionForMixedConversion(
+                    conversion_request, prefix_len, entry),
+                expected);
+    }
+  }
+
+  // Extreme case 1 (always false).
+  params->set_history_prediction_min_freq(1000.0);
+  params->set_history_prediction_remaining_char_length_weight(0.0);
+
+  for (int freq = 0; freq <= 10; ++freq) {
+    entry.set_suggestion_freq(freq);
+    for (int prefix_len = 0; prefix_len <= key_len; ++prefix_len) {
+      EXPECT_FALSE(UserHistoryPredictor::IsValidSuggestionForMixedConversion(
+          conversion_request, prefix_len, entry));
+    }
+  }
+
+  // Extreme case 2 (Exact match only).
+  params->set_history_prediction_min_freq(0.0);
+  params->set_history_prediction_remaining_char_length_weight(1000.0);
+  for (int freq = 0; freq <= 10; ++freq) {
+    entry.set_suggestion_freq(freq);
+    for (int prefix_len = 0; prefix_len <= key_len; ++prefix_len) {
+      EXPECT_EQ(UserHistoryPredictor::IsValidSuggestionForMixedConversion(
+                    conversion_request, prefix_len, entry),
+                prefix_len == key_len);
+    }
+  }
 }
 
 TEST_F(UserHistoryPredictorTest, EntryPriorityQueueTest) {
@@ -1974,18 +2044,18 @@ TEST_F(UserHistoryPredictorTest, EntryPriorityQueueTest) {
 
 namespace {
 
-std::string RemoveLastUcs4Character(const absl::string_view input) {
-  const size_t ucs4_count = Util::CharsLen(input);
-  if (ucs4_count == 0) {
+std::string RemoveLastCodepointCharacter(const absl::string_view input) {
+  const size_t codepoint_count = Util::CharsLen(input);
+  if (codepoint_count == 0) {
     return "";
   }
 
-  size_t ucs4_processed = 0;
+  size_t codepoint_processed = 0;
   std::string output;
   for (ConstChar32Iterator iter(input);
-       !iter.Done() && (ucs4_processed < ucs4_count - 1);
-       iter.Next(), ++ucs4_processed) {
-    Util::Ucs4ToUtf8Append(iter.Get(), &output);
+       !iter.Done() && (codepoint_processed < codepoint_count - 1);
+       iter.Next(), ++codepoint_processed) {
+    Util::CodepointToUtf8Append(iter.Get(), &output);
   }
   return output;
 }
@@ -2088,7 +2158,7 @@ TEST_F(UserHistoryPredictorTest, PrivacySensitiveTest) {
     const std::string description(data.scenario_description);
     const std::string input(data.input);
     const std::string output(data.output);
-    const std::string partial_input(RemoveLastUcs4Character(input));
+    const std::string partial_input(RemoveLastCodepointCharacter(input));
     const bool expect_sensitive = data.is_sensitive;
 
     // Initial commit.
@@ -2660,20 +2730,15 @@ void InitSegmentsFromInputSequence(const absl::string_view text,
   DCHECK(composer);
   DCHECK(request);
   DCHECK(segments);
-  const char *begin = text.data();
-  const char *end = text.data() + text.size();
-  size_t mblen = 0;
-
-  while (begin < end) {
+  for (const UnicodeChar ch : Utf8AsUnicodeChar(text)) {
     commands::KeyEvent key;
-    const char32_t w = Util::Utf8ToUcs4(begin, end, &mblen);
+    const char32_t w = ch.char32();
     if (w <= 0x7F) {  // IsAscii, w is unsigned.
-      key.set_key_code(*begin);
+      key.set_key_code(w);
     } else {
       key.set_key_code('?');
-      key.set_key_string(std::string(begin, mblen));
+      key.set_key_string(ch.utf8());
     }
-    begin += mblen;
     composer->InsertCharacterKeyEvent(key);
   }
 
@@ -2682,8 +2747,7 @@ void InitSegmentsFromInputSequence(const absl::string_view text,
   request->set_request_type(ConversionRequest::PREDICTION);
   Segment *segment = segments->add_segment();
   CHECK(segment);
-  std::string query;
-  composer->GetQueryForPrediction(&query);
+  std::string query = composer->GetQueryForPrediction();
   segment->set_key(query);
 }
 }  // namespace
@@ -2976,7 +3040,7 @@ TEST_F(UserHistoryPredictorTest, ZeroQueryFromRealtimeConversion) {
 TEST_F(UserHistoryPredictorTest, LongCandidateForMobile) {
   UserHistoryPredictor *predictor = GetUserHistoryPredictorWithClearedHistory();
 
-  commands::RequestForUnitTest::FillMobileRequest(request_.get());
+  request_test_util::FillMobileRequest(request_.get());
 
   Segments segments;
   for (size_t i = 0; i < 3; ++i) {
@@ -3706,7 +3770,7 @@ TEST_F(UserHistoryPredictorTest, ContentWordLearningFromInnerSegmentBoundary) {
 
 TEST_F(UserHistoryPredictorTest, JoinedSegmentsTestMobile) {
   UserHistoryPredictor *predictor = GetUserHistoryPredictorWithClearedHistory();
-  commands::RequestForUnitTest::FillMobileRequest(request_.get());
+  request_test_util::FillMobileRequest(request_.get());
   Segments segments;
 
   SetUpInputForConversion("わたしの", composer_.get(), &segments);
@@ -3818,7 +3882,7 @@ TEST_F(UserHistoryPredictorTest, UsageStats) {
 
 TEST_F(UserHistoryPredictorTest, PunctuationLinkMobile) {
   UserHistoryPredictor *predictor = GetUserHistoryPredictorWithClearedHistory();
-  commands::RequestForUnitTest::FillMobileRequest(request_.get());
+  request_test_util::FillMobileRequest(request_.get());
   Segments segments;
   {
     SetUpInputForConversion("ございます", composer_.get(), &segments);
@@ -4102,10 +4166,9 @@ TEST_F(UserHistoryPredictorTest, 62DayOldEntriesAreDeletedAtSync) {
 
   // Verify also that on-memory data structure doesn't contain node for 中野.
   bool found_takahashi = false;
-  for (const auto *elem = predictor->dic_->Head(); elem != nullptr;
-       elem = elem->next) {
-    EXPECT_EQ(elem->value.value().find("中野"), std::string::npos);
-    if (elem->value.value().find("高橋")) {
+  for (const auto &elem : *predictor->dic_) {
+    EXPECT_EQ(elem.value.value().find("中野"), std::string::npos);
+    if (elem.value.value().find("高橋")) {
       found_takahashi = true;
     }
   }
@@ -4201,7 +4264,7 @@ TEST_F(UserHistoryPredictorTest, MaxPredictionCandidatesSize) {
 
 TEST_F(UserHistoryPredictorTest, MaxPredictionCandidatesSizeForZeroQuery) {
   UserHistoryPredictor *predictor = GetUserHistoryPredictorWithClearedHistory();
-  commands::RequestForUnitTest::FillMobileRequest(request_.get());
+  request_test_util::FillMobileRequest(request_.get());
   Segments segments;
   {
     SetUpInputForPrediction("てすと", composer_.get(), &segments);

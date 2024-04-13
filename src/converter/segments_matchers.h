@@ -35,9 +35,9 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/str_format.h"
 #include "converter/segments.h"
 #include "testing/gmock.h"
-#include "absl/strings/str_format.h"
 
 namespace mozc {
 
@@ -73,6 +73,7 @@ MATCHER_P(EqualsCandidate, candidate, "") {
   COMPARE_FIELD(rid);
   COMPARE_FIELD(attributes);
   COMPARE_FIELD(source_info);
+  COMPARE_FIELD(category);
   COMPARE_FIELD(style);
   COMPARE_FIELD(command);
   COMPARE_FIELD(inner_segment_boundary);

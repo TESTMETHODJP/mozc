@@ -32,12 +32,13 @@
 #include <unistd.h>  // for getpid()
 
 #include "base/coordinates.h"
+#include "base/protobuf/text_format.h"
 #include "protocol/candidates.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_command.pb.h"
+#include "renderer/renderer_mock.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
-#include "renderer/renderer_mock.h"
 
 using mozc::commands::Candidates;
 using mozc::commands::Command;
@@ -147,12 +148,16 @@ MATCHER_P(PreeditRectangleEq, rect, "") {
 }
 
 MATCHER_P(OutputEq, expected, "") {
-  if (expected.Utf8DebugString() != arg.Utf8DebugString()) {
+  std::string arg_str;
+  std::string expected_str;
+  protobuf::TextFormat::PrintToString(expected, &expected_str);
+  protobuf::TextFormat::PrintToString(arg, &arg_str);
+  if (arg_str != expected_str) {
     *result_listener << "The output does not match\n"
                      << "  expected: \n"
-                     << expected.Utf8DebugString() << "\n"
+                     << expected_str << "\n"
                      << "  actual:   \n"
-                     << arg.Utf8DebugString();
+                     << arg_str;
     return false;
   }
 

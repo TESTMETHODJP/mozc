@@ -34,6 +34,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/flags/flag.h"
+#include "absl/strings/string_view.h"
 #include "base/codegen_bytearray_stream.h"
 #include "base/file_stream.h"
 #include "base/hash.h"
@@ -42,9 +44,6 @@
 #include "base/multifile.h"
 #include "base/util.h"
 #include "storage/existence_filter.h"
-#include "absl/base/optimization.h"
-#include "absl/flags/flag.h"
-#include "absl/strings/string_view.h"
 
 ABSL_FLAG(std::string, input, "", "per-line suggestion filter list");
 ABSL_FLAG(std::string, output, "", "output bloom filter");
@@ -130,7 +129,6 @@ ExistenceFilterBuilder SetupFilter(
     }
   }
   LOG(FATAL) << "Gave up retrying suggestion filter generation.";
-  ABSL_UNREACHABLE();
 }
 
 }  // namespace

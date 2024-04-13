@@ -35,15 +35,16 @@
 #include <string>
 #include <vector>
 
-#include "base/const.h"
-#include "base/file_util.h"
-#include "base/logging.h"
-#include "base/system_util.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "base/const.h"
+#include "base/file_util.h"
+#include "base/logging.h"
+#include "base/system_util.h"
+#include "base/vlog.h"
 
 #ifdef _WIN32
 #include <wil/resource.h>
@@ -222,7 +223,7 @@ bool Process::SpawnProcess(const std::string &path, const std::string &arg,
       ::posix_spawn(&tmp_pid, path.c_str(), nullptr, nullptr,
                     const_cast<char *const *>(argv.get()), environ);
   if (result == 0) {
-    VLOG(1) << "posix_spawn: child pid is " << tmp_pid;
+    MOZC_VLOG(1) << "posix_spawn: child pid is " << tmp_pid;
   } else {
     LOG(ERROR) << "posix_spawn failed: " << strerror(result);
   }

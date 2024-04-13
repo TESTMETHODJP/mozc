@@ -34,19 +34,20 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/match.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/number_util.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "config/character_form_manager.h"
 #include "converter/segments.h"
 #include "dictionary/pos_matcher.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/str_replace.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -61,8 +62,7 @@ bool IsConvertibleToHalfWidthForm(const absl::string_view full) {
   const std::string tmp =
       absl::StrReplaceAll(full, {{"＼", "\\"}, {"￥", "¥"}});
 
-  std::string half;
-  japanese_util::FullWidthToHalfWidth(tmp, &half);
+  std::string half = japanese_util::FullWidthToHalfWidth(tmp);
   return full != half;
 }
 
@@ -85,12 +85,12 @@ bool HasCharacterFormDescription(const absl::string_view value) {
   Util::FormType prev = Util::UNKNOWN_FORM;
 
   for (ConstChar32Iterator iter(value); !iter.Done(); iter.Next()) {
-    const char32_t ucs4 = iter.Get();
-    const Util::FormType type = Util::GetFormType(ucs4);
+    const char32_t codepoint = iter.Get();
+    const Util::FormType type = Util::GetFormType(codepoint);
     if (prev != Util::UNKNOWN_FORM && prev != type) {
       return false;
     }
-    if (Util::UNKNOWN_SCRIPT != Util::GetScriptType(ucs4)) {
+    if (Util::UNKNOWN_SCRIPT != Util::GetScriptType(codepoint)) {
       return false;
     }
     prev = type;
@@ -335,7 +335,7 @@ bool VariantsRewriter::RewriteSegment(RewriteType type, Segment *seg) const {
     if (original_candidate->attributes &
         Segment::Candidate::NO_VARIANTS_EXPANSION) {
       SetDescriptionForCandidate(pos_matcher_, original_candidate);
-      VLOG(1) << "Candidate has NO_NORMALIZATION node";
+      MOZC_VLOG(1) << "Candidate has NO_NORMALIZATION node";
       continue;
     }
 
@@ -449,7 +449,7 @@ bool VariantsRewriter::GenerateAlternatives(
   // segment boundary is ignored.
   const bool is_valid = original.IsValid();
   if (!is_valid) {
-    VLOG(2) << "Invalid candidate: " << original.DebugString();
+    MOZC_VLOG(2) << "Invalid candidate: " << original.DebugString();
   }
   if (original.inner_segment_boundary.empty() || !is_valid) {
     if (!manager->ConvertConversionStringWithAlternative(
@@ -514,14 +514,18 @@ bool VariantsRewriter::GenerateAlternatives(
 
 void VariantsRewriter::Finish(const ConversionRequest &request,
                               Segments *segments) {
+  if (request.config().history_learning_level() !=
+      config::Config::DEFAULT_HISTORY) {
+    MOZC_VLOG(2) << "history_learning_level is not DEFAULT_HISTORY";
+    return;
+  }
   if (!request.request().mixed_conversion() &&
       request.request_type() != ConversionRequest::CONVERSION) {
     return;
   }
 
   // save character form
-  for (int i = 0; i < segments->conversion_segments_size(); ++i) {
-    const Segment &segment = segments->conversion_segment(i);
+  for (const Segment &segment : segments->conversion_segments()) {
     if (segment.candidates_size() <= 0 ||
         segment.segment_type() != Segment::FIXED_VALUE ||
         segment.candidate(0).attributes &
@@ -588,11 +592,8 @@ bool VariantsRewriter::Rewrite(const ConversionRequest &request,
     type = EXPAND_VARIANT;
   }
 
-  for (size_t i = segments->history_segments_size();
-       i < segments->segments_size(); ++i) {
-    Segment *seg = segments->mutable_segment(i);
-    DCHECK(seg);
-    modified |= RewriteSegment(type, seg);
+  for (Segment &segment : segments->conversion_segments()) {
+    modified |= RewriteSegment(type, &segment);
   }
 
   return modified;

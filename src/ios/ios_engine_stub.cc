@@ -41,10 +41,6 @@ class SessionHandlerInterface {
 
 namespace ios {
 
-void IosEngine::InitMozc() {
-  // Do nothing.
-}
-
 IosEngine::IosEngine(const std::string &data_file_path)
     : session_handler_(new SessionHandlerInterface), session_id_(0) {}
 

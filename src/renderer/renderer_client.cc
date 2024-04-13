@@ -36,19 +36,20 @@
 #include <optional>
 #include <string>
 
+#include "absl/base/thread_annotations.h"
+#include "absl/log/log.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
-#include "base/logging.h"
 #include "base/process.h"
 #include "base/system_util.h"
 #include "base/thread.h"
 #include "base/version.h"
+#include "base/vlog.h"
 #include "ipc/ipc.h"
 #include "ipc/named_event.h"
 #include "protocol/renderer_command.pb.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 
 #ifdef __APPLE__
 #include "base/mac/mac_util.h"
@@ -105,6 +106,13 @@ class RendererLauncher : public RendererLauncherInterface {
       const std::string &name, const std::string &path,
       bool disable_renderer_path_check,
       IPCClientFactoryInterface *ipc_client_factory_interface) override {
+    if (Status() == RendererStatus::RENDERER_LAUNCHING ||
+        Status() == RendererStatus::RENDERER_READY ||
+        Status() == RendererStatus::RENDERER_TIMEOUT) {
+      // Renderer is already launching.
+      // The renderer is still up and running when in the pending command state.
+      return;
+    }
     SetStatus(RendererStatus::RENDERER_LAUNCHING);
     name_ = name;
     path_ = path;
@@ -151,7 +159,7 @@ class RendererLauncher : public RendererLauncherInterface {
       case RendererStatus::RENDERER_READY:
         return true;
       case RendererStatus::RENDERER_LAUNCHING:
-        VLOG(1) << "now starting renderer";
+        MOZC_VLOG(1) << "now starting renderer";
         return false;
       case RendererStatus::RENDERER_TIMEOUT:
       case RendererStatus::RENDERER_TERMINATED:
@@ -159,10 +167,10 @@ class RendererLauncher : public RendererLauncherInterface {
             Clock::GetAbslTime() - last_launch_time_ >= kRetryIntervalTime) {
           return true;
         }
-        VLOG(1) << "never re-launch renderer";
+        MOZC_VLOG(1) << "never re-launch renderer";
         return false;
       case RendererStatus::RENDERER_FATAL:
-        VLOG(1) << "never re-launch renderer";
+        MOZC_VLOG(1) << "never re-launch renderer";
         return false;
       default:
         LOG(ERROR) << "Unknown status";
@@ -258,8 +266,8 @@ class RendererLauncher : public RendererLauncherInterface {
           ++error_times_;
           break;
         case NamedEventListener::EVENT_SIGNALED:
-          VLOG(1) << "mozc_renderer is launched successfully within "
-                  << kRendererWaitTimeout << " msec";
+          MOZC_VLOG(1) << "mozc_renderer is launched successfully within "
+                       << kRendererWaitTimeout << " msec";
           FlushPendingCommand();
           error_times_ = 0;
           break;
@@ -393,7 +401,7 @@ bool RendererClient::Shutdown(bool force) {
   }
 
   if (!client->Connected()) {
-    VLOG(1) << "renderer is not running.";
+    MOZC_VLOG(1) << "renderer is not running.";
     return true;
   }
 
@@ -439,7 +447,7 @@ bool RendererClient::ExecCommand(const commands::RendererCommand &command) {
     // Check CanConnect() again, as the status might be changed
     // after SetPendingCommand().
     if (!renderer_launcher_interface_->CanConnect()) {
-      VLOG(1) << "renderer_launcher::CanConnect() return false";
+      MOZC_VLOG(1) << "renderer_launcher::CanConnect() return false";
       return true;
     }
   }
@@ -450,7 +458,7 @@ bool RendererClient::ExecCommand(const commands::RendererCommand &command) {
     return true;
   }
 
-  VLOG(2) << "Sending: " << MOZC_LOG_PROTOBUF(command);
+  MOZC_VLOG(2) << "Sending: " << command;
 
   std::unique_ptr<IPCClientInterface> client(CreateIPCClient());
 

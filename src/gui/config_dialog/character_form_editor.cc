@@ -31,11 +31,11 @@
 
 #include <QHeaderView>
 #include <QtGui>
-
 #include <cstddef>
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "config/config_handler.h"
 #include "gui/config_dialog/combobox_delegate.h"
 
@@ -71,7 +71,7 @@ config::Config::CharacterForm StringToForm(const QString &str) {
   return config::Config::FULL_WIDTH;  // failsafe
 }
 
-QString GroupToString(const std::string &str) {
+QString GroupToString(absl::string_view str) {
   // if (str == "ア") {
   if (str == "ア") {
     return QObject::tr("Katakana");
@@ -80,7 +80,7 @@ QString GroupToString(const std::string &str) {
   } else if (str == "A") {
     return QObject::tr("Alphabets");
   }
-  return QString::fromUtf8(str.c_str());
+  return QString::fromUtf8(str.data(), static_cast<int>(str.size()));
 }
 
 std::string StringToGroup(const QString &str) {
@@ -92,12 +92,12 @@ std::string StringToGroup(const QString &str) {
   } else if (str == QObject::tr("Alphabets")) {
     return "A";
   }
-  return str.toUtf8().data();
+  return str.toStdString();
 }
 }  // namespace
 
 CharacterFormEditor::CharacterFormEditor(QWidget *parent)
-    : QTableWidget(parent), delegate_(new ComboBoxDelegate) {
+    : QTableWidget(parent), delegate_(std::make_unique<ComboBoxDelegate>()) {
   QStringList item_list;
   item_list << tr("Fullwidth") << tr("Halfwidth") << tr("Remember");
   delegate_->SetItemList(item_list);
@@ -115,8 +115,6 @@ CharacterFormEditor::CharacterFormEditor(QWidget *parent)
   setShowGrid(false);
 #endif  // __APPLE__
 }
-
-CharacterFormEditor::~CharacterFormEditor() {}
 
 void CharacterFormEditor::Load(const config::Config &config) {
   clear();

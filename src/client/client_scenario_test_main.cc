@@ -39,21 +39,22 @@
 #include <string>
 #include <vector>
 
+#include "absl/flags/flag.h"
+#include "absl/status/status.h"
+#include "absl/strings/match.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
 #include "base/system_util.h"
 #include "base/util.h"
+#include "base/vlog.h"
+#include "client/client.h"
 #include "composer/key_parser.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_command.pb.h"
-#include "absl/flags/flag.h"
-#include "absl/status/status.h"
-#include "absl/strings/match.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
-#include "client/client.h"
 #include "renderer/renderer_client.h"
 
 ABSL_FLAG(std::string, input, "", "Input file");
@@ -144,22 +145,21 @@ int Loop(std::istream *input) {
       absl::SleepFor(absl::Milliseconds(absl::GetFlag(FLAGS_key_duration)));
 
       if (absl::GetFlag(FLAGS_test_testsendkey)) {
-        VLOG(2) << "Sending to Server: " << keys[i];
+        MOZC_VLOG(2) << "Sending to Server: " << keys[i];
         client.TestSendKey(keys[i], &output);
-        VLOG(2) << "Output of TestSendKey: " << MOZC_LOG_PROTOBUF(output);
+        MOZC_VLOG(2) << "Output of TestSendKey: " << output;
         absl::SleepFor(absl::Milliseconds(10));
       }
 
-      VLOG(2) << "Sending to Server: " << keys[i];
+      MOZC_VLOG(2) << "Sending to Server: " << keys[i];
       client.SendKey(keys[i], &output);
-      VLOG(2) << "Output of SendKey: " << MOZC_LOG_PROTOBUF(output);
+      MOZC_VLOG(2) << "Output of SendKey: " << output;
 
       if (renderer_client != nullptr) {
         renderer_command.set_type(commands::RendererCommand::UPDATE);
         renderer_command.set_visible(output.has_candidates());
         *renderer_command.mutable_output() = output;
-        VLOG(2) << "Sending to Renderer: "
-                << MOZC_LOG_PROTOBUF(renderer_command);
+        MOZC_VLOG(2) << "Sending to Renderer: " << renderer_command;
         renderer_client->ExecCommand(renderer_command);
       }
     }

@@ -33,7 +33,6 @@
 
 #include <vector>
 
-#include "testing/googletest.h"
 #include "testing/gunit.h"
 
 namespace mozc {
@@ -290,6 +289,38 @@ TEST(TipInputModeManagerTest, HonorOpenCloseModeFromApps_Issue8661096) {
   EXPECT_TRUE(input_mode_manager.IsIndicatorVisible());
   EXPECT_TRUE(input_mode_manager.GetEffectiveOpenClose());
   EXPECT_TRUE(input_mode_manager.GetTsfOpenClose());
+}
+
+TEST(TipInputModeManagerTest, InputScopeOnSetFocus_GitHubIssue826) {
+  TipInputModeManager input_mode_manager(GetThreadLocalMode());
+
+  // Initialize (Off + Hiragana)
+  input_mode_manager.OnInitialize(false, kNativeHiragana);
+
+  // SetFocus (Off + Hiragana)
+  std::vector<InputScope> input_scope_email = {IS_EMAIL_SMTPEMAILADDRESS};
+  auto action =
+      input_mode_manager.OnSetFocus(false, kNativeHiragana, input_scope_email);
+  EXPECT_EQ(action, TipInputModeManager::kDoNothing);
+  EXPECT_FALSE(input_mode_manager.IsIndicatorVisible());
+  EXPECT_FALSE(input_mode_manager.GetEffectiveOpenClose());
+  EXPECT_EQ(input_mode_manager.GetEffectiveConversionMode(),
+            TipInputModeManager::kHiragana);
+
+  // On -> (On + Hiragana)
+  input_mode_manager.OnReceiveCommand(true, TipInputModeManager::kHiragana,
+                                      TipInputModeManager::kHiragana);
+  EXPECT_TRUE(input_mode_manager.GetEffectiveOpenClose());
+  EXPECT_TRUE(input_mode_manager.IsIndicatorVisible());
+
+  // SetFocus again with the same InputScope -> (Off + Hiragana)
+  action =
+      input_mode_manager.OnSetFocus(true, kNativeHiragana, input_scope_email);
+  EXPECT_EQ(action, TipInputModeManager::kUpdateUI);
+  EXPECT_TRUE(input_mode_manager.IsIndicatorVisible());
+  EXPECT_FALSE(input_mode_manager.GetEffectiveOpenClose());
+  EXPECT_EQ(input_mode_manager.GetEffectiveConversionMode(),
+            TipInputModeManager::kHiragana);
 }
 
 }  // namespace

@@ -33,18 +33,21 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "base/container/freelist.h"
 #include "base/logging.h"
 #include "base/number_util.h"
 #include "base/strings/assign.h"
 #include "converter/lattice.h"
-#include "absl/strings/string_view.h"
+#include "testing/friend_test.h"
 
 #ifndef NDEBUG
 #define MOZC_CANDIDATE_DEBUG
@@ -156,6 +159,12 @@ class Segment final {
       USER_HISTORY_PREDICTOR = 1 << 6,
     };
 
+    enum Category {
+      DEFAULT_CATEGORY,  // Realtime conversion, history prediction, etc
+      SYMBOL,            // Symbol, emoji
+      OTHER,             // Misc candidate
+    };
+
     // LINT.IfChange
     std::string key;    // reading
     std::string value;  // surface form
@@ -201,6 +210,8 @@ class Segment final {
 
     // Candidate's source info which will be used for usage stats.
     uint32_t source_info = SOURCE_INFO_NONE;
+
+    Category category = DEFAULT_CATEGORY;
 
     // Candidate style. This is not a bit-field.
     // The style is defined in enum |Style|.
@@ -269,6 +280,7 @@ class Segment final {
       absl::string_view GetContentValue() const;
       absl::string_view GetFunctionalKey() const;
       absl::string_view GetFunctionalValue() const;
+      size_t GetIndex() const { return index_; }
 
      private:
       const Candidate *candidate_;
@@ -331,7 +343,7 @@ class Segment final {
   // check if the specified index is valid or not.
   bool is_valid_index(int i) const;
 
-  // Candidate manupluations
+  // Candidate manipulations
   // getter
   const Candidate &candidate(int i) const;
 
@@ -452,6 +464,142 @@ class Segments final {
     std::string key;
   };
 
+  // This class wraps an iterator as is, except that `operator*` dereferences
+  // twice. For example, if `InnnerIterator` is the iterator of
+  // `std::deque<Segment *>`, `operator*` dereferences to `Segment&`.
+  using inner_iterator = std::deque<Segment *>::iterator;
+  using inner_const_iterator = std::deque<Segment *>::const_iterator;
+  template <typename InnerIterator, bool is_const = false>
+  class Iterator {
+   public:
+    using inner_value_type =
+        typename std::iterator_traits<InnerIterator>::value_type;
+
+    using iterator_category =
+        typename std::iterator_traits<InnerIterator>::iterator_category;
+    using value_type = std::conditional_t<
+        is_const,
+        typename std::add_const_t<std::remove_pointer_t<inner_value_type>>,
+        typename std::remove_pointer_t<inner_value_type>>;
+    using difference_type =
+        typename std::iterator_traits<InnerIterator>::difference_type;
+    using pointer = value_type *;
+    using reference = value_type &;
+
+    explicit Iterator(const InnerIterator &iterator) : iterator_(iterator) {}
+
+    // Make `iterator` type convertible to `const_iterator`.
+    template <bool enable = is_const>
+    Iterator(typename std::enable_if_t<enable, const Iterator<inner_iterator>>
+                 iterator)
+        : iterator_(iterator.iterator_) {}
+
+    reference operator*() const { return **iterator_; }
+    pointer operator->() const { return *iterator_; }
+
+    Iterator &operator++() {
+      ++iterator_;
+      return *this;
+    }
+    Iterator &operator--() {
+      --iterator_;
+      return *this;
+    }
+    Iterator operator+(difference_type diff) const {
+      return Iterator{iterator_ + diff};
+    }
+    Iterator operator-(difference_type diff) const {
+      return Iterator{iterator_ - diff};
+    }
+    Iterator &operator+=(difference_type diff) {
+      iterator_ += diff;
+      return *this;
+    }
+
+    difference_type operator-(const Iterator &other) const {
+      return iterator_ - other.iterator_;
+    }
+
+    bool operator==(const Iterator &other) const {
+      return iterator_ == other.iterator_;
+    }
+    bool operator!=(const Iterator &other) const {
+      return iterator_ != other.iterator_;
+    }
+
+   private:
+    friend class Iterator<inner_const_iterator, /*is_const=*/true>;
+    friend class Segments;
+
+    InnerIterator iterator_;
+  };
+  using iterator = Iterator<inner_iterator>;
+  using const_iterator = Iterator<inner_const_iterator, /*is_const=*/true>;
+  static_assert(!std::is_const_v<iterator::value_type>);
+  static_assert(std::is_const_v<const_iterator::value_type>);
+
+  // This class represents `begin` and `end`, like a `std::span` for
+  // non-contiguous iterators.
+  template <typename Iterator>
+  class Range {
+   public:
+    using difference_type = typename Iterator::difference_type;
+    using reference = typename Iterator::reference;
+
+    Range(const Iterator &begin, const Iterator &end)
+        : begin_(begin), end_(end) {}
+    // Make `range` type convertible to `const_range`.
+    Range(const Range<iterator> &range) : Range(range.begin(), range.end()) {}
+
+    Iterator begin() const { return begin_; }
+    Iterator end() const { return end_; }
+
+    difference_type size() const { return end_ - begin_; }
+    bool empty() const { return begin_ == end_; }
+
+    reference operator[](difference_type index) const {
+      CHECK_GE(index, 0);
+      CHECK_LT(index, size());
+      return *(begin_ + index);
+    }
+    reference front() const {
+      CHECK(!empty());
+      return *begin_;
+    }
+    reference back() const {
+      CHECK(!empty());
+      return *(end_ - 1);
+    }
+
+    // Skip first `count` elements, similar to `std::ranges::views::drop`.
+    Range drop(difference_type count) const {
+      CHECK_GE(count, 0);
+      return Range{count < size() ? begin_ + count : end_, end_};
+    }
+    // Take first `count` elements, similar to `std::ranges::views::take`.
+    Range take(difference_type count) const {
+      CHECK_GE(count, 0);
+      return Range{begin_, count < size() ? begin_ + count : end_};
+    }
+    // Take `count` segments from the end.
+    Range take_last(difference_type count) const {
+      CHECK_GE(count, 0);
+      return drop(std::max<difference_type>(0, size() - count));
+    }
+    // Same as `drop(drop_count).take(count)`, providing better readability.
+    // `std::ranges::subrange` may not provide the same argument types though.
+    Range subrange(difference_type index, difference_type count) const {
+      return drop(index).take(count);
+    }
+
+   private:
+    Iterator begin_;
+    Iterator end_;
+  };
+  using range = Range<iterator>;
+  using const_range = Range<const_iterator>;
+
+  // constructors
   Segments()
       : max_history_segments_size_(0),
         resized_(false),
@@ -460,6 +608,26 @@ class Segments final {
 
   Segments(const Segments &x);
   Segments &operator=(const Segments &x);
+
+  // iterators
+  iterator begin() { return iterator{segments_.begin()}; }
+  iterator end() { return iterator{segments_.end()}; }
+  const_iterator begin() const { return const_iterator{segments_.begin()}; }
+  const_iterator end() const { return const_iterator{segments_.end()}; }
+
+  // ranges
+  template <typename Iterator>
+  static Range<Iterator> make_range(const Iterator &begin,
+                                    const Iterator &end) {
+    return Range<Iterator>(begin, end);
+  }
+
+  range all() { return make_range(begin(), end()); }
+  const_range all() const { return make_range(begin(), end()); }
+  range history_segments();
+  const_range history_segments() const;
+  range conversion_segments();
+  const_range conversion_segments() const;
 
   // getter
   const Segment &segment(size_t i) const { return *segments_[i]; }
@@ -493,7 +661,9 @@ class Segments final {
   void pop_front_segment();
   void pop_back_segment();
   void erase_segment(size_t i);
+  iterator erase_segment(iterator position);
   void erase_segments(size_t i, size_t size);
+  iterator erase_segments(iterator first, iterator last);
 
   // erase all segments
   void clear_history_segments();
@@ -537,6 +707,11 @@ class Segments final {
   Lattice *mutable_cached_lattice() { return &cached_lattice_; }
 
  private:
+  FRIEND_TEST(SegmentsTest, BasicTest);
+
+  iterator history_segments_end();
+  const_iterator history_segments_end() const;
+
   // LINT.IfChange
   size_t max_history_segments_size_;
   bool resized_;

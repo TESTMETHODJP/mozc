@@ -30,42 +30,46 @@
 #include "prediction/dictionary_prediction_aggregator.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
-#include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/japanese_util.h"
-#include "base/logging.h"
 #include "base/number_util.h"
+#include "base/strings/unicode.h"
 #include "base/util.h"
-#include "composer/composer.h"
-#include "composer/type_corrected_query.h"
+#include "base/vlog.h"
+#include "composer/query.h"
 #include "converter/converter_interface.h"
 #include "converter/immutable_converter_interface.h"
 #include "converter/node_list_builder.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_token.h"
 #include "dictionary/pos_matcher.h"
+#include "engine/modules.h"
+#include "engine/spellchecker_interface.h"
 #include "prediction/number_decoder.h"
-#include "prediction/prediction_aggregator_interface.h"
 #include "prediction/result.h"
 #include "prediction/single_kanji_prediction_aggregator.h"
 #include "prediction/zero_query_dict.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
+#include "request/request_util.h"
 #include "transliteration/transliteration.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/span.h"
+
 
 #ifndef NDEBUG
 #define MOZC_DEBUG
@@ -86,6 +90,7 @@ namespace prediction {
 namespace {
 
 using ::mozc::commands::Request;
+using ::mozc::composer::TypeCorrectedQuery;
 using ::mozc::dictionary::DictionaryInterface;
 using ::mozc::dictionary::Token;
 
@@ -93,12 +98,6 @@ using ::mozc::dictionary::Token;
 // Number of prediction calls should be minimized.
 constexpr size_t kSuggestionMaxResultsSize = 256;
 constexpr size_t kPredictionMaxResultsSize = 100000;
-
-bool IsEnableSingleKanjiPrediction(const ConversionRequest &request) {
-  return request.request()
-      .decoder_experiment_params()
-      .enable_single_kanji_prediction();
-}
 
 // Returns true if the |target| may be redundant result.
 bool MaybeRedundant(const absl::string_view reference,
@@ -131,6 +130,12 @@ bool IsLanguageAwareInputEnabled(const ConversionRequest &request) {
   return lang_aware == Request::LANGUAGE_AWARE_SUGGESTION;
 }
 
+#if MOZC_ENABLE_NGRAM_RESCORING
+bool IsNgramNextWordPredictionEnabled(const ConversionRequest &request) {
+  return request.request().decoder_experiment_params().ngram_enable_nwp();
+}
+#endif  // MOZC_ENABLE_NGRAM_RESCORING
+
 bool IsZeroQuerySuffixPredictionDisabled(const ConversionRequest &request) {
   return request.request()
       .decoder_experiment_params()
@@ -159,7 +164,7 @@ bool GetNumberHistory(const Segments &segments, std::string *number_key) {
     return false;
   }
 
-  japanese_util::FullWidthToHalfWidth(history_value, number_key);
+  *number_key = japanese_util::FullWidthToHalfWidth(history_value);
   return true;
 }
 
@@ -197,6 +202,11 @@ size_t GetMaxSizeForRealtimeCandidates(const ConversionRequest &request,
   const auto &segment = segments.conversion_segment(0);
   const size_t size = (request.max_dictionary_prediction_candidates_size() -
                        segment.candidates_size());
+  if (request.request()
+          .decoder_experiment_params()
+          .enable_realtime_conversion_v2()) {
+    return std::min<size_t>(size, 20);
+  }
   return is_long_key ? std::min<size_t>(size, 8) : size;
 }
 
@@ -250,7 +260,6 @@ class DictionaryPredictionAggregator::PredictiveLookupCallback
                            Segment::Candidate::SourceInfo source_info,
                            int zip_code_id, int unknown_id,
                            absl::string_view non_expanded_original_key,
-                           const SpatialCostParams &spatial_cost_params,
                            std::vector<Result> *results)
       : penalty_(0),
         types_(types),
@@ -261,7 +270,6 @@ class DictionaryPredictionAggregator::PredictiveLookupCallback
         zip_code_id_(zip_code_id),
         unknown_id_(unknown_id),
         non_expanded_original_key_(non_expanded_original_key),
-        spatial_cost_params_(spatial_cost_params),
         results_(results) {}
 
   PredictiveLookupCallback(const PredictiveLookupCallback &) = delete;
@@ -295,13 +303,7 @@ class DictionaryPredictionAggregator::PredictiveLookupCallback
 
   ResultType OnActualKey(absl::string_view key, absl::string_view actual_key,
                          int num_expanded) override {
-    penalty_ = 0;
-    if (num_expanded > 0 ||
-        (spatial_cost_params_.enable_new_spatial_scoring &&
-         !non_expanded_original_key_.empty() &&
-         !absl::StartsWith(actual_key, non_expanded_original_key_))) {
-      penalty_ = spatial_cost_params_.GetPenalty(key);
-    }
+    penalty_ = num_expanded > 0 ? GetLegacySpatialCostPenalty() : 0;
     return TRAVERSE_CONTINUE;
   }
 
@@ -340,13 +342,12 @@ class DictionaryPredictionAggregator::PredictiveLookupCallback
   const PredictionTypes types_;
   const size_t limit_;
   const size_t original_key_len_;
-  const std::set<std::string> *subsequent_chars_;
+  const std::set<std::string> *subsequent_chars_ = nullptr;
   const Segment::Candidate::SourceInfo source_info_;
   const int zip_code_id_;
   const int unknown_id_;
   absl::string_view non_expanded_original_key_;
-  const SpatialCostParams spatial_cost_params_;
-  std::vector<Result> *results_;
+  std::vector<Result> *results_ = nullptr;
 
  private:
   // When the key is number, number token will be noisy if
@@ -395,12 +396,10 @@ class DictionaryPredictionAggregator::PredictiveBigramLookupCallback
                                  Segment::Candidate::SourceInfo source_info,
                                  int zip_code_id, int unknown_id,
                                  absl::string_view non_expanded_original_key,
-                                 const SpatialCostParams spatial_cost_params,
                                  std::vector<Result> *results)
-      : PredictiveLookupCallback(types, limit, original_key_len,
-                                 subsequent_chars, source_info, zip_code_id,
-                                 unknown_id, non_expanded_original_key,
-                                 spatial_cost_params, results),
+      : PredictiveLookupCallback(
+            types, limit, original_key_len, subsequent_chars, source_info,
+            zip_code_id, unknown_id, non_expanded_original_key, results),
         history_value_(history_value) {}
 
   PredictiveBigramLookupCallback(const PredictiveBigramLookupCallback &) =
@@ -429,11 +428,13 @@ class DictionaryPredictionAggregator::PrefixLookupCallback
     : public DictionaryInterface::Callback {
  public:
   PrefixLookupCallback(size_t limit, int kanji_number_id, int unknown_id,
-                       int min_value_chars_len, std::vector<Result> *results)
+                       int min_value_chars_len, int input_key_len,
+                       std::vector<Result> *results)
       : limit_(limit),
         kanji_number_id_(kanji_number_id),
         unknown_id_(unknown_id),
         min_value_chars_len_(min_value_chars_len),
+        input_key_len_(input_key_len),
         results_(results) {}
 
   PrefixLookupCallback(const PrefixLookupCallback &) = delete;
@@ -468,7 +469,11 @@ class DictionaryPredictionAggregator::PrefixLookupCallback
     if (key != actual_key) {
       result.candidate_attributes |= Segment::Candidate::TYPING_CORRECTION;
     }
-    result.consumed_key_size = Util::CharsLen(key);
+    const int key_len = Util::CharsLen(key);
+    if (key_len < input_key_len_) {
+      result.candidate_attributes |= Segment::Candidate::PARTIALLY_KEY_CONSUMED;
+      result.consumed_key_size = key_len;
+    }
     results_->emplace_back(result);
     return (results_->size() < limit_) ? TRAVERSE_CONTINUE : TRAVERSE_DONE;
   }
@@ -478,61 +483,81 @@ class DictionaryPredictionAggregator::PrefixLookupCallback
   const int kanji_number_id_;
   const int unknown_id_;
   const int min_value_chars_len_;
-  std::vector<Result> *results_;
+  const int input_key_len_;
+  std::vector<Result> *results_ = nullptr;
+};
+
+class DictionaryPredictionAggregator::HandwritingLookupCallback
+    : public DictionaryInterface::Callback {
+ public:
+  HandwritingLookupCallback(size_t limit, int penalty,
+                            const std::vector<std::string> &constraints,
+                            std::vector<Result> *results)
+      : limit_(limit),
+        penalty_(penalty),
+        constraints_(constraints),
+        results_(results) {}
+
+  HandwritingLookupCallback(const HandwritingLookupCallback &) = delete;
+  HandwritingLookupCallback &operator=(const HandwritingLookupCallback &) =
+      delete;
+
+  ResultType OnToken(absl::string_view key, absl::string_view actual_key,
+                     const Token &token) override {
+    size_t next_pos = 0;
+    for (const std::string &constraint : constraints_) {
+      const size_t pos = token.value.find(constraint, next_pos);
+      if (pos == std::string::npos) {
+        return TRAVERSE_CONTINUE;
+      }
+      next_pos = pos + 1;
+    }
+
+    Result result;
+    result.InitializeByTokenAndTypes(token, UNIGRAM);
+    result.wcost += penalty_;
+    results_->emplace_back(result);
+    return (results_->size() < limit_) ? TRAVERSE_CONTINUE : TRAVERSE_DONE;
+  }
+
+ private:
+  const size_t limit_;  // The maximum number of results token size.
+  const int penalty_;   // Cost penalty for result tokens.
+  const std::vector<std::string> constraints_;
+  std::vector<Result> *results_ = nullptr;
 };
 
 DictionaryPredictionAggregator::DictionaryPredictionAggregator(
-    const DataManagerInterface &data_manager,
-    const ConverterInterface *converter,
-    const ImmutableConverterInterface *immutable_converter,
-    const dictionary::DictionaryInterface *dictionary,
-    const dictionary::DictionaryInterface *suffix_dictionary,
-    const dictionary::PosMatcher *pos_matcher, const void *user_arg)
-    : DictionaryPredictionAggregator(
-          data_manager, converter, immutable_converter, dictionary,
-          suffix_dictionary, pos_matcher,
-          std::make_unique<SingleKanjiPredictionAggregator>(data_manager),
-          user_arg) {}
-
-DictionaryPredictionAggregator::DictionaryPredictionAggregator(
-    const DataManagerInterface &data_manager,
-    const ConverterInterface *converter,
-    const ImmutableConverterInterface *immutable_converter,
-    const dictionary::DictionaryInterface *dictionary,
-    const dictionary::DictionaryInterface *suffix_dictionary,
-    const dictionary::PosMatcher *pos_matcher,
-    std::unique_ptr<PredictionAggregatorInterface>
-        single_kanji_prediction_aggregator,
-    const void *user_arg)
-    : converter_(converter),
+    const engine::Modules &modules, const ConverterInterface *converter,
+    const ImmutableConverterInterface *immutable_converter)
+    : modules_(modules),
+      converter_(converter),
       immutable_converter_(immutable_converter),
-      dictionary_(dictionary),
-      suffix_dictionary_(suffix_dictionary),
-      counter_suffix_word_id_(pos_matcher->GetCounterSuffixWordId()),
-      kanji_number_id_(pos_matcher->GetKanjiNumberId()),
-      zip_code_id_(pos_matcher->GetZipcodeId()),
-      number_id_(pos_matcher->GetNumberId()),
-      unknown_id_(pos_matcher->GetUnknownId()),
-      single_kanji_prediction_aggregator_(
-          std::move(single_kanji_prediction_aggregator)) {
-  absl::string_view zero_query_token_array_data;
-  absl::string_view zero_query_string_array_data;
-  absl::string_view zero_query_number_token_array_data;
-  absl::string_view zero_query_number_string_array_data;
-  data_manager.GetZeroQueryData(&zero_query_token_array_data,
-                                &zero_query_string_array_data,
-                                &zero_query_number_token_array_data,
-                                &zero_query_number_string_array_data);
-  zero_query_dict_.Init(zero_query_token_array_data,
-                        zero_query_string_array_data);
-  zero_query_number_dict_.Init(zero_query_number_token_array_data,
-                               zero_query_number_string_array_data);
+      dictionary_(modules.GetDictionary()),
+      suffix_dictionary_(modules.GetSuffixDictionary()),
+      counter_suffix_word_id_(
+          modules.GetPosMatcher()->GetCounterSuffixWordId()),
+      kanji_number_id_(modules.GetPosMatcher()->GetKanjiNumberId()),
+      zip_code_id_(modules.GetPosMatcher()->GetZipcodeId()),
+      number_id_(modules.GetPosMatcher()->GetNumberId()),
+      unknown_id_(modules.GetPosMatcher()->GetUnknownId()),
+      zero_query_dict_(modules.GetZeroQueryDict()),
+      zero_query_number_dict_(modules.GetZeroQueryNumberDict()) {
 }
 
 std::vector<Result> DictionaryPredictionAggregator::AggregateResults(
     const ConversionRequest &request, const Segments &segments) const {
   std::vector<Result> results;
   AggregatePredictionForTesting(request, segments, &results);
+  return results;
+}
+
+std::vector<Result>
+DictionaryPredictionAggregator::AggregateTypingCorrectedResults(
+    const ConversionRequest &request, const Segments &segments) const {
+  std::vector<Result> results;
+  AggregateTypingCorrectedPrediction(request, segments,
+                                     (UNIGRAM | BIGRAM | REALTIME), &results);
   return results;
 }
 
@@ -564,6 +589,13 @@ DictionaryPredictionAggregator::GetUnigramConfig(
     return {
         &DictionaryPredictionAggregator::AggregateUnigramCandidateForLatinInput,
         min_key_len_for_latin_input};
+  }
+
+  if (request_util::IsHandwriting(request)) {
+    constexpr size_t kMinUnigramKeyLen = 1;
+    return {&DictionaryPredictionAggregator::
+                AggregateUnigramCandidateForHandwriting,
+            kMinUnigramKeyLen};
   }
 
   if (is_mixed_conversion) {
@@ -601,7 +633,7 @@ PredictionTypes DictionaryPredictionAggregator::AggregatePrediction(
   // PREDICTION?
   if (request.request_type() == ConversionRequest::SUGGESTION) {
     if (!request.config().use_dictionary_suggest()) {
-      VLOG(2) << "no_dictionary_suggest";
+      MOZC_VLOG(2) << "no_dictionary_suggest";
       return NO_PREDICTION;
     }
     // Never trigger prediction if the key looks like zip code.
@@ -611,9 +643,14 @@ PredictionTypes DictionaryPredictionAggregator::AggregatePrediction(
   }
   PredictionTypes selected_types = NO_PREDICTION;
   if (ShouldAggregateRealTimeConversionResults(request, segments)) {
-    AggregateRealtimeConversion(request, realtime_max_size, segments, results);
+    AggregateRealtimeConversion(
+        request, realtime_max_size,
+        /* insert_realtime_top_from_actual_converter= */
+        request.use_actual_converter_for_realtime_conversion(), segments,
+        results);
     selected_types |= REALTIME;
   }
+
   // In partial suggestion or prediction, only realtime candidates are used.
   if (request.request_type() == ConversionRequest::PARTIAL_SUGGESTION ||
       request.request_type() == ConversionRequest::PARTIAL_PREDICTION) {
@@ -648,28 +685,18 @@ PredictionTypes DictionaryPredictionAggregator::AggregatePrediction(
     selected_types |= ENGLISH;
   }
 
-  // Add typing correction candidates.
-  constexpr int kMinTypingCorrectionKeyLen = 3;
-  if (IsTypingCorrectionEnabled(request) &&
-      key_len >= kMinTypingCorrectionKeyLen) {
-    AggregateTypeCorrectingPrediction(request, segments, selected_types,
-                                      results);
-    selected_types |= TYPING_CORRECTION;
-  }
-
-  if (IsMixedConversionEnabled(request.request())) {
+  if (request_util::IsAutoPartialSuggestionEnabled(request)) {
     AggregatePrefixCandidates(request, segments, results);
     selected_types |= PREFIX;
   }
 
-  if (IsMixedConversionEnabled(request.request()) &&
-      IsEnableSingleKanjiPrediction(request)) {
+  if (IsMixedConversionEnabled(request.request())) {
     // We do not want to add single kanji results for non mixed conversion
     // (i.e., Desktop, or Hardware Keyboard in Mobile), since they contain
     // partial results.
     const std::vector<Result> single_kanji_results =
-        single_kanji_prediction_aggregator_->AggregateResults(request,
-                                                              segments);
+        modules_.GetSingleKanjiPredictionAggregator()->AggregateResults(
+            request, segments);
     if (!single_kanji_results.empty()) {
       results->insert(results->end(), single_kanji_results.begin(),
                       single_kanji_results.end());
@@ -767,7 +794,7 @@ size_t DictionaryPredictionAggregator::GetRealtimeCandidateMaxSize(
       size = mixed_conversion ? max_size : default_size;
       break;
     case ConversionRequest::SUGGESTION:
-      // Fewer candidatats are needed basically.
+      // Fewer candidates are needed basically.
       // But on mixed_conversion mode we should behave like as conversion mode.
       size = mixed_conversion ? default_size : 1;
       break;
@@ -782,7 +809,7 @@ size_t DictionaryPredictionAggregator::GetRealtimeCandidateMaxSize(
       size = default_size;
       break;
     default:
-      size = 0;  // Never reach here
+      DLOG(FATAL) << "Unexpected request type: " << request_type;
   }
 
   return std::min(max_size, size);
@@ -803,7 +830,7 @@ bool DictionaryPredictionAggregator::PushBackTopConversionResult(
   // partial candidates.
   tmp_request.set_create_partial_candidates(false);
   tmp_request.set_request_type(ConversionRequest::CONVERSION);
-  if (!converter_->StartConversionForRequest(tmp_request, &tmp_segments)) {
+  if (!converter_->StartConversion(tmp_request, &tmp_segments)) {
     return false;
   }
 
@@ -819,14 +846,13 @@ bool DictionaryPredictionAggregator::PushBackTopConversionResult(
   result->candidate_attributes |= Segment::Candidate::NO_VARIANTS_EXPANSION;
 
   // Concatenate the top candidates.
-  // Note that since StartConversionForRequest() runs in conversion mode, the
+  // Note that since StartConversion() runs in conversion mode, the
   // resulting |tmp_segments| doesn't have inner_segment_boundary. We need to
   // construct it manually here.
   // TODO(noriyukit): This is code duplicate in converter/nbest_generator.cc and
   // we should refactor code after finding more good design.
   bool inner_segment_boundary_success = true;
-  for (size_t i = 0; i < tmp_segments.conversion_segments_size(); ++i) {
-    const Segment &segment = tmp_segments.conversion_segment(i);
+  for (const Segment &segment : tmp_segments.conversion_segments()) {
     const Segment::Candidate &candidate = segment.candidate(0);
     result->value.append(candidate.value);
     result->key.append(candidate.key);
@@ -852,15 +878,20 @@ bool DictionaryPredictionAggregator::PushBackTopConversionResult(
 
 void DictionaryPredictionAggregator::AggregateRealtimeConversion(
     const ConversionRequest &request, size_t realtime_candidates_size,
-    const Segments &segments, std::vector<Result> *results) const {
+    bool insert_realtime_top_from_actual_converter, const Segments &segments,
+    std::vector<Result> *results) const {
   DCHECK(converter_);
   DCHECK(immutable_converter_);
   DCHECK(results);
+  if (realtime_candidates_size == 0) {
+    return;
+  }
+
   // First insert a top conversion result.
   // Note: Do not call actual converter for partial suggestion / prediction.
-  // Converter::StartConversionForRequest() resets conversion key from composer
+  // Converter::StartConversion() resets conversion key from composer
   // rather than using the key in segments.
-  if (request.use_actual_converter_for_realtime_conversion() &&
+  if (insert_realtime_top_from_actual_converter &&
       request.request_type() != ConversionRequest::PARTIAL_SUGGESTION &&
       request.request_type() != ConversionRequest::PARTIAL_PREDICTION) {
     if (!PushBackTopConversionResult(request, segments, results)) {
@@ -868,14 +899,11 @@ void DictionaryPredictionAggregator::AggregateRealtimeConversion(
     }
   }
 
-  if (realtime_candidates_size == 0) {
-    return;
-  }
-
   const ConversionRequest request_for_realtime =
       GetConversionRequestForRealtimeCandidates(request,
                                                 realtime_candidates_size);
   Segments tmp_segments = GetSegmentsForRealtimeCandidatesGeneration(segments);
+
   if (!immutable_converter_->ConvertForRequest(request_for_realtime,
                                                &tmp_segments) ||
       tmp_segments.conversion_segments_size() == 0 ||
@@ -900,8 +928,12 @@ void DictionaryPredictionAggregator::AggregateRealtimeConversion(
     result->rid = candidate.rid;
     result->inner_segment_boundary = candidate.inner_segment_boundary;
     result->SetTypesAndTokenAttributes(REALTIME, Token::NONE);
+    if (candidate.key.size() < segment.key().size()) {
+      result->candidate_attributes |=
+          Segment::Candidate::PARTIALLY_KEY_CONSUMED;
+      result->consumed_key_size = Util::CharsLen(candidate.key);
+    }
     result->candidate_attributes |= candidate.attributes;
-    result->consumed_key_size = candidate.consumed_key_size;
   }
 }
 
@@ -936,6 +968,115 @@ PredictionType DictionaryPredictionAggregator::AggregateUnigramCandidate(
   // we don't show the candidates, since disambiguation from
   // 256 candidates is hard. (It may exceed max_results_size, because this is
   // just a limit for each backend, so total number may be larger)
+  if (unigram_results_size >= cutoff_threshold) {
+    results->resize(prev_results_size);
+  }
+  return UNIGRAM;
+}
+
+std::optional<DictionaryPredictionAggregator::HandwritingQueryInfo>
+DictionaryPredictionAggregator::GenerateQueryForHandwriting(
+    const ConversionRequest &request,
+    const commands::SessionCommand::CompositionEvent &composition_event) const {
+  if (composition_event.probability() < 0.1) {
+    // Skip generating the query info for unconfident composition,
+    // since running reverse conversion is slow.
+    return std::nullopt;
+  }
+
+  Segments tmp_segments;
+  {
+    Segment *segment = tmp_segments.add_segment();
+    segment->set_key(composition_event.composition_string());
+  }
+  ConversionRequest request_for_realtime = request;
+  request_for_realtime.set_request_type(ConversionRequest::REVERSE_CONVERSION);
+  if (!immutable_converter_->ConvertForRequest(request_for_realtime,
+                                               &tmp_segments) ||
+      tmp_segments.conversion_segments_size() == 0 ||
+      tmp_segments.conversion_segment(0).candidates_size() == 0) {
+    LOG(WARNING) << "Reverse conversion failed";
+    return std::nullopt;
+  }
+  HandwritingQueryInfo info;
+  for (const Segment &segment : tmp_segments.conversion_segments()) {
+    if (segment.candidates_size() == 0) {
+      LOG(WARNING) << "Reverse conversion failed";
+      return std::nullopt;
+    }
+    // Example:
+    // The result of reverse conversion for "見た" can be
+    // a single segment with content value:"み" + functional value:"た"
+    const absl::string_view converted = segment.candidate(0).value;
+    absl::StrAppend(&info.query, converted);
+
+    std::string utf8_str;
+    // b/324976556:
+    // We have to use the segment key instead of the candidate key.
+    // candidate key does not always match segment key for T13N chars.
+    const Utf8AsChars original_chars(segment.key());
+    for (const absl::string_view c : original_chars) {
+      if (Util::GetScriptType(c) != Util::HIRAGANA) {
+        absl::StrAppend(&utf8_str, c);
+      } else if (!utf8_str.empty()) {
+        info.constraints.emplace_back(utf8_str);
+        utf8_str.clear();
+      }
+    }
+    if (!utf8_str.empty()) {
+      info.constraints.emplace_back(utf8_str);
+    }
+  }
+  return info;
+}
+
+PredictionType
+DictionaryPredictionAggregator::AggregateUnigramCandidateForHandwriting(
+    const ConversionRequest &request, const Segments &segments,
+    std::vector<Result> *results) const {
+  DCHECK(results);
+  DCHECK(dictionary_);
+  DCHECK(request.has_composer());
+  DCHECK(request.request_type() == ConversionRequest::PREDICTION ||
+         request.request_type() == ConversionRequest::SUGGESTION);
+
+  const size_t cutoff_threshold =
+      GetCandidateCutoffThreshold(request.request_type());
+  const size_t prev_results_size = results->size();
+
+  for (const commands::SessionCommand::CompositionEvent &elm :
+       request.composer().GetHandwritingCompositions()) {
+    if (elm.probability() <= 0.0) {
+      continue;
+    }
+    const int recognition_cost = -500.0 * log(elm.probability());
+    const std::optional<DictionaryPredictionAggregator::HandwritingQueryInfo>
+        query_info = GenerateQueryForHandwriting(request, elm);
+    absl::string_view key;
+    if (query_info.has_value()) {
+      if (!absl::StrContains(query_info->query, " ")) {
+        // Skip providing converted candidates for queries including white
+        // space.
+        HandwritingLookupCallback callback(cutoff_threshold, recognition_cost,
+                                           query_info->constraints, results);
+        dictionary_->LookupExact(query_info->query, request, &callback);
+      }
+      key = query_info->query;
+    } else {
+      key = elm.composition_string();
+    }
+    Result result;
+    result.types = UNIGRAM;
+    result.key = key;
+    result.value = elm.composition_string();
+    result.candidate_attributes |= (Segment::Candidate::NO_VARIANTS_EXPANSION |
+                                    Segment::Candidate::NO_EXTRA_DESCRIPTION);
+    const int kAsIsCost = 2302;  // 500 * log(100) = ~2302
+    result.wcost = kAsIsCost + recognition_cost;
+    results->emplace_back(std::move(result));
+  }
+
+  const size_t unigram_results_size = results->size() - prev_results_size;
   if (unigram_results_size >= cutoff_threshold) {
     results->resize(prev_results_size);
   }
@@ -1193,9 +1334,9 @@ void DictionaryPredictionAggregator::GetPredictiveResults(
   if (!request.has_composer()) {
     std::string input_key(history_key);
     input_key.append(segments.conversion_segment(0).key());
-    PredictiveLookupCallback callback(
-        types, lookup_limit, input_key.size(), nullptr, source_info,
-        zip_code_id, unknown_id, "", GetSpatialCostParams(request), results);
+    PredictiveLookupCallback callback(types, lookup_limit, input_key.size(),
+                                      nullptr, source_info, zip_code_id,
+                                      unknown_id, "", results);
     dictionary.LookupPredictive(input_key, request, &callback);
     return;
   }
@@ -1211,9 +1352,9 @@ void DictionaryPredictionAggregator::GetPredictiveResults(
   std::string input_key;
   if (expanded.empty()) {
     input_key = absl::StrCat(history_key, base);
-    PredictiveLookupCallback callback(
-        types, lookup_limit, input_key.size(), nullptr, source_info,
-        zip_code_id, unknown_id, "", GetSpatialCostParams(request), results);
+    PredictiveLookupCallback callback(types, lookup_limit, input_key.size(),
+                                      nullptr, source_info, zip_code_id,
+                                      unknown_id, "", results);
     dictionary.LookupPredictive(input_key, request, &callback);
     return;
   }
@@ -1229,10 +1370,9 @@ void DictionaryPredictionAggregator::GetPredictiveResults(
   // by |lookup_limit|.
   for (const std::string &expanded_char : expanded) {
     input_key = absl::StrCat(history_key, base, expanded_char);
-    PredictiveLookupCallback callback(types, lookup_limit, input_key.size(),
-                                      nullptr, source_info, zip_code_id,
-                                      unknown_id, non_expanded_original_key,
-                                      GetSpatialCostParams(request), results);
+    PredictiveLookupCallback callback(
+        types, lookup_limit, input_key.size(), nullptr, source_info,
+        zip_code_id, unknown_id, non_expanded_original_key, results);
     dictionary.LookupPredictive(input_key, request, &callback);
   }
 }
@@ -1248,8 +1388,7 @@ void DictionaryPredictionAggregator::GetPredictiveResultsForBigram(
     input_key.append(segments.conversion_segment(0).key());
     PredictiveBigramLookupCallback callback(
         types, lookup_limit, input_key.size(), nullptr, history_value,
-        source_info, zip_code_id_, unknown_id_, "",
-        GetSpatialCostParams(request), results);
+        source_info, zip_code_id_, unknown_id_, "", results);
     dictionary.LookupPredictive(input_key, request, &callback);
     return;
   }
@@ -1269,8 +1408,7 @@ void DictionaryPredictionAggregator::GetPredictiveResultsForBigram(
   PredictiveBigramLookupCallback callback(
       types, lookup_limit, input_key.size(),
       expanded.empty() ? nullptr : &expanded, history_value, source_info,
-      zip_code_id_, unknown_id_, non_expanded_original_key,
-      GetSpatialCostParams(request), results);
+      zip_code_id_, unknown_id_, non_expanded_original_key, results);
   dictionary.LookupPredictive(input_key, request, &callback);
 }
 
@@ -1286,8 +1424,7 @@ void DictionaryPredictionAggregator::GetPredictiveResultsForEnglishKey(
     Util::LowerString(&key);
     PredictiveLookupCallback callback(types, lookup_limit, key.size(), nullptr,
                                       Segment::Candidate::SOURCE_INFO_NONE,
-                                      zip_code_id_, unknown_id_, "",
-                                      GetSpatialCostParams(request), results);
+                                      zip_code_id_, unknown_id_, "", results);
     dictionary.LookupPredictive(key, request, &callback);
     for (size_t i = prev_results_size; i < results->size(); ++i) {
       Util::UpperString(&(*results)[i].value);
@@ -1299,18 +1436,17 @@ void DictionaryPredictionAggregator::GetPredictiveResultsForEnglishKey(
     Util::LowerString(&key);
     PredictiveLookupCallback callback(types, lookup_limit, key.size(), nullptr,
                                       Segment::Candidate::SOURCE_INFO_NONE,
-                                      zip_code_id_, unknown_id_, "",
-                                      GetSpatialCostParams(request), results);
+                                      zip_code_id_, unknown_id_, "", results);
     dictionary.LookupPredictive(key, request, &callback);
     for (size_t i = prev_results_size; i < results->size(); ++i) {
       Util::CapitalizeString(&(*results)[i].value);
     }
   } else {
     // For other cases (lower and as-is), just look up directly.
-    PredictiveLookupCallback callback(
-        types, lookup_limit, input_key.size(), nullptr,
-        Segment::Candidate::SOURCE_INFO_NONE, zip_code_id_, unknown_id_, "",
-        GetSpatialCostParams(request), results);
+    PredictiveLookupCallback callback(types, lookup_limit, input_key.size(),
+                                      nullptr,
+                                      Segment::Candidate::SOURCE_INFO_NONE,
+                                      zip_code_id_, unknown_id_, "", results);
     dictionary.LookupPredictive(input_key, request, &callback);
   }
   // If input mode is FULL_ASCII, then convert the results to full-width.
@@ -1319,105 +1455,7 @@ void DictionaryPredictionAggregator::GetPredictiveResultsForEnglishKey(
     std::string tmp;
     for (size_t i = prev_results_size; i < results->size(); ++i) {
       tmp.assign((*results)[i].value);
-      japanese_util::HalfWidthAsciiToFullWidthAscii(tmp, &(*results)[i].value);
-    }
-  }
-}
-
-void DictionaryPredictionAggregator::
-    GetPredictiveResultsUsingExtendedTypingCorrection(
-        absl::Span<const composer::TypeCorrectedQuery> queries,
-        const ConversionRequest &request, const Segments &segments,
-        PredictionTypes base_selected_types,
-        std::vector<Result> *results) const {
-  if (queries.empty() || segments.conversion_segments_size() == 0) {
-    return;
-  }
-
-  // Make ConversionRequest that has no composer to avoid the original key
-  // from being used during the candidate aggregation. Kana modifier
-  // insensitive dictionary lookup is also disabled as composition
-  // spellchecker has already fixed them.
-  ConversionRequest corrected_request = request;
-  corrected_request.set_composer(nullptr);
-  corrected_request.set_kana_modifier_insensitive_conversion(false);
-
-  for (const auto &query : queries) {
-    // We here intentionally use 'asis' string since the composition
-    // spellchecker is designed to predict the word from incomplete composition
-    // string, e.g. おk. -> おか
-    // TODO(taku): Revisits this design once QWERTY model gets ready.
-    absl::string_view key = query.asis;
-    const size_t key_len = Util::CharsLen(key);
-
-    // Makes dummy segments with corrected query.
-    Segments corrected_segments = segments;
-    corrected_segments.mutable_conversion_segment(0)->set_key(key);
-
-    std::vector<Result> corrected_results;
-
-    const UnigramConfig &unigram_config = GetUnigramConfig(request);
-    if (key_len >= unigram_config.min_key_len) {
-      const AggregateUnigramFn &unigram_fn = unigram_config.unigram_fn;
-      (this->*unigram_fn)(corrected_request, corrected_segments,
-                          &corrected_results);
-    }
-
-    if (base_selected_types & REALTIME) {
-      constexpr int kRealtimeSize = 2;
-      AggregateRealtimeConversion(corrected_request, kRealtimeSize,
-                                  corrected_segments, &corrected_results);
-    }
-
-    if (base_selected_types & BIGRAM) {
-      AggregateBigramPrediction(corrected_request, corrected_segments,
-                                Segment::Candidate::SOURCE_INFO_NONE,
-                                &corrected_results);
-    }
-
-    // Appends the result with TYPING_CORRECTION attribute.
-    for (Result &result : corrected_results) {
-      // If the correction is a pure kana modifier insensitive correction,
-      // typing correction annotation is not necessary.
-      if (!query.is_kana_modifier_insensitive_only) {
-        result.types |= TYPING_CORRECTION;
-      }
-      // EXTENDED_TYPING_CORRECTION is added to all candidates generated
-      // with the new composition spellchecker. They include
-      // kana modifier insensitive correction.
-      result.types |= EXTENDED_TYPING_CORRECTION;
-      result.wcost += query.cost;
-      result.cost += query.cost;
-      results->emplace_back(std::move(result));
-    }
-  }
-}
-
-void DictionaryPredictionAggregator::GetPredictiveResultsUsingTypingCorrection(
-    absl::Span<const composer::TypeCorrectedQuery> queries,
-    const DictionaryInterface &dictionary, const ConversionRequest &request,
-    const Segments &segments, int lookup_limit,
-    std::vector<Result> *results) const {
-  for (size_t query_index = 0; query_index < queries.size(); ++query_index) {
-    const composer::TypeCorrectedQuery &query = queries[query_index];
-    const std::string &input_key = query.base;
-    const size_t previous_results_size = results->size();
-    PredictiveLookupCallback callback(
-        TYPING_CORRECTION, lookup_limit, input_key.size(),
-        query.expanded.empty() ? nullptr : &query.expanded,
-        Segment::Candidate::SOURCE_INFO_NONE, zip_code_id_, unknown_id_,
-        query.asis, GetSpatialCostParams(request), results);
-    dictionary.LookupPredictive(input_key, request, &callback);
-
-    for (size_t i = previous_results_size; i < results->size(); ++i) {
-      // Query cost can be negative in 'diff cost' due to typing model.
-      // We do not want to strongly promote TC candidates even if the query cost
-      // is negative.
-      (*results)[i].wcost += std::max(0, query.cost);
-    }
-    lookup_limit -= results->size() - previous_results_size;
-    if (lookup_limit <= 0) {
-      break;
+      (*results)[i].value = japanese_util::HalfWidthAsciiToFullWidthAscii(tmp);
     }
   }
 }
@@ -1576,6 +1614,7 @@ void DictionaryPredictionAggregator::AggregateZeroQuerySuffixPrediction(
   }
 }
 
+
 void DictionaryPredictionAggregator::AggregateEnglishPrediction(
     const ConversionRequest &request, const Segments &segments,
     std::vector<Result> *results) const {
@@ -1609,8 +1648,7 @@ void DictionaryPredictionAggregator::AggregateEnglishPredictionUsingRawInput(
       GetCandidateCutoffThreshold(request.request_type());
   const size_t prev_results_size = results->size();
 
-  std::string input_key;
-  request.composer().GetRawString(&input_key);
+  const std::string input_key = request.composer().GetRawString();
   GetPredictiveResultsForEnglishKey(*dictionary_, request, input_key, ENGLISH,
                                     cutoff_threshold, results);
 
@@ -1621,41 +1659,115 @@ void DictionaryPredictionAggregator::AggregateEnglishPredictionUsingRawInput(
   }
 }
 
-void DictionaryPredictionAggregator::AggregateTypeCorrectingPrediction(
+void DictionaryPredictionAggregator::AggregateTypingCorrectedPrediction(
     const ConversionRequest &request, const Segments &segments,
     PredictionTypes base_selected_types, std::vector<Result> *results) const {
   DCHECK(results);
   DCHECK(dictionary_);
 
-  if (!request.has_composer()) {
-    return;
-  }
-
   const size_t prev_results_size = results->size();
-  if (prev_results_size > 10000) {
+
+  if (!request.has_composer() || segments.conversion_segments_size() == 0 ||
+      prev_results_size > 10000) {
     return;
   }
 
-  const int lookup_limit = GetCandidateCutoffThreshold(request.request_type());
-
-  const std::optional<std::vector<composer::TypeCorrectedQuery>> corrected =
-      request.composer().GetTypeCorrectedQueries(segments.history_key());
-
-  if (corrected) {
-    // Use Extended composition spell checker.
-    GetPredictiveResultsUsingExtendedTypingCorrection(
-        corrected.value(), request, segments, base_selected_types, results);
-  } else {
-    // Runs the default fallback spell checker.
-    std::vector<composer::TypeCorrectedQuery> queries;
-    request.composer().GetTypeCorrectedQueriesForPrediction(&queries);
-    GetPredictiveResultsUsingTypingCorrection(queries, *dictionary_, request,
-                                              segments, lookup_limit, results);
+  const engine::SpellcheckerInterface *corrector = modules_.GetSpellchecker();
+  if (corrector == nullptr) {
+    return;
   }
 
+  const std::string asis = request.composer().GetStringForTypeCorrection();
+  const std::optional<std::vector<TypeCorrectedQuery>> corrected =
+      corrector->CheckCompositionSpelling(asis, segments.history_key(),
+                                          request.request());
+  if (!corrected) {
+    return;
+  }
+
+  const absl::Span<const TypeCorrectedQuery> queries = corrected.value();
+
+  if (queries.empty()) {
+    return;
+  }
+
+  // Make ConversionRequest that has no composer to avoid the original key
+  // from being used during the candidate aggregation. Kana modifier
+  // insensitive dictionary lookup is also disabled as composition
+  // spellchecker has already fixed them.
+  ConversionRequest corrected_request = request;
+  corrected_request.set_composer(nullptr);
+  corrected_request.set_kana_modifier_insensitive_conversion(false);
+
+  for (const auto &query : queries) {
+    absl::string_view key = query.correction;
+    const size_t key_len = Util::CharsLen(key);
+
+    // Makes dummy segments with corrected query.
+    Segments corrected_segments = segments;
+    corrected_segments.mutable_conversion_segment(0)->set_key(key);
+
+    std::vector<Result> corrected_results;
+
+    // Since COMPLETION query already performs predictive lookup,
+    // no need to run UNIGRAM and BIGRAM lookup.
+    const bool is_realtime_only =
+        (query.type & TypeCorrectedQuery::COMPLETION ||
+         request.request_type() == ConversionRequest::PARTIAL_SUGGESTION ||
+         request.request_type() == ConversionRequest::PARTIAL_PREDICTION);
+
+    if (is_realtime_only) {
+      constexpr int kRealtimeSize = 1;
+      AggregateRealtimeConversion(
+          corrected_request, kRealtimeSize,
+          /* insert_realtime_top_from_actual_converter= */ false,
+          corrected_segments, &corrected_results);
+    } else {
+      const UnigramConfig &unigram_config = GetUnigramConfig(request);
+      if (key_len >= unigram_config.min_key_len) {
+        const AggregateUnigramFn &unigram_fn = unigram_config.unigram_fn;
+        (this->*unigram_fn)(corrected_request, corrected_segments,
+                            &corrected_results);
+      }
+
+      if (base_selected_types & REALTIME) {
+        constexpr int kRealtimeSize = 2;
+        AggregateRealtimeConversion(
+            corrected_request, kRealtimeSize,
+            /* insert_realtime_top_from_actual_converter= */ false,
+            corrected_segments, &corrected_results);
+      }
+
+      if (base_selected_types & BIGRAM) {
+        AggregateBigramPrediction(corrected_request, corrected_segments,
+                                  Segment::Candidate::SOURCE_INFO_NONE,
+                                  &corrected_results);
+      }
+    }
+
+    // Appends the result with TYPING_CORRECTION attribute.
+    for (Result &result : corrected_results) {
+      // If the correction is a pure kana modifier insensitive correction,
+      // typing correction annotation is not necessary.
+      if (query.type & TypeCorrectedQuery::CORRECTION) {
+        result.types |= TYPING_CORRECTION;
+      }
+      result.typing_correction_score = query.score;
+      // bias = hyp_score - base_score, so larger is better.
+      // bias is computed in log10 domain, so we need to use the different
+      // scale factor. 500 * log(10) = ~1150.
+      result.wcost -= 1150 * query.bias;
+      results->emplace_back(std::move(result));
+    }
+  }
+
+  const int lookup_limit =
+      (request.request_type() == ConversionRequest::PARTIAL_SUGGESTION ||
+       request.request_type() == ConversionRequest::PARTIAL_PREDICTION)
+          ? kSuggestionMaxResultsSize
+          : GetCandidateCutoffThreshold(request.request_type());
   if (results->size() - prev_results_size >= lookup_limit) {
     results->resize(prev_results_size);
-    return;
   }
 }
 
@@ -1677,7 +1789,7 @@ bool DictionaryPredictionAggregator::AggregateNumberCandidates(
 
   std::string input_key;
   if (request.has_composer()) {
-    request.composer().GetQueryForPrediction(&input_key);
+    input_key = request.composer().GetQueryForPrediction();
   } else {
     input_key = segments.conversion_segment(0).key();
   }
@@ -1697,8 +1809,10 @@ bool DictionaryPredictionAggregator::AggregateNumberCandidates(
     result.key = input_key.substr(0, decode_result.consumed_key_byte_len);
     result.value = std::move(decode_result.candidate);
     result.candidate_attributes |= Segment::Candidate::NO_SUGGEST_LEARNING;
-    // Heuristic small cost: 1000 ~= 500 * log(10)
-    result.wcost = 1000;
+    // Heuristic cost:
+    // Large digit number (1億, 1兆, etc) should have larger cost
+    // 1000 ~= 500 * log(10)
+    result.wcost = 1000 * (1 + decode_result.digit_num);
     result.lid = is_arabic ? number_id_ : kanji_number_id_;
     result.rid = is_arabic ? number_id_ : kanji_number_id_;
     if (decode_result.consumed_key_byte_len < input_key.size()) {
@@ -1722,25 +1836,28 @@ void DictionaryPredictionAggregator::AggregatePrefixCandidates(
     return;
   }
 
-  std::string input_key;
-  if (request.has_composer()) {
-    request.composer().GetQueryForPrediction(&input_key);
-  } else {
-    input_key = segments.conversion_segment(0).key();
-  }
+  const std::string &input_key = [&]() {
+    std::string ret;
+    if (request.has_composer()) {
+      ret = request.composer().GetQueryForPrediction();
+    } else {
+      ret = segments.conversion_segment(0).key();
+    }
+    return ret;
+  }();
 
   const size_t input_key_len = Util::CharsLen(input_key);
   if (input_key_len <= 1) {
     return;
   }
   // Excludes exact match nodes.
-  Util::Utf8SubString(input_key, 0, input_key_len - 1, &input_key);
+  absl::string_view lookup_key =
+      Util::Utf8SubString(input_key, 0, input_key_len - 1);
 
-  const int min_value_chars_len =
-      IsEnableSingleKanjiPrediction(request) ? 2 : 1;
+  constexpr int kMinValueCharsLen = 2;
   PrefixLookupCallback callback(cutoff_threshold, kanji_number_id_, unknown_id_,
-                                min_value_chars_len, results);
-  dictionary_->LookupPrefix(input_key, request, &callback);
+                                kMinValueCharsLen, input_key_len, results);
+  dictionary_->LookupPrefix(lookup_key, request, &callback);
   const size_t prefix_results_size = results->size() - prev_results_size;
   if (prefix_results_size >= cutoff_threshold) {
     results->resize(prev_results_size);
@@ -1749,6 +1866,11 @@ void DictionaryPredictionAggregator::AggregatePrefixCandidates(
 
 bool DictionaryPredictionAggregator::ShouldAggregateRealTimeConversionResults(
     const ConversionRequest &request, const Segments &segments) {
+  if (request_util::IsHandwriting(request)) {
+    // TODO(toshiyuki): Implement the logic for handwriting
+    return false;
+  }
+
   constexpr size_t kMaxRealtimeKeySize = 300;  // 300 bytes in UTF8
   const std::string &key = segments.conversion_segment(0).key();
   if (key.empty() || key.size() >= kMaxRealtimeKeySize) {

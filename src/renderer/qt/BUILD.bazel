@@ -39,9 +39,7 @@ load(
     "mozc_qt_moc",
 )
 
-package(default_visibility = [
-    "//:__subpackages__",
-])
+package(default_visibility = ["//:__subpackages__"])
 
 licenses(["notice"])
 
@@ -95,10 +93,12 @@ mozc_cc_qt_library(
         "//base:logging",
         "//base:port",
         "//base:system_util",
+        "//base:vlog",
         "//client:client_interface",
         "//config:config_handler",
         "//ipc:named_event",
         "//protocol:renderer_cc_proto",
+        "@com_google_absl//absl/flags:flag",
     ],
 )
 

@@ -29,7 +29,7 @@
 
 """Qt build rules."""
 
-load("//bazel:stubs.bzl", "register_extension_info")
+load("@build_bazel_rules_apple//apple:macos.bzl", "macos_application")
 load(
     "//:build_defs.bzl",
     "mozc_cc_binary",
@@ -41,7 +41,7 @@ load(
     "MACOS_BUNDLE_ID_PREFIX",
     "MACOS_MIN_OS_VER",
 )
-load("@build_bazel_rules_apple//apple:macos.bzl", "macos_application")
+load("//bazel:stubs.bzl", "register_extension_info")
 
 def mozc_cc_qt_library(name, deps = [], **kwargs):
     mozc_cc_library(
@@ -55,7 +55,7 @@ def mozc_cc_qt_library(name, deps = [], **kwargs):
     )
 
 register_extension_info(
-    extension = "mozc_cc_qt_library",
+    extension = mozc_cc_qt_library,
     label_regex_for_dep = "{extension_name}",
 )
 
@@ -71,7 +71,7 @@ def mozc_cc_qt_binary(name, deps = [], **kwargs):
     )
 
 register_extension_info(
-    extension = "mozc_cc_qt_binary",
+    extension = mozc_cc_qt_binary,
     label_regex_for_dep = "{extension_name}",
 )
 
@@ -159,6 +159,6 @@ def mozc_macos_qt_application(name, bundle_name, deps):
     )
 
 register_extension_info(
-    extension = "mozc_macos_qt_application",
+    extension = mozc_macos_qt_application,
     label_regex_for_dep = "{extension_name}",
 )

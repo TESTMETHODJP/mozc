@@ -33,9 +33,10 @@
 #include <string>
 #include <vector>
 
-#include "dictionary/dictionary_token.h"
-#include "request/conversion_request.h"
 #include "absl/strings/string_view.h"
+#include "dictionary/dictionary_token.h"
+#include "protocol/user_dictionary_storage.pb.h"
+#include "request/conversion_request.h"
 
 namespace mozc {
 namespace dictionary {
@@ -164,6 +165,21 @@ class DictionaryInterface {
  protected:
   // Do not allow instantiation
   DictionaryInterface() = default;
+};
+
+class UserDictionaryInterface : public DictionaryInterface {
+ public:
+  virtual ~UserDictionaryInterface() = default;
+
+  // Waits until reloader finishes
+  virtual void WaitForReloader() = 0;
+
+  // Gets the user POS list.
+  virtual std::vector<std::string> GetPosList() const = 0;
+
+  // Loads dictionary from UserDictionaryStorage.
+  // mainly for unit testing
+  virtual bool Load(const user_dictionary::UserDictionaryStorage &storage) = 0;
 };
 
 }  // namespace dictionary

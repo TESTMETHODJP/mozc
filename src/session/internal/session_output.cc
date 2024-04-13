@@ -38,7 +38,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/strings/assign.h"
 #include "base/text_normalizer.h"
 #include "base/util.h"
@@ -48,9 +52,6 @@
 #include "protocol/candidates.pb.h"
 #include "protocol/commands.pb.h"
 #include "session/internal/candidate_list.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace session {
@@ -445,8 +446,7 @@ bool SessionOutput::AddSegment(const absl::string_view key,
 // static
 void SessionOutput::FillPreedit(const composer::Composer &composer,
                                 commands::Preedit *preedit) {
-  std::string output;
-  composer.GetStringForPreedit(&output);
+  const std::string output = composer.GetStringForPreedit();
 
   constexpr uint32_t kBaseType = PREEDIT;
   AddSegment(output, output, kBaseType, preedit);
@@ -462,9 +462,11 @@ void SessionOutput::FillConversion(const Segments &segments,
   constexpr uint32_t kBaseType = CONVERSION;
   // Cursor position in conversion state should be the end of the preedit.
   size_t cursor = 0;
-  for (size_t i = 0; i < segments.conversion_segments_size(); ++i) {
-    const Segment &segment = segments.conversion_segment(i);
-    if (i == segment_index) {
+  const Segments::const_range conversion_segments =
+      segments.conversion_segments();
+  const Segment &current_segment = conversion_segments[segment_index];
+  for (const Segment &segment : conversion_segments) {
+    if (&segment == &current_segment) {
       const std::string &value = segment.candidate(candidate_id).value;
       if (AddSegment(segment.key(), value, kBaseType | FOCUSED, preedit) &&
           (!preedit->has_highlighted_position())) {

@@ -35,6 +35,9 @@
 #include <string>
 #include <vector>
 
+#include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "base/file/temp_dir.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
@@ -47,9 +50,6 @@
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/random/random.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
 
 namespace mozc {
 namespace {

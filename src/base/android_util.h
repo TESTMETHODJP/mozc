@@ -35,9 +35,7 @@
 #include <set>
 #include <string>
 
-
-// for FRIEND_TEST()
-#include "testing/gunit_prod.h"
+#include "testing/friend_test.h"
 
 namespace mozc {
 
@@ -90,4 +88,4 @@ class AndroidUtil {
 };
 
 }  // namespace mozc
-#endif  // MOZC_BASE_ANDROID_UTIL_H
+#endif  // MOZC_BASE_ANDROID_UTIL_H_

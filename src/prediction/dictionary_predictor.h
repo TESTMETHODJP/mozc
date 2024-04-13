@@ -37,26 +37,26 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "converter/connector.h"
 #include "converter/converter_interface.h"
 #include "converter/immutable_converter_interface.h"
 #include "converter/segmenter.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager_interface.h"
-#include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/single_kanji_dictionary.h"
+#include "engine/modules.h"
 #include "prediction/prediction_aggregator_interface.h"
 #include "prediction/predictor_interface.h"
 #include "prediction/rescorer_interface.h"
 #include "prediction/result.h"
 #include "prediction/suggestion_filter.h"
 #include "request/conversion_request.h"
-#include "absl/base/attributes.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/span.h"
 
 namespace mozc::prediction {
 namespace dictionary_predictor_internal {
@@ -67,6 +67,28 @@ struct KeyValueView {
 };
 
 }  // namespace dictionary_predictor_internal
+
+// Parameters to mix the literal and typing corrected results.
+// These parameters define the position of literal and typing corrected
+// results, and determined dynamically using various quality signals.
+struct TypingCorrectionMixingParams {
+  // Moves the literal candidate to the top position even when
+  // the typing corrected result is placed at top.
+  // Set this flag when the typing correction is less confident.
+  bool literal_on_top = false;
+
+  // Moves the literal candidate to the at least second position.
+  // When the literal candidate is already at the top, do nothing.
+  bool literal_at_least_second = false;
+};
+
+// Computes the typing correction mixing params.
+// from the `base_result` and `typing_corrected_results`.
+// TODO(taku): Introduces more advanced algorithms to make better decision.
+TypingCorrectionMixingParams GetTypingCorrectionMixingParams(
+    const ConversionRequest &request, const Segments &segments,
+    absl::Span<const Result> base_results,
+    absl::Span<const Result> typing_corrected_results);
 
 // Dictionary-based predictor
 class DictionaryPredictor : public PredictorInterface {
@@ -79,16 +101,9 @@ class DictionaryPredictor : public PredictorInterface {
 
   // Initializes a predictor with given references to submodules. Note that
   // pointers are not owned by the class and to be deleted by the caller.
-  DictionaryPredictor(const DataManagerInterface &data_manager,
+  DictionaryPredictor(const engine::Modules &modules,
                       const ConverterInterface *converter,
-                      const ImmutableConverterInterface *immutable_converter,
-                      const dictionary::DictionaryInterface *dictionary,
-                      const dictionary::DictionaryInterface *suffix_dictionary,
-                      const Connector &connector, const Segmenter *segmenter,
-                      dictionary::PosMatcher pos_matcher,
-                      const SuggestionFilter &suggestion_filter,
-                      const prediction::RescorerInterface *rescorer = nullptr,
-                      const void *user_arg = nullptr);
+                      const ImmutableConverterInterface *immutable_converter);
 
   DictionaryPredictor(const DictionaryPredictor &) = delete;
   DictionaryPredictor &operator=(const DictionaryPredictor &) = delete;
@@ -106,21 +121,22 @@ class DictionaryPredictor : public PredictorInterface {
   class ResultFilter {
    public:
     ResultFilter(const ConversionRequest &request, const Segments &segments,
+                 dictionary::PosMatcher pos_matcher,
                  const SuggestionFilter &suggestion_filter
                      ABSL_ATTRIBUTE_LIFETIME_BOUND);
     bool ShouldRemove(const Result &result, int added_num,
                       std::string *log_message);
 
    private:
-    static constexpr int kTcMaxCountPerKey = 2;
-
     bool CheckDupAndReturn(absl::string_view value, const Result &result,
                            std::string *log_message);
 
     const std::string input_key_;
     const size_t input_key_len_;
+    const dictionary::PosMatcher pos_matcher_;
     const SuggestionFilter &suggestion_filter_;
     const bool is_mixed_conversion_;
+    const bool auto_partial_suggestion_;
     const bool include_exact_key_;
 
     std::string history_key_;
@@ -138,8 +154,6 @@ class DictionaryPredictor : public PredictorInterface {
 
     // Seen set for dup value check.
     absl::flat_hash_set<std::string> seen_;
-    // Seen set for typing correction dup key check.
-    absl::flat_hash_map<std::string, int> seen_tc_keys_;
   };
 
   // pair: <rid, key_length>
@@ -147,22 +161,15 @@ class DictionaryPredictor : public PredictorInterface {
 
   // Constructor for testing
   DictionaryPredictor(
-      std::string predictor_name,
+      std::string predictor_name, const engine::Modules &modules,
       std::unique_ptr<const prediction::PredictionAggregatorInterface>
           aggregator,
-      const DataManagerInterface &data_manager,
-      const ImmutableConverterInterface *immutable_converter,
-      const Connector &connector, const Segmenter *segmenter,
-      dictionary::PosMatcher pos_matcher,
-      const SuggestionFilter &suggestion_filter,
-      const prediction::RescorerInterface *rescorer = nullptr);
+      const ImmutableConverterInterface *immutable_converter);
 
-  static void ApplyPenaltyForKeyExpansion(const Segments &segments,
-                                          std::vector<Result> *results);
-
-  bool AddPredictionToCandidates(const ConversionRequest &request,
-                                 Segments *segments,
-                                 absl::Span<Result> results) const;
+  bool AddPredictionToCandidates(
+      const ConversionRequest &request, Segments *segments,
+      const TypingCorrectionMixingParams &typing_correction_mixing_params,
+      absl::Span<Result> results) const;
 
   void FillCandidate(
       const ConversionRequest &request, const Result &result,
@@ -232,6 +239,11 @@ class DictionaryPredictor : public PredictorInterface {
   static void RemoveMissSpelledCandidates(size_t request_key_len,
                                           std::vector<Result> *results);
 
+  // Populate conversion costs to `results`.
+  void RewriteResultsForPrediction(const ConversionRequest &request,
+                                   const Segments &segments,
+                                   std::vector<Result> *results) const;
+
   // Scoring function which takes prediction bounus into account.
   // It basically reranks the candidate by lang_prob * (1 + remain_len).
   // This algorithm is mainly used for desktop.
@@ -277,10 +289,17 @@ class DictionaryPredictor : public PredictorInterface {
       const ImmutableConverterInterface *immutable_converter,
       absl::flat_hash_map<PrefixPenaltyKey, int> *cache) const;
 
-  static void MaybeMoveLiteralCandidateToTop(const ConversionRequest &request,
-                                             Segments *segments);
+  // Populates typing corrected results to `results`.
+  TypingCorrectionMixingParams MaybePopulateTypingCorrectedResults(
+      const ConversionRequest &request, const Segments &segments,
+      std::vector<Result> *results) const;
 
-  static void MaybeApplyHomonymCorrection(const ConversionRequest &request,
+  static void MaybeSuppressAggressiveTypingCorrection(
+      const ConversionRequest &request,
+      const TypingCorrectionMixingParams &typing_correction_mixing_params,
+      Segments *segments);
+
+  static void MaybeApplyHomonymCorrection(const engine::Modules &modules,
                                           Segments *segments);
 
   void MaybeRescoreResults(const ConversionRequest &request,
@@ -303,6 +322,7 @@ class DictionaryPredictor : public PredictorInterface {
   const uint16_t general_symbol_id_;
   const std::string predictor_name_;
   const prediction::RescorerInterface *rescorer_ = nullptr;
+  const engine::Modules &modules_;
 };
 
 }  // namespace mozc::prediction

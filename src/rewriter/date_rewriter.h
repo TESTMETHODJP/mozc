@@ -30,17 +30,19 @@
 #ifndef MOZC_REWRITER_DATE_REWRITER_H_
 #define MOZC_REWRITER_DATE_REWRITER_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "composer/composer.h"
+#include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "dictionary/dictionary_interface.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace date_rewriter_internal {
@@ -60,8 +62,9 @@ struct DateCandidate {
 class DateRewriter : public RewriterInterface {
  public:
   DateRewriter() = default;
-  explicit DateRewriter(const dictionary::DictionaryInterface *dictionary)
-      : dictionary_(dictionary) {}
+  explicit DateRewriter(const ConverterInterface *parent_converter,
+                        const dictionary::DictionaryInterface *dictionary)
+      : parent_converter_(parent_converter), dictionary_(dictionary) {}
 
   int capability(const ConversionRequest &request) const override;
 
@@ -84,27 +87,22 @@ class DateRewriter : public RewriterInterface {
   // both Heisei and the new e
   static bool AdToEra(int year, int month, std::vector<std::string> *results);
 
-  // For backward compatibility
-  static bool AdToEra(int year, std::vector<std::string> *results) {
-    return AdToEra(year, 1, results);
-  }
   static std::vector<std::string> AdToEra(int year, int month);
 
   // Converts AD to Japanese ERA.
   // If given string is invalid, this function does not nothing and
-  // returns false
+  // returns an empty vector.
   // The results will have multiple variants.
   // e.g.)
-  //   key              -> results, descriptions
+  //   key              -> list of result and description
   //   -----------------------------------------------
-  //   "へいせい20ねん" -> {"2008年", "２００８年", "二〇〇八年"},
-  //                       {"平成20年", "平成20年", "平成20年"}
-  //   "しょうわ2ねん"  -> {"1927年", "１９２７年", "一九二七年",
-  //                        "1313年", "１３１３年", "一三一三年" },
-  //                       {"昭和2年", "昭和2年", "昭和2年",
-  //                        "正和2年", "正和2年", "正和2年"}
-  static bool EraToAd(absl::string_view key, std::vector<std::string> *results,
-                      std::vector<std::string> *descriptions);
+  //   "へいせい20ねん" -> {{"2008年", "平成20年"}, {"２００８年", "平成20年"},
+  //                       {"二〇〇八年", "平成20年"}}
+  //   "しょうわ2ねん"  -> {{"1927年", "昭和2年"}, {"１９２７年", "昭和2年"},
+  //                       {"一九二七年", "昭和2年"}, {"1313年", "正和2年"},
+  //                       {"１３１３年", "正和2年"}, {"一三一三年", "正和2年"}}
+  static std::vector<std::pair<std::string, std::string>> EraToAd(
+      absl::string_view key);
 
   // Converts given time to string expression.
   // If given time information is invalid, this function does nothing and
@@ -150,8 +148,15 @@ class DateRewriter : public RewriterInterface {
 
  private:
   static bool RewriteDate(Segment *segment, absl::string_view extra_format);
-  static bool RewriteEra(Segment *current_segment, const Segment &next_segment);
+  // Returns the number of segments processed.
+  static size_t RewriteEra(Segments::range segments_range);
   static bool RewriteAd(Segment *segment);
+  bool ResizeSegmentsForRewriteAd(const ConversionRequest &request,
+                                  Segments::const_range segments_range,
+                                  Segments *segments) const;
+  bool ResizeSegments(const ConversionRequest &request,
+                      Segments::const_iterator segments_begin,
+                      absl::string_view key, Segments *segments) const;
 
   // When only one conversion segment has consecutive number characters,
   // this function adds date and time candidates.
@@ -176,7 +181,8 @@ class DateRewriter : public RewriterInterface {
       absl::string_view str,
       std::vector<date_rewriter_internal::DateCandidate> *results);
 
-  const dictionary::DictionaryInterface *dictionary_ = nullptr;
+  const ConverterInterface *const parent_converter_ = nullptr;
+  const dictionary::DictionaryInterface *const dictionary_ = nullptr;
 };
 
 }  // namespace mozc

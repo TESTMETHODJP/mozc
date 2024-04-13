@@ -30,20 +30,15 @@
 #ifndef MOZC_RENDERER_WIN32_TEXT_RENDERER_H_
 #define MOZC_RENDERER_WIN32_TEXT_RENDERER_H_
 
-// clang-format off
 #include <windows.h>
-#include <atlbase.h>
-#include <atlapp.h>
-#include <atlmisc.h>
-// clang-format on
 
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 
-#include "base/coordinates.h"
 #include "absl/types/span.h"
+#include "base/coordinates.h"
 
 namespace mozc {
 namespace renderer {
@@ -94,9 +89,9 @@ class TextRenderer {
                                       std::wstring_view str,
                                       int width) const = 0;
   // Renders the given |text|.
-  virtual void RenderText(WTL::CDCHandle dc, std::wstring_view text,
+  virtual void RenderText(HDC dc, std::wstring_view text,
                           const Rect &rect, FONT_TYPE font_type) const = 0;
-  virtual void RenderTextList(WTL::CDCHandle dc,
+  virtual void RenderTextList(HDC dc,
                               absl::Span<const TextRenderingInfo> display_list,
                               FONT_TYPE font_type) const = 0;
 };

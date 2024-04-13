@@ -35,10 +35,9 @@
 #include <utility>
 #include <vector>
 
-#include "dictionary/dictionary_token.h"
-#include "testing/gunit_prod.h"
 #include "absl/strings/string_view.h"
-// for FRIEND_TEST
+#include "dictionary/dictionary_token.h"
+#include "testing/friend_test.h"
 
 namespace mozc {
 namespace dictionary {

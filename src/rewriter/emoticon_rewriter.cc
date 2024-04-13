@@ -37,7 +37,10 @@
 #include <string>
 #include <vector>
 
+#include "absl/random/random.h"
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
+#include "base/vlog.h"
 #include "converter/segments.h"
 #include "data_manager/serialized_dictionary.h"
 #include "protocol/commands.pb.h"
@@ -45,8 +48,6 @@
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 #include "rewriter/rewriter_util.h"
-#include "absl/random/random.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -140,6 +141,7 @@ void InsertCandidates(SerializedDictionary::const_iterator begin,
                          sorted_value[i].description().size());
       c->description = description;
     }
+    c->category = Segment::Candidate::SYMBOL;
   }
 }
 
@@ -147,8 +149,7 @@ void InsertCandidates(SerializedDictionary::const_iterator begin,
 
 bool EmoticonRewriter::RewriteCandidate(Segments *segments) const {
   bool modified = false;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    const Segment &segment = segments->conversion_segment(i);
+  for (Segment &segment : segments->conversion_segments()) {
     const std::string &key = segment.key();
     if (key.empty()) {
       // This case happens for zero query suggestion.
@@ -207,7 +208,7 @@ bool EmoticonRewriter::RewriteCandidate(Segments *segments) const {
     }
 
     InsertCandidates(begin, end, initial_insert_pos, initial_insert_size,
-                     is_no_learning, segments->mutable_conversion_segment(i));
+                     is_no_learning, &segment);
     modified = true;
   }
 
@@ -236,7 +237,7 @@ int EmoticonRewriter::capability(const ConversionRequest &request) const {
 bool EmoticonRewriter::Rewrite(const ConversionRequest &request,
                                Segments *segments) const {
   if (!request.config().use_emoticon_conversion()) {
-    VLOG(2) << "no use_emoticon_conversion";
+    MOZC_VLOG(2) << "no use_emoticon_conversion";
     return false;
   }
   return RewriteCandidate(segments);

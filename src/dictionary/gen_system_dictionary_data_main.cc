@@ -42,6 +42,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/flags/flag.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
@@ -49,11 +54,6 @@
 #include "dictionary/pos_matcher.h"
 #include "dictionary/system/system_dictionary_builder.h"
 #include "dictionary/text_dictionary_loader.h"
-#include "absl/flags/flag.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
 
 ABSL_FLAG(std::string, input, "", "space separated input text files");
 ABSL_FLAG(std::string, user_pos_manager_data, "", "user pos manager data");

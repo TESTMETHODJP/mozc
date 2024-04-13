@@ -32,6 +32,8 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "config/character_form_manager.h"
@@ -43,8 +45,6 @@
 #include "request/conversion_request.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -219,9 +219,8 @@ TEST_F(VariantsRewriterTest, RewriteTestManyCandidates) {
     for (int i = 0; i < 10; ++i) {
       EXPECT_EQ(seg->candidate(3 * i + 1).value, std::to_string(i));
       EXPECT_EQ(seg->candidate(3 * i + 1).content_value, std::to_string(i));
-      std::string full_width;
-      japanese_util::HalfWidthToFullWidth(seg->candidate(3 * i + 1).value,
-                                          &full_width);
+      std::string full_width =
+          japanese_util::HalfWidthToFullWidth(seg->candidate(3 * i + 1).value);
       EXPECT_EQ(seg->candidate(3 * i).value, full_width);
       EXPECT_EQ(seg->candidate(3 * i).content_value, full_width);
       EXPECT_EQ(seg->candidate(3 * i + 2).value, "ぐーぐる");
@@ -249,9 +248,8 @@ TEST_F(VariantsRewriterTest, RewriteTestManyCandidates) {
     for (int i = 0; i < 10; ++i) {
       EXPECT_EQ(seg->candidate(3 * i + 2).value, std::to_string(i));
       EXPECT_EQ(seg->candidate(3 * i + 2).content_value, std::to_string(i));
-      std::string full_width;
-      japanese_util::HalfWidthToFullWidth(seg->candidate(3 * i + 2).value,
-                                          &full_width);
+      std::string full_width =
+          japanese_util::HalfWidthToFullWidth(seg->candidate(3 * i + 2).value);
       EXPECT_EQ(seg->candidate(3 * i + 1).value, full_width);
       EXPECT_EQ(seg->candidate(3 * i + 1).content_value, full_width);
       EXPECT_EQ(seg->candidate(3 * i).value, "ぐーぐる");
@@ -909,6 +907,34 @@ TEST_F(VariantsRewriterTest, Capability) {
   std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
   const ConversionRequest request;
   EXPECT_EQ(rewriter->capability(request), RewriterInterface::ALL);
+}
+
+TEST_F(VariantsRewriterTest, LearningLevel) {
+  std::unique_ptr<VariantsRewriter> rewriter(CreateVariantsRewriter());
+  CharacterFormManager *manager =
+      CharacterFormManager::GetCharacterFormManager();
+  config::Config config;
+  config.set_history_learning_level(Config::NO_HISTORY);
+  ConversionRequest request;
+  request.set_config(&config);
+
+  Segments segments;
+
+  Segment *segment = segments.push_back_segment();
+  segment->set_key("いちにさん");
+  segment->set_segment_type(Segment::FIXED_VALUE);
+
+  Segment::Candidate *cand = segment->add_candidate();
+  cand->key = "いちにさん";
+  cand->content_key = cand->key;
+
+  // Half-width number with style.
+  cand->value = "123";
+  cand->content_value = cand->value;
+  cand->style = NumberUtil::NumberString::NUMBER_SEPARATED_ARABIC_HALFWIDTH;
+  EXPECT_NE(manager->GetConversionCharacterForm("0"), Config::HALF_WIDTH);
+  rewriter->Finish(request, &segments);
+  EXPECT_NE(manager->GetConversionCharacterForm("0"), Config::HALF_WIDTH);
 }
 
 TEST_F(VariantsRewriterTest, Finish) {

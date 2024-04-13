@@ -33,17 +33,18 @@
 #include <string>
 #include <utility>
 
+#include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/port.h"
 #include "base/singleton.h"
 #include "base/system_util.h"
+#include "base/vlog.h"
 #include "storage/storage_interface.h"
 #include "storage/tiny_storage.h"
-#include "absl/base/attributes.h"
-#include "absl/base/const_init.h"
-#include "absl/strings/string_view.h"
-#include "absl/synchronization/mutex.h"
 
 namespace mozc {
 namespace storage {
@@ -95,7 +96,7 @@ bool Registry::Clear() {
 }
 
 void Registry::SetStorage(std::unique_ptr<StorageInterface> handler) {
-  VLOG(1) << "New storage interface is set";
+  MOZC_VLOG(1) << "New storage interface is set";
   absl::MutexLock l(&g_mutex);
   Singleton<StorageInitializer>::get()->SetStorage(std::move(handler));
 }

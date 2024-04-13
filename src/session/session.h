@@ -37,6 +37,7 @@
 #include <memory>
 #include <string>
 
+#include "absl/time/time.h"
 #include "composer/composer.h"
 #include "composer/table.h"
 #include "engine/engine_interface.h"
@@ -45,10 +46,8 @@
 #include "session/internal/ime_context.h"
 #include "session/internal/keymap.h"
 #include "session/session_interface.h"
-// for FRIEND_TEST()
-#include "testing/gunit_prod.h"
+#include "testing/friend_test.h"
 #include "transliteration/transliteration.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 namespace session {
@@ -133,6 +132,8 @@ class Session : public SessionInterface {
   bool InsertSpaceHalfWidth(mozc::commands::Command *command);
   bool InsertSpaceFullWidth(mozc::commands::Command *command);
   bool InsertCharacter(mozc::commands::Command *command);
+  bool UpdateComposition(mozc::commands::Command *command);
+  bool UpdateCompositionInternal(mozc::commands::Command *command);
   bool Delete(mozc::commands::Command *command);
   bool Backspace(mozc::commands::Command *command);
   bool EditCancel(mozc::commands::Command *command);
@@ -242,9 +243,6 @@ class Session : public SessionInterface {
   void SetRequest(const mozc::commands::Request *request) override;
 
   void SetTable(const mozc::composer::Table *table) override;
-
-  void SetSpellCheckerService(const spelling::SpellCheckerServiceInterface
-                                  *spellchecker_service) override;
 
   // Set client capability for this session.  Used by unittest.
   void set_client_capability(

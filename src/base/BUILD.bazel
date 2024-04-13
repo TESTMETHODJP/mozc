@@ -41,12 +41,10 @@ load(
     "LINUX_MOZC_DOCUMENT_DIR",
     "LINUX_MOZC_SERVER_DIR",
 )
-load("//build_tools:embed_file.bzl", "mozc_embed_file")
 load("//bazel:run_build_tool.bzl", "mozc_run_build_tool")
+load("//build_tools:embed_file.bzl", "mozc_embed_file")
 
-package(default_visibility = [
-    "//:__subpackages__",
-])
+package(default_visibility = ["//:__subpackages__"])
 
 mozc_cc_library(
     name = "init_mozc_buildtool",
@@ -55,15 +53,18 @@ mozc_cc_library(
     copts = ["-DMOZC_BUILDTOOL_BUILD"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":log_file",
         ":system_util",
         "@com_google_absl//absl/flags:flag",
     ] + mozc_select(
+        android = ["//base"],
         client = [
             ":file_util",
             ":logging",
             "@com_google_absl//absl/flags:parse",
         ],
         default = ["//base"],
+        ios = ["//base"],
         linux = ["//base"],
         macos = ["//base"],
         oss = [
@@ -71,6 +72,7 @@ mozc_cc_library(
             ":logging",
             "@com_google_absl//absl/flags:parse",
         ],
+        windows = ["//base"],
     ),
 )
 
@@ -78,12 +80,12 @@ mozc_cc_library(
     name = "init_mozc",
     srcs = ["init_mozc.cc"],
     hdrs = ["init_mozc.h"],
-    visibility = [
-        "//:__subpackages__",
-    ],
+    visibility = ["//:__subpackages__"],
     deps = [
+        ":log_file",
         "@com_google_absl//absl/flags:flag",
     ] + mozc_select(
+        android = ["//base"],
         client = [
             ":file_util",
             ":logging",
@@ -91,6 +93,7 @@ mozc_cc_library(
             "@com_google_absl//absl/flags:parse",
         ],
         default = ["//base"],
+        ios = ["//base"],
         linux = ["//base"],
         macos = ["//base"],
         oss = [
@@ -99,6 +102,7 @@ mozc_cc_library(
             ":system_util",
             "@com_google_absl//absl/flags:parse",
         ],
+        windows = ["//base"],
     ),
 )
 
@@ -126,48 +130,37 @@ mozc_cc_library(
 
 mozc_cc_library(
     name = "logging",
-    srcs = ["logging.cc"],
     hdrs = ["logging.h"],
-    linkopts = mozc_select(
-        # Android requires linking logging library.
-        android = ["-llog"],
-    ),
-    deps = mozc_select(
-        default = [
-            "//base",
-            "//base:logging_extensions",
-            "@com_google_absl//absl/log",
-            "@com_google_absl//absl/log:check",
-        ],
-        oss = [
-            ":clock",
-            ":const",
-            ":singleton",
-            "@com_google_absl//absl/strings",
-            "@com_google_absl//absl/strings:str_format",
-        ],
-        wasm = [
-            ":clock",
-            ":const",
-            ":singleton",
-            "@com_google_absl//absl/strings",
-            "@com_google_absl//absl/strings:str_format",
-        ],
-    ) + [
-        "@com_google_absl//absl/flags:flag",
+    deps = [
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+mozc_cc_library(
+    name = "log_file",
+    srcs = ["log_file.cc"],
+    hdrs = ["log_file.h"],
+    deps = [
+        ":file_stream",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:initialize",
+        "@com_google_absl//absl/log:log_entry",
+        "@com_google_absl//absl/log:log_sink",
+        "@com_google_absl//absl/log:log_sink_registry",
         "@com_google_absl//absl/synchronization",
     ],
 )
 
-mozc_cc_test(
-    name = "logging_test",
-    size = "small",
-    srcs = ["logging_test.cc"],
-    requires_full_emulation = False,
+mozc_cc_library(
+    name = "vlog",
+    srcs = ["vlog.cc"],
+    hdrs = ["vlog.h"],
     deps = [
         ":logging",
-        "//testing:gunit_main",
-        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log:flags",
     ],
 )
 
@@ -192,7 +185,6 @@ mozc_cc_test(
     name = "codegen_bytearray_stream_test",
     size = "small",
     srcs = ["codegen_bytearray_stream_test.cc"],
-    requires_full_emulation = False,
     tags = ["noandroid"],
     target_compatible_with = mozc_select(
         android = ["@platforms//:incompatible"],
@@ -219,7 +211,6 @@ mozc_cc_test(
     name = "singleton_test",
     size = "small",
     srcs = ["singleton_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":singleton",
         ":thread",
@@ -259,7 +250,6 @@ mozc_cc_library(
 mozc_cc_test(
     name = "hash_test",
     srcs = ["hash_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":hash",
         "//testing:gunit_main",
@@ -279,12 +269,11 @@ mozc_cc_library(
 mozc_cc_test(
     name = "clock_test",
     srcs = ["clock_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":clock",
         ":clock_mock",
         "//testing:gunit_main",
-        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
     ],
 )
@@ -316,6 +305,8 @@ mozc_cc_library(
         "//base/strings:unicode",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/status",
@@ -333,7 +324,6 @@ mozc_cc_test(
     srcs = [
         "util_test.cc",
     ],
-    requires_full_emulation = False,
     deps = [
         ":logging",
         ":util",
@@ -359,11 +349,12 @@ mozc_cc_library(
     hdrs = ["number_util.h"],
     visibility = ["//:__subpackages__"],
     deps = [
-        ":logging",
         ":util",
+        "//base/strings:unicode",
         "//base/strings/internal:double_array",
         "//base/strings/internal:japanese_rules",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
@@ -374,7 +365,6 @@ mozc_cc_test(
     name = "number_util_test",
     size = "small",
     srcs = ["number_util_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":number_util",
         "//testing:gunit_main",
@@ -397,7 +387,6 @@ mozc_cc_test(
     name = "text_normalizer_test",
     size = "small",
     srcs = ["text_normalizer_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":text_normalizer",
         ":util",
@@ -414,7 +403,7 @@ mozc_cc_library(
     deps = [
         ":clock",
         ":logging",
-        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
     ],
 )
@@ -423,11 +412,10 @@ mozc_cc_test(
     name = "clock_mock_test",
     size = "small",
     srcs = ["clock_mock_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":clock_mock",
         "//testing:gunit_main",
-        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
     ],
 )
@@ -453,7 +441,7 @@ mozc_cc_library(
     ] + mozc_select(
         windows = [
             "//base/win32:wide_char",
-            "//third_party/wil",
+            "@com_microsoft_wil//:wil",
         ],
     ),
 )
@@ -462,13 +450,12 @@ mozc_cc_test(
     name = "mmap_test",
     size = "small",
     srcs = ["mmap_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":file_util",
         ":mmap",
+        "//base/file:temp_dir",
         "//testing:gunit_main",
         "@com_google_absl//absl/algorithm:container",
-        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -502,11 +489,11 @@ mozc_cc_library(
         ":mmap",
         ":port",
         ":singleton",
-        "//bazel/win32:ktmw32",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:span",
     ] + mozc_select(
         windows = [
             ":util",
@@ -530,7 +517,6 @@ mozc_cc_test(
     name = "file_util_mock_test",
     size = "small",
     srcs = ["file_util_mock_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":file_util_mock",
         "//testing:gunit_main",
@@ -541,13 +527,14 @@ mozc_cc_test(
     name = "file_util_test",
     size = "small",
     srcs = ["file_util_test.cc"],
-    requires_full_emulation = False,
     tags = ["noandroid"],  # TODO(b/73698251): disabled due to errors
     deps = [
         ":file_util",
         ":logging",
         ":util",
+        "//base/file:temp_dir",
         "//testing:gunit_main",
+        "//testing:mozctest",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -591,17 +578,14 @@ mozc_cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
     ] + mozc_select(
-        android = [
-            # android_util.h includes this for FRIEND_TEST
-            "//testing:gunit_prod",
-        ],
+        android = ["//testing:friend_test"],
         ios = ["//base/mac:mac_util"],
         macos = ["//base/mac:mac_util"],
         windows = [
+            ":vlog",
             "//base/win32:wide_char",
-            # win_util.h includes gunit_prod.h for FRIEND_TEST.
-            "//testing:gunit_prod",
-            "//third_party/wil",
+            "//testing:friend_test",
+            "@com_microsoft_wil//:wil",
         ],
     ),
 )
@@ -609,7 +593,6 @@ mozc_cc_library(
 mozc_cc_test(
     name = "system_util_test",
     srcs = ["system_util_test.cc"],
-    requires_full_emulation = False,
     visibility = ["//visibility:private"],
     deps = [
         ":environ_mock",
@@ -635,13 +618,14 @@ mozc_cc_library(
         ":file_util",
         ":logging",
         ":system_util",
+        ":vlog",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ] + mozc_select(
         macos = ["//base/mac:mac_process"],
         windows = [
             "//base/win32:wide_char",
-            "//third_party/wil",
+            "@com_microsoft_wil//:wil",
         ],
     ),
 )
@@ -658,6 +642,7 @@ mozc_cc_library(
         ":singleton",
         ":system_util",
         ":util",
+        ":vlog",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
     ] + mozc_select(
@@ -670,7 +655,7 @@ mozc_cc_library(
         windows = [
             "//base/win32:wide_char",
             "//base/win32:win_sandbox",
-            "//third_party/wil",
+            "@com_microsoft_wil//:wil",
         ],
     ),
 )
@@ -679,7 +664,6 @@ mozc_cc_test(
     name = "process_mutex_test",
     size = "small",
     srcs = ["process_mutex_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":file_util",
         ":logging",
@@ -697,9 +681,7 @@ mozc_cc_library(
         "run_level.cc",
     ],
     hdrs = ["run_level.h"],
-    visibility = [
-        "//:__subpackages__",
-    ],
+    visibility = ["//:__subpackages__"],
     deps = [
         ":const",
         ":logging",
@@ -710,7 +692,7 @@ mozc_cc_library(
         windows = [
             "//base/win32:wide_char",
             "//base/win32:win_sandbox",
-            "//third_party/wil",
+            "@com_microsoft_wil//:wil",
         ],
     ),
 )
@@ -757,7 +739,6 @@ mozc_cc_test(
     name = "config_file_stream_test",
     size = "small",
     srcs = ["config_file_stream_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":config_file_stream",
         ":file_util",
@@ -786,9 +767,7 @@ mozc_run_build_tool(
             windows = ["--target_platform=Windows"],
         ),
     tool = "//build_tools:mozc_version",
-    visibility = [
-        "//:__subpackages__",
-    ],
+    visibility = ["//:__subpackages__"],
 )
 
 mozc_run_build_tool(
@@ -830,7 +809,6 @@ mozc_cc_test(
     name = "version_test",
     size = "small",
     srcs = ["version_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":util",
         ":version",
@@ -868,12 +846,10 @@ mozc_cc_test(
         "unverified_aes256_test.cc",
         "unverified_sha1_test.cc",
     ],
-    requires_full_emulation = False,
     visibility = ["//visibility:private"],
     deps = [
         ":obfuscator_support",
         "//testing:gunit_main",
-        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -921,7 +897,6 @@ mozc_cc_test(
         "encryptor_test.cc",
         "password_manager_test.cc",
     ],
-    requires_full_emulation = False,
     # Skipped for Windows Presubmit as CryptProtectData doesn't work on a headless Windows VM.
     # Background: https://github.com/Azure/azure-cli/issues/20695#issuecomment-992086316
     tags = ["nowin"],
@@ -946,7 +921,6 @@ mozc_cc_test(
     name = "cpu_stats_test",
     size = "small",
     srcs = ["cpu_stats_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":cpu_stats",
         "//testing:gunit_main",
@@ -982,7 +956,6 @@ mozc_cc_test(
     name = "stopwatch_test",
     size = "small",
     srcs = ["stopwatch_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":clock",
         ":clock_mock",
@@ -1018,7 +991,6 @@ mozc_cc_test(
     name = "url_test",
     size = "small",
     srcs = ["url_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":url",
         "//testing:gunit_main",
@@ -1043,14 +1015,14 @@ mozc_cc_test(
     name = "multifile_test",
     size = "small",
     srcs = ["multifile_test.cc"],
-    requires_full_emulation = False,
     tags = ["noandroid"],  # TODO(b/73698251): disabled due to errors
     deps = [
         ":file_stream",
         ":file_util",
         ":multifile",
+        "//base/file:temp_dir",
         "//testing:gunit_main",
-        "@com_google_absl//absl/flags:flag",
+        "//testing:mozctest",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
     ],
@@ -1097,23 +1069,12 @@ mozc_cc_test(
         ":gen_embedded_file_test_data",
     ],
     data = ["embedded_file.h"],
-    requires_full_emulation = False,
     tags = ["noandroid"],  # TODO(b/73698251): disabled due to errors
     deps = [
         ":embedded_file",
         ":file_util",
         "//testing:gunit_main",
         "//testing:mozctest",
-    ],
-)
-
-mozc_cc_library(
-    name = "status",
-    hdrs = ["status.h"],
-    deps = [
-        ":logging",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
     ],
 )
 

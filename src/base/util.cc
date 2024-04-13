@@ -42,15 +42,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
-#include "base/strings/unicode.h"
 #include "absl/algorithm/container.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/ascii.h"
-#include "absl/strings/escaping.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "base/strings/unicode.h"
 
 #ifdef _WIN32
 #include "base/win32/wide_char.h"
@@ -100,7 +100,7 @@ void Util::SplitStringToUtf8Chars(absl::string_view str,
   const char *begin = str.data();
   const char *const end = str.data() + str.size();
   while (begin < end) {
-    const size_t mblen = OneCharLen(begin);
+    const size_t mblen = strings::OneCharLen(begin);
     output->emplace_back(begin, mblen);
     begin += mblen;
   }
@@ -127,7 +127,7 @@ void Util::SplitStringToUtf8Graphemes(absl::string_view str,
   new_graphemes.reserve(graphemes->capacity());
 
   for (std::string &grapheme : *graphemes) {
-    const char32_t codepoint = Util::Utf8ToUcs4(grapheme);
+    const char32_t codepoint = Util::Utf8ToCodepoint(grapheme);
     const bool is_dakuten = (codepoint == 0x3099 || codepoint == 0x309A);
     const bool is_svs = (0xFE00 <= codepoint && codepoint <= 0xFE0F);
     const bool is_ivs = (0xE0100 <= codepoint && codepoint <= 0xE01EF);
@@ -244,55 +244,44 @@ constexpr size_t kOffsetFromUpperToLower = 0x0020;
 }
 
 void Util::LowerString(std::string *str) {
-  const char *begin = str->data();
-  size_t mblen = 0;
-
-  std::string utf8;
-  size_t pos = 0;
-  while (pos < str->size()) {
-    char32_t ucs4 = Utf8ToUcs4(begin + pos, begin + str->size(), &mblen);
-    if (mblen == 0) {
-      break;
-    }
-    // ('A' <= ucs4 && ucs4 <= 'Z') || ('Ａ' <= ucs4 && ucs4 <= 'Ｚ')
-    if ((0x0041 <= ucs4 && ucs4 <= 0x005A) ||
-        (0xFF21 <= ucs4 && ucs4 <= 0xFF3A)) {
-      ucs4 += kOffsetFromUpperToLower;
-      Ucs4ToUtf8(ucs4, &utf8);
+  for (const UnicodeChar ch : Utf8AsUnicodeChar(*str)) {
+    char32_t codepoint = ch.char32();
+    // ('A' <= codepoint && codepoint <= 'Z') ||
+    // ('Ａ' <= codepoint && codepoint <= 'Ｚ')
+    if ((0x0041 <= codepoint && codepoint <= 0x005A) ||
+        (0xFF21 <= codepoint && codepoint <= 0xFF3A)) {
+      codepoint += kOffsetFromUpperToLower;
+      const std::string utf8 = CodepointToUtf8(codepoint);
       // The size of upper case character must be equal to the source
       // lower case character.  The following check asserts it.
-      if (utf8.size() != mblen) {
+      if (utf8.size() != ch.utf8().size()) {
         LOG(ERROR) << "The generated size differs from the source.";
         return;
       }
-      str->replace(pos, mblen, utf8);
+      const size_t pos = ch.utf8().data() - str->data();
+      str->replace(pos, ch.utf8().size(), utf8);
     }
-    pos += mblen;
   }
 }
 
 void Util::UpperString(std::string *str) {
-  const char *begin = str->data();
-  size_t mblen = 0;
-
-  std::string utf8;
-  size_t pos = 0;
-  while (pos < str->size()) {
-    char32_t ucs4 = Utf8ToUcs4(begin + pos, begin + str->size(), &mblen);
-    // ('a' <= ucs4 && ucs4 <= 'z') || ('ａ' <= ucs4 && ucs4 <= 'ｚ')
-    if ((0x0061 <= ucs4 && ucs4 <= 0x007A) ||
-        (0xFF41 <= ucs4 && ucs4 <= 0xFF5A)) {
-      ucs4 -= kOffsetFromUpperToLower;
-      Ucs4ToUtf8(ucs4, &utf8);
+  for (const UnicodeChar ch : Utf8AsUnicodeChar(*str)) {
+    char32_t codepoint = ch.char32();
+    // ('a' <= codepoint && codepoint <= 'z') ||
+    // ('ａ' <= codepoint && codepoint <= 'ｚ')
+    if ((0x0061 <= codepoint && codepoint <= 0x007A) ||
+        (0xFF41 <= codepoint && codepoint <= 0xFF5A)) {
+      codepoint -= kOffsetFromUpperToLower;
+      const std::string utf8 = CodepointToUtf8(codepoint);
       // The size of upper case character must be equal to the source
       // lower case character.  The following check asserts it.
-      if (utf8.size() != mblen) {
+      if (utf8.size() != ch.utf8().size()) {
         LOG(ERROR) << "The generated size differs from the source.";
         return;
       }
-      str->replace(pos, mblen, utf8);
+      const size_t pos = ch.utf8().data() - str->data();
+      str->replace(pos, ch.utf8().size(), utf8);
     }
-    pos += mblen;
   }
 }
 
@@ -330,18 +319,11 @@ bool IsUtf8TrailingByte(uint8_t c) { return (c & 0xc0) == 0x80; }
 
 }  // namespace
 
-// Return length of a single UTF-8 source character
-size_t Util::OneCharLen(const char *src) {
-  return strings::OneCharLen(*src);
-}
-
-size_t Util::CharsLen(const char *src, size_t size) {
-  const char *begin = src;
-  const char *end = src + size;
-  int length = 0;
-  while (begin < end) {
+size_t Util::CharsLen(absl::string_view str) {
+  size_t length = 0;
+  while (!str.empty()) {
     ++length;
-    begin += OneCharLen(begin);
+    str = absl::ClippedSubstr(str, strings::OneCharLen(str.begin()));
   }
   return length;
 }
@@ -358,12 +340,13 @@ std::u32string Util::Utf8ToUtf32(absl::string_view str) {
 std::string Util::Utf32ToUtf8(const std::u32string_view str) {
   std::string output;
   for (const char32_t codepoint : str) {
-    Ucs4ToUtf8Append(codepoint, &output);
+    CodepointToUtf8Append(codepoint, &output);
   }
   return output;
 }
 
-char32_t Util::Utf8ToUcs4(const char *begin, const char *end, size_t *mblen) {
+char32_t Util::Utf8ToCodepoint(const char *begin, const char *end,
+                               size_t *mblen) {
   absl::string_view s(begin, end - begin);
   absl::string_view rest;
   char32_t c = 0;
@@ -515,20 +498,21 @@ bool Util::IsValidUtf8(absl::string_view s) {
   return true;
 }
 
-void Util::Ucs4ToUtf8(char32_t c, std::string *output) {
-  output->clear();
-  Ucs4ToUtf8Append(c, output);
+std::string Util::CodepointToUtf8(char32_t c) {
+  std::string output;
+  CodepointToUtf8Append(c, &output);
+  return output;
 }
 
-void Util::Ucs4ToUtf8Append(char32_t c, std::string *output) {
+void Util::CodepointToUtf8Append(char32_t c, std::string *output) {
   char buf[7];
-  output->append(buf, Ucs4ToUtf8(c, buf));
+  output->append(buf, CodepointToUtf8(c, buf));
 }
 
-size_t Util::Ucs4ToUtf8(char32_t c, char *output) {
+size_t Util::CodepointToUtf8(char32_t c, char *output) {
   if (c == 0) {
-    // Do nothing if |c| is NUL. Previous implementation of Ucs4ToUtf8Append
-    // worked like this.
+    // Do nothing if |c| is `\0`. Previous implementation of
+    // CodepointToUtf8Append worked like this.
     output[0] = '\0';
     return 0;
   }
@@ -578,42 +562,11 @@ size_t Util::Ucs4ToUtf8(char32_t c, char *output) {
   return 6;
 }
 
-#ifdef _WIN32
-size_t Util::WideCharsLen(absl::string_view src) {
-  return win32::WideCharsLen(src);
-}
-
-int Util::Utf8ToWide(absl::string_view input, std::wstring *output) {
-  *output = win32::Utf8ToWide(input);
-  return output->size();
-}
-
-std::wstring Util::Utf8ToWide(absl::string_view input) {
-  return win32::Utf8ToWide(input);
-}
-
-int Util::WideToUtf8(const wchar_t *input, std::string *output) {
-  if (input == nullptr) {
-    return 0;
-  }
-  *output = win32::WideToUtf8(input);
-  return output->size();
-}
-
-int Util::WideToUtf8(const std::wstring &input, std::string *output) {
-  return WideToUtf8(input.c_str(), output);
-}
-
-std::string Util::WideToUtf8(const std::wstring &input) {
-  return win32::WideToUtf8(input);
-}
-#endif  // _WIN32
-
 absl::string_view Util::Utf8SubString(absl::string_view src, size_t start) {
   const char *begin = src.data();
   const char *end = begin + src.size();
   for (size_t i = 0; i < start && begin < end; ++i) {
-    begin += OneCharLen(begin);
+    begin += strings::OneCharLen(begin);
   }
   const size_t prefix_len = begin - src.data();
   return absl::string_view(begin, src.size() - prefix_len);
@@ -626,7 +579,7 @@ absl::string_view Util::Utf8SubString(absl::string_view src, size_t start,
   const char *substr_end = src.data();
   const char *const end = src.data() + src.size();
   while (l > 0 && substr_end < end) {
-    substr_end += OneCharLen(substr_end);
+    substr_end += strings::OneCharLen(substr_end);
     --l;
   }
   return absl::string_view(src.data(), substr_end - src.data());
@@ -639,9 +592,9 @@ void Util::Utf8SubString(absl::string_view src, size_t start, size_t length,
   result->assign(substr.data(), substr.size());
 }
 
-void Util::StripUtf8Bom(std::string *line) {
+absl::string_view Util::StripUtf8Bom(absl::string_view line) {
   static constexpr char kUtf8Bom[] = "\xef\xbb\xbf";
-  *line = std::string(absl::StripPrefix(*line, kUtf8Bom));
+  return absl::StripPrefix(line, kUtf8Bom);
 }
 
 bool Util::IsUtf16Bom(absl::string_view line) {
@@ -664,14 +617,6 @@ bool Util::ChopReturns(std::string *line) {
 }
 
 namespace {
-
-void EscapeInternal(char input, absl::string_view prefix, std::string *output) {
-  const int hi = ((static_cast<int>(input) & 0xF0) >> 4);
-  const int lo = (static_cast<int>(input) & 0x0F);
-  output->append(prefix.data(), prefix.size());
-  *output += static_cast<char>(hi >= 10 ? hi - 10 + 'A' : hi + '0');
-  *output += static_cast<char>(lo >= 10 ? lo - 10 + 'A' : lo + '0');
-}
 
 // A sorted array of opening and closing brackets.
 // * Both `open` and `close` bracket must be sorted.
@@ -840,23 +785,6 @@ bool Util::IsEnglishTransliteration(absl::string_view value) {
   return true;
 }
 
-void Util::Escape(absl::string_view input, std::string *output) {
-  output->clear();
-  for (size_t i = 0; i < input.size(); ++i) {
-    EscapeInternal(input[i], "\\x", output);
-  }
-}
-
-std::string Util::Escape(absl::string_view input) {
-  std::string s;
-  Escape(input, &s);
-  return s;
-}
-
-bool Util::Unescape(absl::string_view input, std::string *output) {
-  return absl::CUnescape(input, output);
-}
-
 #define INRANGE(w, a, b) ((w) >= (a) && (w) <= (b))
 
 // script type
@@ -964,11 +892,20 @@ Util::FormType Util::GetFormType(char32_t w) {
 
 #undef INRANGE
 
-// return script type of first character in str
-Util::ScriptType Util::GetScriptType(const char *begin, const char *end,
-                                     size_t *mblen) {
-  const char32_t w = Utf8ToUcs4(begin, end, mblen);
-  return GetScriptType(w);
+// Returns the script type of the first character in `str`.
+Util::ScriptType Util::GetFirstScriptType(absl::string_view str,
+                                          size_t *mblen) {
+  if (str.empty()) {
+    if (mblen) {
+      *mblen = 0;
+    }
+    return GetScriptType(0);
+  }
+  const Utf8AsChars32 utf8_as_char32(str);
+  if (mblen) {
+    *mblen = utf8_as_char32.begin().ok()? utf8_as_char32.begin().size() : 0;
+  }
+  return GetScriptType(utf8_as_char32.front());
 }
 
 namespace {
@@ -977,11 +914,11 @@ Util::ScriptType GetScriptTypeInternal(absl::string_view str,
                                        bool ignore_symbols) {
   Util::ScriptType result = Util::SCRIPT_TYPE_SIZE;
 
-  for (ConstChar32Iterator iter(str); !iter.Done(); iter.Next()) {
-    const char32_t w = iter.Get();
-    Util::ScriptType type = Util::GetScriptType(w);
-    if ((w == 0x30FC || w == 0x30FB || (w >= 0x3099 && w <= 0x309C)) &&
-        // PROLONGEDSOUND MARK|MIDLE_DOT|VOICED_SOUND_MARKS
+  for (const char32_t codepoint : Utf8AsChars32(str)) {
+    Util::ScriptType type = Util::GetScriptType(codepoint);
+    if ((codepoint == 0x30FC || codepoint == 0x30FB ||
+         (codepoint >= 0x3099 && codepoint <= 0x309C)) &&
+        // PROLONGED SOUND MARK|MIDLE_DOT|VOICED_SOUND_MARKS
         // are HIRAGANA as well
         (result == Util::SCRIPT_TYPE_SIZE || result == Util::HIRAGANA ||
          result == Util::KATAKANA)) {
@@ -997,7 +934,8 @@ Util::ScriptType GetScriptTypeInternal(absl::string_view str,
 
     // Periods are NUMBER as well, if it is not the first character.
     // 0xFF0E == '．', 0x002E == '.' in UCS4 encoding.
-    if (result == Util::NUMBER && (w == 0xFF0E || w == 0x002E)) {
+    if (result == Util::NUMBER &&
+        (codepoint == 0xFF0E || codepoint == 0x002E)) {
       continue;
     }
 
@@ -1021,11 +959,6 @@ Util::ScriptType GetScriptTypeInternal(absl::string_view str,
 
 Util::ScriptType Util::GetScriptType(absl::string_view str) {
   return GetScriptTypeInternal(str, false);
-}
-
-Util::ScriptType Util::GetFirstScriptType(absl::string_view str) {
-  size_t mblen = 0;
-  return GetScriptType(str.data(), str.data() + str.size(), &mblen);
 }
 
 Util::ScriptType Util::GetScriptTypeWithoutSymbols(absl::string_view str) {
@@ -1079,17 +1012,17 @@ namespace {
 // constexpr uint64_t kJisX0208BitmapIndex
 #include "base/character_set.inc"
 
-bool IsJisX0208Char(char32_t ucs4) {
-  if (ucs4 <= 0x7F) {
+bool IsJisX0208Char(char32_t codepoint) {
+  if (codepoint <= 0x7F) {
     return true;  // ASCII
   }
 
-  if ((65377 <= ucs4 && ucs4 <= 65439)) {
+  if ((65377 <= codepoint && codepoint <= 65439)) {
     return true;  // JISX0201
   }
 
-  if (ucs4 < 65536) {
-    const int index = ucs4 / 1024;
+  if (codepoint < 65536) {
+    const int index = codepoint / 1024;
     if ((kJisX0208BitmapIndex & (static_cast<uint64_t>(1) << index)) == 0) {
       return false;
     }
@@ -1097,7 +1030,7 @@ bool IsJisX0208Char(char32_t ucs4) {
     const int bitmap_index =
         absl::popcount(kJisX0208BitmapIndex << (63 - index)) - 1;
     const uint32_t *bitmap = kJisX0208Bitmap[bitmap_index];
-    if ((bitmap[(ucs4 % 1024) / 32] >> (ucs4 % 32)) & 0b1) {
+    if ((bitmap[(codepoint % 1024) / 32] >> (codepoint % 32)) & 0b1) {
       return true;  // JISX0208
     }
     return false;

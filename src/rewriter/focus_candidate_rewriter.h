@@ -32,11 +32,11 @@
 
 #include <cstdint>
 
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "converter/segments.h"
 #include "dictionary/pos_matcher.h"
 #include "rewriter/rewriter_interface.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 

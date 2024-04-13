@@ -41,18 +41,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/file_stream.h"
-#include "base/file_util.h"
-#include "base/japanese_util.h"
-#include "base/logging.h"
-#include "base/util.h"
-#include "dictionary/dictionary_token.h"
-#include "dictionary/file/codec_interface.h"
-#include "dictionary/file/section.h"
-#include "dictionary/system/codec_interface.h"
-#include "dictionary/system/words_info.h"
-#include "storage/louds/bit_vector_based_array_builder.h"
-#include "storage/louds/louds_trie_builder.h"
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -60,6 +48,19 @@
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "base/file_stream.h"
+#include "base/file_util.h"
+#include "base/japanese_util.h"
+#include "base/logging.h"
+#include "base/util.h"
+#include "base/vlog.h"
+#include "dictionary/dictionary_token.h"
+#include "dictionary/file/codec_interface.h"
+#include "dictionary/file/section.h"
+#include "dictionary/system/codec_interface.h"
+#include "dictionary/system/words_info.h"
+#include "storage/louds/bit_vector_based_array_builder.h"
+#include "storage/louds/louds_trie_builder.h"
 
 ABSL_FLAG(bool, preserve_intermediate_dictionary, false,
           "preserve inetemediate dictionary file.");
@@ -188,8 +189,7 @@ TokenInfo::ValueType GetValueType(const Token *token) {
   if (token->value == token->key) {
     return TokenInfo::AS_IS_HIRAGANA;
   }
-  std::string katakana;
-  japanese_util::HiraganaToKatakana(token->key, &katakana);
+  std::string katakana = japanese_util::HiraganaToKatakana(token->key);
   if (token->value == katakana) {
     return TokenInfo::AS_IS_KATAKANA;
   }
@@ -297,8 +297,8 @@ void SystemDictionaryBuilder::BuildFrequentPos(
   }
 
   // Collect high frequent pos.
-  VLOG(1) << "num_freq_pos" << num_freq_pos;
-  VLOG(1) << "Pos threshold=" << freq_threshold;
+  MOZC_VLOG(1) << "num_freq_pos" << num_freq_pos;
+  MOZC_VLOG(1) << "Pos threshold=" << freq_threshold;
   int freq_pos_idx = 0;
   int num_tokens = 0;
   for (auto [combined_pos, freq] : pos_map) {
@@ -310,8 +310,8 @@ void SystemDictionaryBuilder::BuildFrequentPos(
   }
   CHECK(freq_pos_idx == num_freq_pos)
       << "inconsistent result to find frequent pos";
-  VLOG(1) << freq_pos_idx << " high frequent Pos has " << num_tokens
-          << " tokens";
+  MOZC_VLOG(1) << freq_pos_idx << " high frequent Pos has " << num_tokens
+               << " tokens";
 }
 
 void SystemDictionaryBuilder::BuildValueTrie(const KeyInfoList &key_info_list) {

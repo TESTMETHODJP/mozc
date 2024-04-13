@@ -36,15 +36,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/japanese_util.h"
-#include "base/logging.h"
-#include "base/util.h"
-#include "protocol/commands.pb.h"
-#include "session/session_stress_test_data.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/japanese_util.h"
+#include "base/logging.h"
+#include "base/util.h"
+#include "base/vlog.h"
+#include "protocol/commands.pb.h"
+#include "session/session_stress_test_data.h"
 
 namespace mozc {
 namespace session {
@@ -97,16 +98,16 @@ void RandomKeyEventsGenerator::TypeRawKeys(
     absl::string_view romaji, bool create_probable_key_events,
     std::vector<commands::KeyEvent> *keys) {
   for (ConstChar32Iterator iter(romaji); !iter.Done(); iter.Next()) {
-    const uint32_t ucs4 = iter.Get();
-    if (ucs4 < 0x20 || ucs4 > 0x7F) {
+    const uint32_t codepoint = iter.Get();
+    if (codepoint < 0x20 || codepoint > 0x7F) {
       continue;
     }
     commands::KeyEvent key;
-    key.set_key_code(ucs4);
+    key.set_key_code(codepoint);
     if (create_probable_key_events) {
       commands::KeyEvent::ProbableKeyEvent *probable_key_event =
           key.add_probable_key_event();
-      probable_key_event->set_key_code(ucs4);
+      probable_key_event->set_key_code(codepoint);
       probable_key_event->set_probability(kMostPossibleKeyProbability);
       for (size_t i = 0; i < kProbableKeyEventSize; ++i) {
         commands::KeyEvent::ProbableKeyEvent *probable_key_event =
@@ -122,10 +123,8 @@ void RandomKeyEventsGenerator::TypeRawKeys(
 
 // Converts from Hiragana to Romaji.
 std::string ToRomaji(absl::string_view hiragana) {
-  std::string tmp, result;
-  japanese_util::HiraganaToRomanji(hiragana, &tmp);
-  japanese_util::FullWidthToHalfWidth(tmp, &result);
-  return result;
+  std::string tmp = japanese_util::HiraganaToRomanji(hiragana);
+  return japanese_util::FullWidthToHalfWidth(tmp);
 }
 
 // Generates KeyEvent instances based on |sentence| and stores into |keys|.
@@ -135,7 +134,7 @@ void RandomKeyEventsGenerator::GenerateMobileSequenceInternal(
     absl::string_view sentence, bool create_probable_key_events,
     std::vector<commands::KeyEvent> *keys) {
   const std::string input = ToRomaji(sentence);
-  VLOG(1) << input;
+  MOZC_VLOG(1) << input;
 
   // Type the sentence
   TypeRawKeys(input, create_probable_key_events, keys);
@@ -176,7 +175,7 @@ void RandomKeyEventsGenerator::GenerateSequence(
 
   const std::string input = ToRomaji(sentence);
 
-  VLOG(1) << input;
+  MOZC_VLOG(1) << input;
 
   // Must send ON event first.
   {
@@ -344,7 +343,7 @@ void RandomKeyEventsGenerator::GenerateSequence(
   }
 
   CHECK_GT(keys->size(), 0);
-  VLOG(1) << "key sequence is generated: " << keys->size();
+  MOZC_VLOG(1) << "key sequence is generated: " << keys->size();
 }
 
 uint32_t RandomKeyEventsGenerator::GetRandomAsciiKey() {

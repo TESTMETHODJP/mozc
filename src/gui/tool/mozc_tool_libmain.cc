@@ -34,9 +34,10 @@
 #endif  // _WIN32
 
 #include <QtGui>
-
 #include <string>
 
+#include "absl/flags/declare.h"
+#include "absl/flags/flag.h"
 #include "base/crash_report_handler.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
@@ -44,8 +45,6 @@
 #include "base/run_level.h"
 #include "base/util.h"
 #include "config/stats_config_util.h"
-#include "absl/flags/declare.h"
-#include "absl/flags/flag.h"
 #include "gui/base/debug_util.h"
 
 #ifdef __APPLE__

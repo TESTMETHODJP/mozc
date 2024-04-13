@@ -47,8 +47,8 @@ using ssize_t = SSIZE_T;
 #include <string>
 #include <vector>
 
+#include "absl/flags/flag.h"
 #include "base/init_mozc.h"
-#include "base/protobuf/message.h"
 #include "base/singleton.h"
 #include "base/system_util.h"
 #include "engine/engine_factory.h"
@@ -56,7 +56,6 @@ using ssize_t = SSIZE_T;
 #include "session/random_keyevents_generator.h"
 #include "session/session_handler.h"
 #include "session/session_usage_observer.h"
-#include "absl/flags/flag.h"
 
 ABSL_FLAG(std::string, host, "localhost", "server host name");
 ABSL_FLAG(bool, server, true, "server mode");
@@ -367,12 +366,10 @@ int main(int argc, char *argv[]) {
       std::vector<mozc::commands::KeyEvent> keys;
       key_events_generator.GenerateSequence(&keys);
       for (size_t i = 0; i < keys.size(); ++i) {
-        LOG(INFO) << "Sending to Server: "
-                  << mozc::protobuf::Utf8Format(keys[i]);
+        LOG(INFO) << "Sending to Server: " << keys[i];
         mozc::commands::Output output;
         CHECK(client.SendKey(keys[i], &output));
-        LOG(INFO) << "Output of SendKey: "
-                  << mozc::protobuf::Utf8Format(output);
+        LOG(INFO) << "Output of SendKey: " << output;
       }
     }
     CHECK(client.DeleteSession());

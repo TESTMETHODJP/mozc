@@ -52,6 +52,7 @@
     'protobuf_root': '<(third_party_dir)/protobuf',
 
     'mozc_data_dir': '<(SHARED_INTERMEDIATE_DIR)/',
+    'mozc_oss_data_dir': '<(SHARED_INTERMEDIATE_DIR)/',
 
     # Ninja requires <(abs_depth) instead of <(DEPTH).
     'mac_breakpad_dir': '<(PRODUCT_DIR)/Breakpad',
@@ -60,12 +61,6 @@
     # See post_build_mac.gypi
     'mac_breakpad_tools_dir': '${BUILT_PRODUCTS_DIR}/Breakpad',
     'mac_breakpad_framework': '<(mac_breakpad_dir)/Breakpad.framework',
-
-    'conditions': [
-      ['target_platform=="Windows"', {
-        'wtl_dir': '<(third_party_dir)/wtl',
-      }],
-    ],
 
     # glob command to get files.
     'glob': '<(python) <(abs_depth)/gyp/glob_files.py',

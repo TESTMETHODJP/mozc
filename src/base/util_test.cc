@@ -42,11 +42,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -301,84 +301,88 @@ TEST(UtilTest, Utf32ToUtf8) {
   EXPECT_EQ(Util::Utf32ToUtf8(kU32Str), kExpected);
 }
 
-void VerifyUtf8ToUcs4(absl::string_view text, char32_t expected_ucs4,
-                      size_t expected_len) {
+void VerifyUtf8ToCodepoint(absl::string_view text, char32_t expected_codepoint,
+                           size_t expected_len) {
   const char *begin = text.data();
   const char *end = begin + text.size();
   size_t mblen = 0;
-  char32_t result = Util::Utf8ToUcs4(begin, end, &mblen);
-  EXPECT_EQ(result, expected_ucs4)
-      << text << " " << std::hex << static_cast<uint64_t>(expected_ucs4);
+  char32_t result = Util::Utf8ToCodepoint(begin, end, &mblen);
+  EXPECT_EQ(result, expected_codepoint)
+      << text << " " << std::hex << static_cast<uint64_t>(expected_codepoint);
   EXPECT_EQ(mblen, expected_len) << text << " " << expected_len;
 }
 
-TEST(UtilTest, Utf8ToUcs4) {
-  VerifyUtf8ToUcs4("", 0, 0);
-  VerifyUtf8ToUcs4("\x01", 1, 1);
-  VerifyUtf8ToUcs4("\x7F", 0x7F, 1);
-  VerifyUtf8ToUcs4("\xC2\x80", 0x80, 2);
-  VerifyUtf8ToUcs4("\xDF\xBF", 0x7FF, 2);
-  VerifyUtf8ToUcs4("\xE0\xA0\x80", 0x800, 3);
-  VerifyUtf8ToUcs4("\xEF\xBF\xBF", 0xFFFF, 3);
-  VerifyUtf8ToUcs4("\xF0\x90\x80\x80", 0x10000, 4);
-  VerifyUtf8ToUcs4("\xF7\xBF\xBF\xBF", 0x1FFFFF, 4);
+TEST(UtilTest, Utf8ToCodepoint) {
+  VerifyUtf8ToCodepoint("", 0, 0);
+  VerifyUtf8ToCodepoint("\x01", 1, 1);
+  VerifyUtf8ToCodepoint("\x7F", 0x7F, 1);
+  VerifyUtf8ToCodepoint("\xC2\x80", 0x80, 2);
+  VerifyUtf8ToCodepoint("\xDF\xBF", 0x7FF, 2);
+  VerifyUtf8ToCodepoint("\xE0\xA0\x80", 0x800, 3);
+  VerifyUtf8ToCodepoint("\xEF\xBF\xBF", 0xFFFF, 3);
+  VerifyUtf8ToCodepoint("\xF0\x90\x80\x80", 0x10000, 4);
+  VerifyUtf8ToCodepoint("\xF7\xBF\xBF\xBF", 0x1FFFFF, 4);
   // do not test 5-6 bytes because it's out of spec of UTF8.
 }
 
-TEST(UtilTest, Ucs4ToUtf8) {
-  std::string output;
-
-  // Do nothing if |c| is NUL. Previous implementation of Ucs4ToUtf8 worked like
-  // this even though the reason is unclear.
-  Util::Ucs4ToUtf8(0, &output);
+TEST(UtilTest, CodepointToUtf8) {
+  // Do nothing if |c| is NUL. Previous implementation of CodepointToUtf8 worked
+  // like this even though the reason is unclear.
+  std::string output = Util::CodepointToUtf8(0);
   EXPECT_TRUE(output.empty());
 
-  Util::Ucs4ToUtf8(0x7F, &output);
+  output = Util::CodepointToUtf8(0x7F);
   EXPECT_EQ(output, "\x7F");
-  Util::Ucs4ToUtf8(0x80, &output);
+  output = Util::CodepointToUtf8(0x80);
   EXPECT_EQ(output, "\xC2\x80");
-  Util::Ucs4ToUtf8(0x7FF, &output);
+  output = Util::CodepointToUtf8(0x7FF);
   EXPECT_EQ(output, "\xDF\xBF");
-  Util::Ucs4ToUtf8(0x800, &output);
+  output = Util::CodepointToUtf8(0x800);
   EXPECT_EQ(output, "\xE0\xA0\x80");
-  Util::Ucs4ToUtf8(0xFFFF, &output);
+  output = Util::CodepointToUtf8(0xFFFF);
   EXPECT_EQ(output, "\xEF\xBF\xBF");
-  Util::Ucs4ToUtf8(0x10000, &output);
+  output = Util::CodepointToUtf8(0x10000);
   EXPECT_EQ(output, "\xF0\x90\x80\x80");
-  Util::Ucs4ToUtf8(0x1FFFFF, &output);
+  output = Util::CodepointToUtf8(0x1FFFFF);
   EXPECT_EQ(output, "\xF7\xBF\xBF\xBF");
 
   // Buffer version.
   char buf[7];
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0, buf), 0);
+  EXPECT_EQ(Util::CodepointToUtf8(0, buf), 0);
   EXPECT_EQ(strcmp(buf, ""), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0x7F, buf), 1);
+  EXPECT_EQ(Util::CodepointToUtf8(0x7F, buf), 1);
   EXPECT_EQ(strcmp("\x7F", buf), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0x80, buf), 2);
+  EXPECT_EQ(Util::CodepointToUtf8(0x80, buf), 2);
   EXPECT_EQ(strcmp("\xC2\x80", buf), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0x7FF, buf), 2);
+  EXPECT_EQ(Util::CodepointToUtf8(0x7FF, buf), 2);
   EXPECT_EQ(strcmp("\xDF\xBF", buf), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0x800, buf), 3);
+  EXPECT_EQ(Util::CodepointToUtf8(0x800, buf), 3);
   EXPECT_EQ(strcmp("\xE0\xA0\x80", buf), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0xFFFF, buf), 3);
+  EXPECT_EQ(Util::CodepointToUtf8(0xFFFF, buf), 3);
   EXPECT_EQ(strcmp("\xEF\xBF\xBF", buf), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0x10000, buf), 4);
+  EXPECT_EQ(Util::CodepointToUtf8(0x10000, buf), 4);
   EXPECT_EQ(strcmp("\xF0\x90\x80\x80", buf), 0);
 
-  EXPECT_EQ(Util::Ucs4ToUtf8(0x1FFFFF, buf), 4);
+  EXPECT_EQ(Util::CodepointToUtf8(0x1FFFFF, buf), 4);
   EXPECT_EQ(strcmp("\xF7\xBF\xBF\xBF", buf), 0);
 }
 
 TEST(UtilTest, CharsLen) {
   const std::string src = "私の名前は中野です";
-  EXPECT_EQ(Util::CharsLen(src.c_str(), src.size()), 9);
+  EXPECT_EQ(Util::CharsLen(src), 9);
+}
+
+TEST(UtilTest, CharsLenInvalid) {
+  const absl::string_view kText = "あいうえお";
+  EXPECT_EQ(Util::CharsLen(kText.substr(0, 1)), 1);
+  EXPECT_EQ(Util::CharsLen(kText.substr(0, 4)), 2);
 }
 
 TEST(UtilTest, Utf8SubString) {
@@ -474,46 +478,32 @@ TEST(UtilTest, StripUtf8Bom) {
   std::string line;
 
   // Should be stripped.
-  line =
-      "\xef\xbb\xbf"
-      "abc";
-  Util::StripUtf8Bom(&line);
-  EXPECT_EQ(line, "abc");
+  EXPECT_EQ(Util::StripUtf8Bom("\xef\xbb\xbf"
+                               "abc"),
+            "abc");
 
   // Should be stripped.
-  line = "\xef\xbb\xbf";
-  Util::StripUtf8Bom(&line);
-  EXPECT_EQ(line, "");
+  EXPECT_EQ(Util::StripUtf8Bom("\xef\xbb\xbf"), "");
 
   // BOM in the middle of text. Shouldn't be stripped.
-  line =
-      "a"
-      "\xef\xbb\xbf"
-      "bc";
-  Util::StripUtf8Bom(&line);
-  EXPECT_EQ(line,
+  EXPECT_EQ(Util::StripUtf8Bom("a"
+                               "\xef\xbb\xbf"
+                               "bc"),
             "a"
             "\xef\xbb\xbf"
             "bc");
 
   // Incomplete BOM. Shouldn't be stripped.
-  line =
-      "\xef\xbb"
-      "abc";
-  Util::StripUtf8Bom(&line);
-  EXPECT_EQ(line,
+  EXPECT_EQ(Util::StripUtf8Bom("\xef\xbb"
+                               "abc"),
             "\xef\xbb"
             "abc");
 
   // String shorter than the BOM. Do nothing.
-  line = "a";
-  Util::StripUtf8Bom(&line);
-  EXPECT_EQ(line, "a");
+  EXPECT_EQ(Util::StripUtf8Bom("a"), "a");
 
   // Empty string. Do nothing.
-  line = "";
-  Util::StripUtf8Bom(&line);
-  EXPECT_EQ(line, "");
+  EXPECT_EQ(Util::StripUtf8Bom(""), "");
 }
 
 TEST(UtilTest, IsUtf16Bom) {
@@ -636,36 +626,6 @@ TEST(UtilTest, ChopReturns) {
   line = "line\n\n\n";
   EXPECT_TRUE(Util::ChopReturns(&line));
   EXPECT_EQ(line, "line");
-}
-
-TEST(UtilTest, Escape) {
-  std::string escaped;
-  Util::Escape("らむだ", &escaped);
-  EXPECT_EQ(escaped, "\\xE3\\x82\\x89\\xE3\\x82\\x80\\xE3\\x81\\xA0");
-}
-
-TEST(UtilTest, Unescape) {
-  std::string unescaped;
-  EXPECT_TRUE(Util::Unescape("\\xE3\\x82\\x89\\xE3\\x82\\x80\\xE3\\x81\\xA0",
-                             &unescaped));
-  EXPECT_EQ(unescaped, "らむだ");
-
-  EXPECT_TRUE(Util::Unescape("\\x4D\\x6F\\x7A\\x63", &unescaped));
-  EXPECT_EQ(unescaped, "Mozc");
-
-  // A binary sequence (upper case)
-  EXPECT_TRUE(Util::Unescape("\\x00\\x01\\xEF\\xFF", &unescaped));
-  EXPECT_EQ(unescaped, std::string("\x00\x01\xEF\xFF", 4));
-
-  // A binary sequence (lower case)
-  EXPECT_TRUE(Util::Unescape("\\x00\\x01\\xef\\xff", &unescaped));
-  EXPECT_EQ(unescaped, std::string("\x00\x01\xEF\xFF", 4));
-
-  EXPECT_TRUE(Util::Unescape("", &unescaped));
-  EXPECT_TRUE(unescaped.empty());
-
-  EXPECT_FALSE(Util::Unescape("\\AB\\CD\\EFG", &unescaped));
-  EXPECT_FALSE(Util::Unescape("\\01\\XY", &unescaped));
 }
 
 TEST(UtilTest, ScriptType) {
@@ -915,43 +875,6 @@ TEST(UtilTest, IsJisX0208) {
   EXPECT_FALSE(Util::IsJisX0208("𪚲"));  // U+2A6B2
   EXPECT_FALSE(Util::IsJisX0208("𠮷"));  // U+20BB7
 }
-
-#ifdef _WIN32
-TEST(UtilTest, WideCharsLen) {
-  // "að ®b"
-  const std::string input_utf8 = "a\360\240\256\237b";
-  EXPECT_EQ(Util::WideCharsLen(input_utf8), 4);
-  EXPECT_EQ(Util::WideCharsLen(Util::Utf8SubString(input_utf8, 0, 0)), 0);
-  EXPECT_EQ(Util::WideCharsLen(Util::Utf8SubString(input_utf8, 0, 1)), 1);
-  EXPECT_EQ(Util::WideCharsLen(Util::Utf8SubString(input_utf8, 0, 2)), 3);
-  EXPECT_EQ(Util::WideCharsLen(Util::Utf8SubString(input_utf8, 0, 3)), 4);
-}
-
-TEST(UtilTest, Utf8ToWide) {
-  const std::string input_utf8 = "abc";
-  std::wstring output_wide;
-  Util::Utf8ToWide(input_utf8, &output_wide);
-
-  std::string output_utf8;
-  Util::WideToUtf8(output_wide, &output_utf8);
-  EXPECT_EQ(output_utf8, "abc");
-}
-
-TEST(UtilTest, WideToUtf8_SurrogatePairSupport) {
-  // Visual C++ 2008 does not support embedding surrogate pair in string
-  // literals like L"\uD842\uDF9F". This is why we use wchar_t array instead.
-  // "ð ®"
-  const wchar_t input_wide[] = {0xD842, 0xDF9F, 0};
-  std::string output_utf8;
-  Util::WideToUtf8(input_wide, &output_utf8);
-
-  std::wstring output_wide;
-  Util::Utf8ToWide(output_utf8, &output_wide);
-
-  EXPECT_EQ(output_utf8, "\360\240\256\237");
-  EXPECT_EQ(output_wide, input_wide);
-}
-#endif  // _WIN32
 
 TEST(UtilTest, IsKanaSymbolContained) {
   const std::string kFullstop("。");

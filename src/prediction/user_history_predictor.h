@@ -40,6 +40,8 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/string_view.h"
 #include "base/container/freelist.h"
 #include "base/container/trie.h"
 #include "base/thread.h"
@@ -47,14 +49,13 @@
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/suppression_dictionary.h"
+#include "engine/modules.h"
 #include "prediction/predictor_interface.h"
 #include "prediction/user_history_predictor.pb.h"
 #include "request/conversion_request.h"
 #include "storage/encrypted_string_storage.h"
 #include "storage/lru_cache.h"
-#include "testing/gunit_prod.h"  // IWYU pragma: keep
-#include "absl/container/flat_hash_set.h"
-#include "absl/strings/string_view.h"
+#include "testing/friend_test.h"  // IWYU pragma: keep
 
 namespace mozc::prediction {
 
@@ -95,11 +96,8 @@ class UserHistoryStorage {
 // called by multiple-threads at the same time
 class UserHistoryPredictor : public PredictorInterface {
  public:
-  UserHistoryPredictor(
-      const dictionary::DictionaryInterface *dictionary,
-      const dictionary::PosMatcher *pos_matcher,
-      const dictionary::SuppressionDictionary *suppression_dictionary,
-      bool enable_content_word_learning);
+  UserHistoryPredictor(const engine::Modules &modules,
+                       bool enable_content_word_learning);
   ~UserHistoryPredictor() override;
 
   void set_content_word_learning_enabled(bool value) {
@@ -188,6 +186,7 @@ class UserHistoryPredictor : public PredictorInterface {
   FRIEND_TEST(UserHistoryPredictorTest, GetScore);
   FRIEND_TEST(UserHistoryPredictorTest, IsValidEntry);
   FRIEND_TEST(UserHistoryPredictorTest, IsValidSuggestion);
+  FRIEND_TEST(UserHistoryPredictorTest, IsValidSuggestionForMixedConversion);
   FRIEND_TEST(UserHistoryPredictorTest, EntryPriorityQueueTest);
   FRIEND_TEST(UserHistoryPredictorTest, RomanFuzzyPrefixMatch);
   FRIEND_TEST(UserHistoryPredictorTest, MaybeRomanMisspelledKey);
@@ -241,6 +240,13 @@ class UserHistoryPredictor : public PredictorInterface {
     NOT_FOUND,
   };
 
+  // Result type for IsValidCandidate() check.
+  enum ResultType {
+    GOOD_RESULT,
+    BAD_RESULT,
+    STOP_ENUMERATION,  // Do not insert and stop enumerations
+  };
+
   // Returns true if this predictor should return results for the input.
   bool ShouldPredict(RequestType request_type, const ConversionRequest &request,
                      const Segments &segments) const;
@@ -286,6 +292,16 @@ class UserHistoryPredictor : public PredictorInterface {
   // a valid result if the length of user input is |prefix_len|.
   static bool IsValidSuggestion(RequestType request_type, uint32_t prefix_len,
                                 const Entry &entry);
+
+  // IsValidSuggestion used in mixed conversion (mobile).
+  static bool IsValidSuggestionForMixedConversion(
+      const ConversionRequest &request, uint32_t prefix_len,
+      const Entry &entry);
+
+  static ResultType GetResultType(const ConversionRequest &request,
+                                  RequestType request_type,
+                                  bool is_top_candidate, uint32_t input_key_len,
+                                  const Entry &entry);
 
   // Returns true if entry is DEFAULT_ENTRY, satisfies certain conditions, and
   // doesn't have removed flag.

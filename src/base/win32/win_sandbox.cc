@@ -45,12 +45,12 @@
 #include <string_view>
 #include <vector>
 
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/logging.h"
 #include "base/strings/zstring_view.h"
 #include "base/system_util.h"
 #include "base/win32/wide_char.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/span.h"
 
 namespace mozc {
 namespace {
@@ -649,6 +649,7 @@ bool SpawnSandboxedProcessImpl(std::wstring_view command_line,
   if (!process_info.has_value()) {
     return false;
   }
+  pid = process_info->dwProcessId;
 
   if (job.IsValid()) {
     const DWORD error_code = job.AssignProcessToJob(process_info->hProcess);

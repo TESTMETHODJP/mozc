@@ -33,12 +33,12 @@
 #include <windows.h>
 
 #include "google/protobuf/stubs/common.h"
+#include "absl/base/call_once.h"
 #include "base/crash_report_handler.h"
 #include "base/protobuf/message.h"
 #include "base/protobuf/protobuf.h"
 #include "base/win32/com_implements.h"
 #include "config/stats_config_util.h"
-#include "absl/base/call_once.h"
 #include "win32/base/tsf_profile.h"
 #include "win32/tip/tip_class_factory.h"
 #include "win32/tip/tip_dll_module.h"

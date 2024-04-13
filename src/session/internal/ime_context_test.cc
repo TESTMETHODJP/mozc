@@ -32,6 +32,7 @@
 #include <memory>
 #include <string>
 
+#include "absl/time/time.h"
 #include "composer/composer.h"
 #include "composer/table.h"
 #include "converter/converter_interface.h"
@@ -40,10 +41,9 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "session/session_converter.h"
-#include "testing/googletest.h"
+#include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/testing_util.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 namespace session {
@@ -115,7 +115,7 @@ TEST(ImeContextTest, CopyContext) {
   segment->set_key("あん");
   Segment::Candidate *candidate = segment->add_candidate();
   candidate->value = "庵";
-  EXPECT_CALL(converter, StartConversionForRequest(_, _))
+  EXPECT_CALL(converter, StartConversion(_, _))
       .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
 
   {
@@ -136,14 +136,12 @@ TEST(ImeContextTest, CopyContext) {
 
     source.SetConfig(&config);
 
-    std::string composition;
-    source.composer().GetStringForSubmission(&composition);
+    std::string composition = source.composer().GetStringForSubmission();
     EXPECT_EQ(composition, "あｎ");
 
     ImeContext::CopyContext(source, &destination);
     EXPECT_EQ(destination.state(), ImeContext::COMPOSITION);
-    composition.clear();
-    source.composer().GetStringForSubmission(&composition);
+    composition = source.composer().GetStringForSubmission();
     EXPECT_EQ(composition, "あｎ");
   }
 
@@ -170,8 +168,7 @@ TEST(ImeContextTest, CopyContext) {
     const std::string &kQuick = "早い";
     source.mutable_composer()->set_source_text(kQuick);
 
-    std::string composition;
-    source.composer().GetQueryForConversion(&composition);
+    std::string composition = source.composer().GetQueryForConversion();
     EXPECT_EQ(composition, "あん");
 
     commands::Output output;
@@ -183,8 +180,7 @@ TEST(ImeContextTest, CopyContext) {
     EXPECT_EQ(destination.create_time(), kCreateTime);
     EXPECT_EQ(destination.last_command_time(), kLastCommandTime);
     EXPECT_EQ(destination.state(), ImeContext::CONVERSION);
-    composition.clear();
-    destination.composer().GetQueryForConversion(&composition);
+    composition = destination.composer().GetQueryForConversion();
     EXPECT_EQ(composition, "あん");
 
     output.Clear();

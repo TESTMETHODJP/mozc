@@ -30,7 +30,7 @@
 // session_handler_main.cc
 //
 // Usage:
-// session_handler_main --logtostderr --input input.txt --profile /tmp/mozc
+// session_handler_main --input input.txt --profile /tmp/mozc
 //                      --dictionary oss --engine desktop
 //
 /* Example of input.txt (tsv format)
@@ -60,17 +60,19 @@ SHOW_LOG_BY_VALUE       ございました
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
-#include "base/protobuf/message.h"
 #include "base/system_util.h"
+#include "absl/flags/flag.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/numbers.h"
 #include "data_manager/oss/oss_data_manager.h"
 #include "engine/engine.h"
 #include "protocol/candidates.pb.h"
 #include "protocol/commands.pb.h"
 #include "session/session_handler_tool.h"
-#include "absl/flags/flag.h"
-#include "absl/status/status.h"
 
 ABSL_FLAG(std::string, input, "", "Input file");
 ABSL_FLAG(std::string, profile, "", "User profile directory");
@@ -116,22 +118,26 @@ void ParseLine(session::SessionHandlerInterpreter &handler, std::string line) {
   const std::string &command = args[0];
 
   if (command == "SHOW_ALL") {
-    std::cout << protobuf::Utf8Format(handler.LastOutput()) << std::endl;
+    std::cout << absl::StrCat(handler.LastOutput()) << std::endl;
     return;
   }
   if (command == "SHOW_OUTPUT") {
     commands::Output output = handler.LastOutput();
     output.mutable_removed_candidate_words_for_debug()->Clear();
-    std::cout << protobuf::Utf8Format(output) << std::endl;
+    std::cout << absl::StrCat(output) << std::endl;
+    return;
+  }
+  if (command == "SHOW_RESULT") {
+    const commands::Output& output = handler.LastOutput();
+    std::cout << absl::StrCat(output.result()) << std::endl;
     return;
   }
   if (command == "SHOW_CANDIDATES") {
-    std::cout << protobuf::Utf8Format(handler.LastOutput().candidates())
-              << std::endl;
+    std::cout << absl::StrCat(handler.LastOutput().candidates()) << std::endl;
     return;
   }
   if (command == "SHOW_REMOVED_CANDIDATES") {
-    std::cout << protobuf::Utf8Format(
+    std::cout << absl::StrCat(
                      handler.LastOutput().removed_candidate_words_for_debug())
               << std::endl;
     return;
@@ -155,6 +161,9 @@ void ParseLine(session::SessionHandlerInterpreter &handler, std::string line) {
       return;
     }
     for (const uint32_t id : handler.GetCandidateIdsByValue(args[1])) {
+      ShowLog(handler.LastOutput(), id);
+    }
+    for (const uint32_t id : handler.GetRemovedCandidateIdsByValue(args[1])) {
       ShowLog(handler.LastOutput(), id);
     }
     return;

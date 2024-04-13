@@ -33,26 +33,24 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "base/util.h"
-#include "composer/type_corrected_query.h"
 #include "converter/converter_interface.h"
 #include "converter/immutable_converter_interface.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_token.h"
-#include "dictionary/pos_matcher.h"
+#include "engine/modules.h"
 #include "prediction/number_decoder.h"
 #include "prediction/prediction_aggregator_interface.h"
 #include "prediction/result.h"
-#include "prediction/single_kanji_prediction_aggregator.h"
 #include "prediction/zero_query_dict.h"
 #include "request/conversion_request.h"
-#include "absl/strings/string_view.h"
+
 
 namespace mozc {
 namespace prediction {
@@ -66,21 +64,27 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
   ~DictionaryPredictionAggregator() override = default;
 
   DictionaryPredictionAggregator(
-      const DataManagerInterface &data_manager,
-      const ConverterInterface *converter,
-      const ImmutableConverterInterface *immutable_converter,
-      const dictionary::DictionaryInterface *dictionary,
-      const dictionary::DictionaryInterface *suffix_dictionary,
-      const dictionary::PosMatcher *pos_matcher,
-      const void *user_arg = nullptr);
+      const engine::Modules &modules, const ConverterInterface *converter,
+      const ImmutableConverterInterface *immutable_converter);
 
   std::vector<Result> AggregateResults(const ConversionRequest &request,
                                        const Segments &segments) const override;
+
+  std::vector<Result> AggregateTypingCorrectedResults(
+      const ConversionRequest &request,
+      const Segments &segments) const override;
+
+#if MOZC_ENABLE_NGRAM_RESCORING
+  void SetNgramModelForTesting(const ngram::NgramModelInterface *ngram_model) {
+    ngram_model_ = ngram_model;
+  }
+#endif  // MOZC_ENABLE_NGRAM_RESCORING
 
  private:
   class PredictiveLookupCallback;
   class PrefixLookupCallback;
   class PredictiveBigramLookupCallback;
+  class HandwritingLookupCallback;
 
   using AggregateUnigramFn = PredictionType (DictionaryPredictionAggregator::*)(
       const ConversionRequest &request, const Segments &segments,
@@ -91,17 +95,15 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
     size_t min_key_len;
   };
 
-  // For testing
-  DictionaryPredictionAggregator(
-      const DataManagerInterface &data_manager,
-      const ConverterInterface *converter,
-      const ImmutableConverterInterface *immutable_converter,
-      const dictionary::DictionaryInterface *dictionary,
-      const dictionary::DictionaryInterface *suffix_dictionary,
-      const dictionary::PosMatcher *pos_matcher,
-      std::unique_ptr<PredictionAggregatorInterface>
-          single_kanji_prediction_aggregator,
-      const void *user_arg = nullptr);
+  struct HandwritingQueryInfo {
+    // Hiragana key for dictionary look up.
+    // ex. "かんじじてん" for "かん字じ典"
+    std::string query;
+    // The list of non-Hiragana strings. They should be appeared in the result
+    // token value in order.
+    // ex. {"字", "典"} for "かん字じ典"
+    std::vector<std::string> constraints;
+  };
 
   // Returns the bitfield that indicates what prediction subroutines
   // were used.  NO_PREDICTION means that no prediction was made.
@@ -176,19 +178,6 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
       PredictionTypes types, size_t lookup_limit,
       std::vector<Result> *results) const;
 
-  void GetPredictiveResultsUsingExtendedTypingCorrection(
-      absl::Span<const composer::TypeCorrectedQuery> queries,
-      const ConversionRequest &request, const Segments &segments,
-      PredictionTypes base_selected_types, std::vector<Result> *results) const;
-
-  // Performs look-ups using type-corrected queries from composer. Usually
-  // involves multiple look-ups from dictionary.
-  void GetPredictiveResultsUsingTypingCorrection(
-      absl::Span<const composer::TypeCorrectedQuery> queries,
-      const dictionary::DictionaryInterface &dictionary,
-      const ConversionRequest &request, const Segments &segments,
-      int lookup_limit, std::vector<Result> *results) const;
-
   // Returns true if the realtime conversion should be used.
   // TODO(hidehiko): add Config and Request instances into the arguments
   //   to represent the dependency explicitly.
@@ -222,10 +211,10 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
 
   // Aggregate* methods aggregate the candidates with different resources
   // and algorithms.
-  void AggregateRealtimeConversion(const ConversionRequest &request,
-                                   size_t realtime_candidates_size,
-                                   const Segments &segments,
-                                   std::vector<Result> *results) const;
+  void AggregateRealtimeConversion(
+      const ConversionRequest &request, size_t realtime_candidates_size,
+      bool insert_realtime_top_from_actual_converter, const Segments &segments,
+      std::vector<Result> *results) const;
 
   void AggregateBigramPrediction(const ConversionRequest &request,
                                  const Segments &segments,
@@ -239,6 +228,12 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
   void AggregateZeroQuerySuffixPrediction(const ConversionRequest &request,
                                           const Segments &segments,
                                           std::vector<Result> *results) const;
+
+#if MOZC_ENABLE_NGRAM_RESCORING
+  void AggregateZeroQueryNgramPrediction(const ConversionRequest &request,
+                                         const Segments &segments,
+                                         std::vector<Result> *results) const;
+#endif  // MOZC_ENABLE_NGRAM_RESCORING
 
   void AggregateEnglishPrediction(const ConversionRequest &request,
                                   const Segments &segments,
@@ -258,10 +253,10 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
       const ConversionRequest &request, const Segments &segments,
       std::vector<Result> *results) const;
 
-  void AggregateTypeCorrectingPrediction(const ConversionRequest &request,
-                                         const Segments &segments,
-                                         PredictionTypes base_selected_types,
-                                         std::vector<Result> *results) const;
+  void AggregateTypingCorrectedPrediction(const ConversionRequest &request,
+                                          const Segments &segments,
+                                          PredictionTypes base_selected_types,
+                                          std::vector<Result> *results) const;
 
   PredictionType AggregateUnigramCandidate(const ConversionRequest &request,
                                            const Segments &segments,
@@ -275,6 +270,18 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
       const ConversionRequest &request, const Segments &segments,
       std::vector<Result> *results) const;
 
+  // Generates `HandwritingQueryInfo` for the given composition event.
+  std::optional<HandwritingQueryInfo> GenerateQueryForHandwriting(
+      const ConversionRequest &request,
+      const commands::SessionCommand::CompositionEvent &composition_event)
+      const;
+
+  // Generates prediction candidates using composition events in composer and
+  // appends to `results`.
+  PredictionType AggregateUnigramCandidateForHandwriting(
+      const ConversionRequest &request, const Segments &segments,
+      std::vector<Result> *results) const;
+
   static void LookupUnigramCandidateForMixedConversion(
       const dictionary::DictionaryInterface &dictionary,
       const ConversionRequest &request, const Segments &segments,
@@ -283,6 +290,7 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
   // Test peer to access private methods
   friend class DictionaryPredictionAggregatorTestPeer;
 
+  const engine::Modules &modules_;
   const ConverterInterface *converter_;
   const ImmutableConverterInterface *immutable_converter_;
   const dictionary::DictionaryInterface *dictionary_;
@@ -292,11 +300,12 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
   const uint16_t zip_code_id_;
   const uint16_t number_id_;
   const uint16_t unknown_id_;
-  ZeroQueryDict zero_query_dict_;
-  ZeroQueryDict zero_query_number_dict_;
+  const ZeroQueryDict &zero_query_dict_;
+  const ZeroQueryDict &zero_query_number_dict_;
   NumberDecoder number_decoder_;
   std::unique_ptr<PredictionAggregatorInterface>
       single_kanji_prediction_aggregator_;
+
 };
 
 }  // namespace prediction

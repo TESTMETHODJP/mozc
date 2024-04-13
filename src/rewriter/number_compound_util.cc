@@ -32,9 +32,9 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "absl/strings/string_view.h"
 #include "base/util.h"
 #include "dictionary/pos_matcher.h"
-#include "absl/strings/string_view.h"
 
 using mozc::dictionary::PosMatcher;
 

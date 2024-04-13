@@ -55,7 +55,7 @@
             'input_dll.def',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
           ],
           'msvs_settings': {
             'VCLinkerTool': {
@@ -66,18 +66,51 @@
           },
         },
         {
+          'target_name': 'msctf_dll_import_lib',
+          'type': 'shared_library',
+          'sources': [
+            'msctf_dll.cc',
+            'msctf_dll.def',
+          ],
+          'dependencies': [
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
+          ],
+          'msvs_settings': {
+            'VCLinkerTool': {
+              'AdditionalOptions': [
+                '/ignore:4070',
+              ],
+            },
+          },
+        },
+        {
+          'target_name': 'msctf_dll_test',
+          'type': 'executable',
+          'sources': [
+            'msctf_dll_test.cc',
+          ],
+          'dependencies': [
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
+            'msctf_dll_import_lib',
+          ],
+          'variables': {
+            'test_size': 'small',
+          },
+        },
+        {
           'target_name': 'imframework_util',
           'type': 'static_library',
           'sources': [
             'imm_reconvert_string.cc',
             'imm_util.cc',
-            'keyboard_layout_id.cc',
             'tsf_profile.cc',
             'tsf_registrar.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
             'input_dll_import_lib',
+            'msctf_dll_import_lib',
           ],
         },
         {
@@ -86,12 +119,11 @@
           'sources': [
             'imm_reconvert_string_test.cc',
             'input_dll_test.cc',
-            'keyboard_layout_id_test.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/base.gyp:base',
-            '<(mozc_src_dir)/protocol/protocol.gyp:commands_proto',
-            '<(mozc_src_dir)/testing/testing.gyp:gtest_main',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
             'imframework_util',
           ],
           'variables': {
@@ -113,12 +145,12 @@
             'win32_window_util.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/absl.gyp:absl_strings',
-            '<(mozc_src_dir)/base/base.gyp:base',
-            '<(mozc_src_dir)/config/config.gyp:config_handler',
-            '<(mozc_src_dir)/protocol/protocol.gyp:commands_proto',
-            '<(mozc_src_dir)/protocol/protocol.gyp:config_proto',
-            '<(mozc_src_dir)/session/session_base.gyp:key_info_util',
+            '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/config/config.gyp:config_handler',
+            '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
+            '<(mozc_oss_src_dir)/protocol/protocol.gyp:config_proto',
+            '<(mozc_oss_src_dir)/session/session_base.gyp:key_info_util',
           ],
         },
         {
@@ -134,10 +166,10 @@
             'surrogate_pair_observer_test.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/base_test.gyp:clock_mock',
+            '<(mozc_oss_src_dir)/base/base_test.gyp:clock_mock',
             '<(mozc_oss_src_dir)/client/client.gyp:client',
-            '<(mozc_src_dir)/testing/testing.gyp:gtest_main',
-            '<(mozc_src_dir)/testing/testing.gyp:mozctest',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
             'ime_impl_base',
           ],
         },
@@ -149,8 +181,9 @@
             'uninstall_helper.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
             'imframework_util',
+            'msctf_dll_import_lib',
           ],
         },
         {
@@ -158,12 +191,11 @@
           'type': 'executable',
           'sources': [
             'omaha_util_test.cc',
-            'uninstall_helper_test.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/base.gyp:base',
-            '<(mozc_src_dir)/protocol/protocol.gyp:commands_proto',
-            '<(mozc_src_dir)/testing/testing.gyp:gtest_main',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
             'ime_base',
           ],
           'variables': {
@@ -177,8 +209,8 @@
             'text_icon.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/absl.gyp:absl_strings',
-            '<(mozc_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
           ],
         },
         {
@@ -188,8 +220,8 @@
             'text_icon_test.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/win32/base_win32.gyp:win_font_test_helper',
-            '<(mozc_src_dir)/testing/testing.gyp:gtest_main',
+            '<(mozc_oss_src_dir)/base/win32/base_win32.gyp:win_font_test_helper',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
             'text_icon',
           ],
           'variables': {
@@ -209,6 +241,7 @@
           'dependencies': [
             'ime_impl_base_test',
             'imframework_util_test',
+            'msctf_dll_test',
             'text_icon_test',
             'win32_base_test',
           ],

@@ -35,9 +35,9 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "base/port.h"
 #include "ipc/ipc.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace renderer {

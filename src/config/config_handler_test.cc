@@ -35,6 +35,13 @@
 #include <string>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/clock_mock.h"
 #include "base/file/temp_dir.h"
@@ -45,13 +52,6 @@
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/random/random.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/synchronization/notification.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 namespace config {
@@ -195,8 +195,7 @@ TEST_F(ConfigHandlerTest, SetConfig_IdentityCheck) {
 }
 
 TEST_F(ConfigHandlerTest, ConfigFileNameConfig) {
-  const std::string config_file =
-      absl::StrCat("config", config::CONFIG_VERSION, ".db");
+  const std::string config_file = absl::StrCat("config", kConfigVersion, ".db");
   const std::string filename =
       FileUtil::JoinPath(SystemUtil::GetUserProfileDirectory(), config_file);
   ASSERT_OK(FileUtil::UnlinkIfExists(filename));

@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/container/btree_map.h"
+#include "absl/strings/string_view.h"
 #include "base/text_normalizer.h"
 #include "base/util.h"
 #include "converter/segments.h"
@@ -44,8 +46,6 @@
 #include "request/conversion_request.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/container/btree_map.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -246,6 +246,13 @@ TEST_F(EnvironmentalFilterRewriterTest, CharacterGroupFinderTest) {
     CharacterGroupFinder finder;
     finder.Initialize({Util::Utf8ToUtf32("01234567890abcdefghij")});
     EXPECT_FALSE(finder.FindMatch(Util::Utf8ToUtf32("01234567890abcdefghXYZ")));
+  }
+  {
+    // Test with empty finder.
+    CharacterGroupFinder finder;
+    finder.Initialize({});
+    EXPECT_FALSE(finder.FindMatch(
+        Util::Utf8ToUtf32("Empty finder should find nothing")));
   }
 }
 

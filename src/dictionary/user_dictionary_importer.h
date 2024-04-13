@@ -33,8 +33,8 @@
 #include <cstddef>
 #include <string>
 
-#include "protocol/user_dictionary_storage.pb.h"
 #include "absl/strings/string_view.h"
+#include "protocol/user_dictionary_storage.pb.h"
 
 namespace mozc {
 
@@ -131,7 +131,8 @@ class UserDictionaryImporter {
     MSIME = 2,
     ATOK = 3,
     KOTOERI = 4,
-    NUM_IMES = 5,
+    GBOARD_V1 = 5,
+    NUM_IMES = 6,
   };
 
   // Guess IME type from the first line of IME file.

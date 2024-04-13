@@ -47,11 +47,23 @@
 #include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/civil_time.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/japanese_util.h"
-#include "base/logging.h"
 #include "base/number_util.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "composer/composer.h"
 #include "converter/segments.h"
 #include "dictionary/dictionary_interface.h"
@@ -60,14 +72,6 @@
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
-#include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/str_replace.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/civil_time.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 namespace {
@@ -135,7 +139,8 @@ constexpr DateRewriter::DateData kDateData[] = {
     {"じこく", "時刻", "現在の時刻", 0, CURRENT_TIME},
 
     // Date and time rewrites.
-    {"にちじ", "日時", "現在の日時", 0, DATE_AND_CURRENT_TIME}};
+    {"にちじ", "日時", "現在の日時", 0, DATE_AND_CURRENT_TIME},
+    {"なう", "ナウ", "現在の日時", 0, DATE_AND_CURRENT_TIME}};
 
 // Absl::Weekday starts from Monday, while std::tm.tm_wday starts from Sunday.
 constexpr absl::string_view kWeekDayString[] = {"月", "火", "水", "木",
@@ -512,6 +517,7 @@ std::unique_ptr<Segment::Candidate> CreateCandidate(
   candidate->content_key = base_candidate.content_key;
   candidate->attributes |= (Segment::Candidate::NO_LEARNING |
                             Segment::Candidate::NO_VARIANTS_EXPANSION);
+  candidate->category = Segment::Candidate::OTHER;
   candidate->description = std::move(description);
   return candidate;
 }
@@ -582,15 +588,14 @@ bool ExtractYearFromKey(const YearData &year_data, const absl::string_view key,
   return true;
 }
 
-bool EraToAdForCourt(const YearData *data, size_t size,
+void EraToAdForCourt(const YearData *data, size_t size,
                      const absl::string_view key,
-                     std::vector<std::string> *results,
-                     std::vector<std::string> *descriptions) {
+                     std::vector<std::pair<std::string, std::string>>
+                         &results_and_descriptions) {
   if (!absl::EndsWith(key, kNenKey)) {
-    return false;
+    return;
   }
 
-  bool modified = false;
   for (size_t i = 0; i < size; ++i) {
     const YearData &year_data = data[i];
     if (!absl::StartsWith(key, year_data.key)) {
@@ -618,18 +623,19 @@ bool EraToAdForCourt(const YearData *data, size_t size,
     for (size_t j = 0; j < output.size(); ++j) {
       // "元徳", "建武" and "明徳" require dedupe
       std::string value = absl::StrCat(output[j].value, kNenValue);
-      if (absl::c_find(*results, value) != results->end()) {
+      if (absl::c_find_if(results_and_descriptions,
+                          [&value](const std::pair<std::string, std::string>
+                                       &result_and_description) {
+                            return result_and_description.first == value;
+                          }) != results_and_descriptions.end()) {
         continue;
       }
-      results->push_back(std::move(value));
-      descriptions->push_back(description);
+      results_and_descriptions.push_back({std::move(value), description});
     }
-    modified = true;
   }
-  return modified;
 }
 
-// Checkes if the given date is valid or not.
+// Checks if the given date is valid or not.
 // Over 24 hour expression is allowed in this function.
 // Acceptable hour is between 0 and 29.
 bool IsValidTime(uint32_t hour, uint32_t minute) {
@@ -646,7 +652,7 @@ uint32_t GetFebruaryLastDay(uint32_t year) {
   return february_end;
 }
 
-// Checkes given date is valid or not.
+// Checks given date is valid or not.
 bool IsValidDate(uint32_t year, uint32_t month, uint32_t day) {
   if (day < 1) {
     return false;
@@ -779,16 +785,14 @@ std::vector<std::string> DateRewriter::AdToEra(int year, int month) {
   return results;
 }
 
-bool DateRewriter::EraToAd(const absl::string_view key,
-                           std::vector<std::string> *results,
-                           std::vector<std::string> *descriptions) {
-  bool ret = false;
+std::vector<std::pair<std::string, std::string>> DateRewriter::EraToAd(
+    const absl::string_view key) {
+  std::vector<std::pair<std::string, std::string>> results_and_descriptions;
   // The order is south to north, older to newer
-  ret |= EraToAdForCourt(kEraData, std::size(kEraData), key, results,
-                         descriptions);
-  ret |= EraToAdForCourt(kNorthEraData, std::size(kNorthEraData), key, results,
-                         descriptions);
-  return ret;
+  EraToAdForCourt(kEraData, std::size(kEraData), key, results_and_descriptions);
+  EraToAdForCourt(kNorthEraData, std::size(kNorthEraData), key,
+                  results_and_descriptions);
+  return results_and_descriptions;
 }
 
 bool DateRewriter::ConvertTime(uint32_t hour, uint32_t min,
@@ -915,7 +919,7 @@ std::vector<std::string> GetConversions(const DateRewriter::DateData &data,
       results.push_back(absl::StrFormat("%d年", cm.year()));
 
       std::vector<std::string> era;
-      if (DateRewriter::AdToEra(cm.year(), 0, /* unknown mounth */ &era) &&
+      if (DateRewriter::AdToEra(cm.year(), 0, /* unknown month */ &era) &&
           !era.empty()) {
         for (auto rit = era.crbegin(); rit != era.crend(); ++rit) {
           results.push_back(absl::StrFormat("%s年", *rit));
@@ -992,46 +996,50 @@ bool DateRewriter::RewriteDate(Segment *segment,
   return true;
 }
 
-bool DateRewriter::RewriteEra(Segment *current_segment,
-                              const Segment &next_segment) {
-  if (current_segment->candidates_size() <= 0 ||
+size_t DateRewriter::RewriteEra(Segments::range segments_range) {
+  if (segments_range.size() < 2) {
+    return 0;
+  }
+  Segment &current_segment = segments_range.front();
+  const Segment &next_segment = segments_range[1];
+  if (current_segment.candidates_size() <= 0 ||
       next_segment.candidates_size() <= 0) {
     LOG(ERROR) << "Candidate size is 0";
-    return false;
+    return 0;
   }
 
-  const std::string &current_key = current_segment->key();
+  const std::string &current_key = current_segment.key();
   const std::string &next_value = next_segment.candidate(0).value;
 
   if (next_value != "年") {
-    return false;
+    return 0;
   }
 
   if (Util::GetScriptType(current_key) != Util::NUMBER) {
-    return false;
+    return 0;
   }
 
   const size_t len = Util::CharsLen(current_key);
   if (len < 3 || len > 4) {
     LOG(WARNING) << "Too long year";
-    return false;
+    return 0;
   }
 
-  std::string year_str;
-  japanese_util::FullWidthAsciiToHalfWidthAscii(current_key, &year_str);
+  std::string year_str =
+      japanese_util::FullWidthAsciiToHalfWidthAscii(current_key);
 
   uint32_t year = 0;
   if (!absl::SimpleAtoi(year_str, &year)) {
-    return false;
+    return 0;
   }
 
   std::vector<std::string> results;
   if (!AdToEra(year, 0, /* unknown month */ &results)) {
-    return false;
+    return 0;
   }
 
   constexpr absl::string_view kDescription = "和暦";
-  const Segment::Candidate &base_cand = current_segment->candidate(0);
+  const Segment::Candidate &base_cand = current_segment.candidate(0);
   std::vector<std::unique_ptr<Segment::Candidate>> candidates;
   candidates.reserve(results.size());
   for (std::string &value : results) {
@@ -1042,9 +1050,9 @@ bool DateRewriter::RewriteEra(Segment *current_segment,
   }
 
   constexpr int kInsertPosition = 2;
-  current_segment->insert_candidates(kInsertPosition, std::move(candidates));
+  current_segment.insert_candidates(kInsertPosition, std::move(candidates));
 
-  return true;
+  return 2;  // Consumed 2 segments.
 }
 
 bool DateRewriter::RewriteAd(Segment *segment) {
@@ -1053,24 +1061,110 @@ bool DateRewriter::RewriteAd(Segment *segment) {
     return false;
   }
   if (segment->candidates_size() == 0) {
-    VLOG(2) << "No candidates are found";
+    LOG(WARNING) << "No candidates are found";
     return false;
   }
-  std::vector<std::string> results, descriptions;
-  const bool ret = EraToAd(key, &results, &descriptions);
+
+  // Try to convert era to AD.
+  const std::vector<std::pair<std::string, std::string>>
+      results_anddescriptions = EraToAd(key);
+  if (results_anddescriptions.empty()) {
+    return false;
+  }
 
   const Segment::Candidate &base_cand = segment->candidate(0);
   std::vector<std::unique_ptr<Segment::Candidate>> candidates;
-  candidates.reserve(results.size());
-  for (size_t i = 0; i < results.size(); ++i) {
-    candidates.push_back(CreateCandidate(base_cand, std::move(results[i]),
-                                         std::move(descriptions[i])));
+  candidates.reserve(results_anddescriptions.size());
+  for (auto &[result, description] : results_anddescriptions) {
+    candidates.push_back(
+        CreateCandidate(base_cand, std::move(result), std::move(description)));
   }
 
   // Insert position is the last of candidates
   const int position = static_cast<int>(segment->candidates_size());
   segment->insert_candidates(position, std::move(candidates));
-  return ret;
+  return true;
+}
+
+// This function changes the default conversion behavior. For example, when the
+// input is "taishou2nen", it is converted to 3 segments by default without this
+// function, but this function merges them to 1 segment. Users can still resize
+// segments to get the behavior without this function, and the engine learns the
+// resize for the same string next time, but there will be cases where the
+// default conversion looks degraded from what users expect.
+//
+// Supporting multiple segments without resizing has benefits for users, such as
+// they can still see other candidates of the era segment. But unlike
+// `RewriteEra` which supports multiple segments without merging, this function
+// needs to produce a candidate for 2 segments (the era and the digits), which
+// isn't easy.
+bool DateRewriter::ResizeSegmentsForRewriteAd(
+    const ConversionRequest &request, Segments::const_range segments_range,
+    Segments *segments) const {
+  if (segments_range.empty()) {
+    LOG(WARNING) << "No candidates are found";
+    return false;
+  }
+  if (segments->resized()) {
+    // If the given segments are resized by user, don't modify anymore.
+    return false;
+  }
+
+  // Find the first segment that ends with `kNenKey`.
+  constexpr size_t kMaxSegments = 3;  // Only up to 3 segments.
+  bool has_suffix = false;
+  bool should_resize_last_segment = false;
+  std::vector<absl::string_view> keys;
+  for (const Segment &segment : segments_range) {
+    const absl::string_view key{segment.key()};
+    if (auto pos = key.find(kNenKey); pos != absl::string_view::npos) {
+      pos += kNenKey.size();
+      if (pos == key.size()) {
+        keys.push_back(key);
+      } else {
+        // The segment has `kNenKey` and following characters; e.g., "nendesu".
+        keys.push_back(key.substr(0, pos));
+        should_resize_last_segment = true;
+      }
+      has_suffix = true;
+      break;
+    }
+    if (keys.size() >= kMaxSegments - 1) {
+      return false;
+    }
+    keys.push_back(key);
+  }
+  if (!has_suffix || (keys.size() <= 1 && !should_resize_last_segment)) {
+    return false;
+  }
+  const std::string key = absl::StrJoin(keys, "");
+  DCHECK(!key.empty());
+
+  // Try to convert era to AD.
+  const std::vector<std::pair<std::string, std::string>>
+      results_anddescriptions = EraToAd(key);
+  if (results_anddescriptions.empty()) {
+    return false;
+  }
+
+  return ResizeSegments(request, segments_range.begin(), key, segments);
+}
+
+// Extend or shrink the `*segments_begin` to the `key`.
+bool DateRewriter::ResizeSegments(const ConversionRequest &request,
+                                  Segments::const_iterator segments_begin,
+                                  const absl::string_view key,
+                                  Segments *segments) const {
+  const absl::string_view key0 = segments_begin->key();
+  DCHECK_NE(key.size(), key0.size());
+  const int diff = Util::CharsLen(key) - Util::CharsLen(key0);
+  const size_t segment_index = segments_begin - segments->all().begin();
+  if (!parent_converter_->ResizeSegment(segments, request, segment_index,
+                                        diff)) {
+    LOG(ERROR) << "Failed to merge conversion segments";
+    return false;
+  }
+  return true;
 }
 
 namespace {
@@ -1099,27 +1193,27 @@ bool GetNDigits(const composer::Composer &composer, const Segments &segments,
 
   // 1. Segment's key
   if (IsNDigits(segment.key(), n)) {
-    japanese_util::FullWidthAsciiToHalfWidthAscii(segment.key(), output);
+    *output = japanese_util::FullWidthAsciiToHalfWidthAscii(segment.key());
     return true;
   }
 
   // 2. Meta candidates
   for (size_t i = 0; i < segment.meta_candidates_size(); ++i) {
     if (IsNDigits(segment.meta_candidate(i).value, n)) {
-      japanese_util::FullWidthAsciiToHalfWidthAscii(
-          segment.meta_candidate(i).value, output);
+      *output = japanese_util::FullWidthAsciiToHalfWidthAscii(
+          segment.meta_candidate(i).value);
       return true;
     }
   }
 
   // 3. Raw input
-  std::string raw;
   // Note that only one segment is in the Segments, but sometimes like
   // on partial conversion, segment.key() is different from the size of
   // the whole composition.
-  composer.GetRawSubString(0, Util::CharsLen(segment.key()), &raw);
+  const std::string raw =
+      composer.GetRawSubString(0, Util::CharsLen(segment.key()));
   if (IsNDigits(raw, n)) {
-    japanese_util::FullWidthAsciiToHalfWidthAscii(raw, output);
+    *output = japanese_util::FullWidthAsciiToHalfWidthAscii(raw);
     return true;
   }
 
@@ -1144,7 +1238,7 @@ bool DateRewriter::RewriteConsecutiveDigits(const composer::Composer &composer,
   // segment->candidate(0) or segment->meta_candidate(0) is used as reference.
   // Check the existence before generating candidates to save time.
   if (segment->candidates_size() == 0 && segment->meta_candidates_size() == 0) {
-    VLOG(2) << "No (meta) candidates are found";
+    MOZC_VLOG(2) << "No (meta) candidates are found";
     return false;
   }
 
@@ -1370,45 +1464,54 @@ std::string GetExtraFormat(const dictionary::DictionaryInterface *dictionary) {
 bool DateRewriter::Rewrite(const ConversionRequest &request,
                            Segments *segments) const {
   if (!request.config().use_date_conversion()) {
-    VLOG(2) << "no use_date_conversion";
+    MOZC_VLOG(2) << "no use_date_conversion";
     return false;
   }
 
   bool modified = false;
 
-  // Japanese ERA to AD works for resegmented input only
-  if (segments->conversion_segments_size() == 1) {
-    Segment *seg = segments->mutable_segment(0);
-    if (RewriteAd(seg)) {
-      return true;
-    }
-  }
-
+  const Segments::range conversion_segments = segments->conversion_segments();
   const std::string extra_format = GetExtraFormat(dictionary_);
-  for (size_t i = segments->history_segments_size();
-       i < segments->segments_size(); ++i) {
-    Segment *seg = segments->mutable_segment(i);
+  size_t num_done = 1;
+  for (Segments::range rest_segments = conversion_segments;
+       !rest_segments.empty(); rest_segments = rest_segments.drop(num_done)) {
+    Segment *seg = &rest_segments.front();
     if (seg == nullptr) {
       LOG(ERROR) << "Segment is nullptr";
       return false;
     }
 
-    if (RewriteDate(seg, extra_format)) {
-      modified = true;
-    } else if (i + 1 < segments->segments_size() &&
-               RewriteEra(seg, segments->segment(i + 1))) {
-      modified = true;
-      ++i;  // skip one more
+    if (ResizeSegmentsForRewriteAd(request, rest_segments, segments)) {
+      // Return without further rewrites when segments were resized. Views for
+      // `segments` may be invalidated.
+      // `ResizeSegment()` calls `Rewriter::Rewrite()`, which recursively calls
+      // `DateRewriter::Rewrite()` with merged segments. Other rewrites were
+      // done by the recursive call.
+      return true;
     }
+
+    if (RewriteAd(seg) || RewriteDate(seg, extra_format)) {
+      modified = true;
+      num_done = 1;
+      continue;
+    }
+
+    num_done = RewriteEra(rest_segments);
+    if (num_done) {
+      modified = true;
+      continue;
+    }
+
+    num_done = 1;
   }
 
-  if (request.has_composer() && segments->conversion_segments_size() > 0) {
+  if (request.has_composer() && !conversion_segments.empty()) {
     // Select the insert position by Romaji table.  Note:
-    // TWELVE_KEYS_TO_HIRAGANA uses digits for Hiragana composing, date/time
+    // TOGGLE_FLICK_TO_HIRAGANA uses digits for Hiragana composing, date/time
     // conversion is performed even when typing Hiragana characters.  Thus, it
     // should not be promoted.
     int insert_pos =
-        static_cast<int>(segments->conversion_segment(0).candidates_size());
+        static_cast<int>(conversion_segments.front().candidates_size());
     switch (request.request().special_romanji_table()) {
       case commands::Request::QWERTY_MOBILE_TO_HALFWIDTHASCII:
         insert_pos = 1;

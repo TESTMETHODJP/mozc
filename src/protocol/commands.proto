@@ -232,8 +232,8 @@ message KeyEvent {
     CAPS = 2048;
   }
   // LINT.ThenChange(
-  //     //composer/key_parser.cc,
-  //     //gui/config_dialog/keybinding_editor.cc,
+  //     composer/key_parser.cc,
+  //     gui/config_dialog/keybinding_editor.cc,
   //     unix/ibus/key_translator.cc,
   // )
 
@@ -399,13 +399,11 @@ message SessionCommand {
     reserved 16;
     reserved "SEND_CARET_LOCATION";
 
-    // Obsolete command. Don't simply remove this command for NUM_OF_COMMANDS.
-    // TODO(team): Replace this command by useful one.
+    // Obsolete command. Don't simply remove this command.
     reserved 17;
     reserved "SEND_LANGUAGE_BAR_COMMAND";
 
-    // Obsolete command. Don't simply remove this command for NUM_OF_COMMANDS.
-    // TODO(team): Replace this command by useful one.
+    // Obsolete command. Don't simply remove this command.
     reserved 18;
     reserved "GET_ASYNC_RESULT";
 
@@ -436,6 +434,12 @@ message SessionCommand {
     // Stops key toggling of the composer if its table is a toggle-supported
     // layout (e.g., 12-key toggle flick.)
     STOP_KEY_TOGGLING = 25;
+
+    // Update composition with |compoisition_events|.
+    // Unlike SEND_KEY command, this command completely replaces the composition
+    // rather than appending to the existing composition.
+    // The command will be used for supporting handwriting.
+    UPDATE_COMPOSITION = 26;
   }
   required CommandType type = 1;
 
@@ -489,6 +493,18 @@ message SessionCommand {
   reserved 8;  // Deprecated caret_rectangle
 
   reserved 10;  // Deprecated asynchronous_request_id
+
+  // Used by UPDATE_COMPOSITION event
+  message CompositionEvent {
+    optional string composition_string = 1;
+    // Sum of probabilities must be lesser or equal than 1.
+    // 0<= probability <= 1
+    optional double probability = 2;
+  }
+
+  // Assumes that the entries are sorted by the probability.
+  // The most probable event should be at the top.
+  repeated CompositionEvent composition_events = 11;
 }
 
 message Context {
@@ -503,7 +519,6 @@ message Context {
   // by the user's configuration.  If you want to omit interim
   // suggestions during the key typing, you might want to use
   // request_suggestion.
-  // TODO(komatsu): Delete this field and use experimental_features.
   optional bool suppress_suggestion = 3 [default = false];
 
   // Input field type.
@@ -556,7 +571,7 @@ message Capability {
       [default = NO_TEXT_DELETION_CAPABILITY];
 }
 
-// Next ID: 37
+// Next ID: 58
 // Bundles together some Android experiment flags so that they can be easily
 // retrieved throughout the native code.  These flags are generally specific to
 // the decoder, and are made available when the decoder is initialized.
@@ -567,15 +582,9 @@ message DecoderExperimentParams {
 
   reserved 3;  // Deprecated enable_strict_candidate_filter
 
-  // whether to use new spatial scoring function.
-  // TODO(taku): This flag will be deleted after the migration.
-  optional bool enable_new_spatial_scoring = 4;
-  optional int32 spatial_cost_penalty = 5 [default = 1700];
-  // Apply the adaptive `spatial_cost_penalty` penalty only if the
-  // `key_length` >= spatial_cost_penalty_min_char_length.
-  // Otherwise, use the default penalty 1700.
-  optional int32 spatial_cost_penalty_min_char_length = 6 [default = 0];
-
+  reserved 4;  // Deprecated enable_new_spatial_scoring
+  reserved 5;  // Deprecated spatial_cost_penalty
+  reserved 6;  // Deprecated spatial_cost_penalty_min_char_length
   reserved 7;  // Deprecated enrich_partial_candidates
 
   enum VariationCharacterType {
@@ -589,44 +598,108 @@ message DecoderExperimentParams {
   // Bitmap of enabled variation character types.
   optional uint32 variation_character_types = 8 [default = 0];
 
-  reserved 9;  // Deprecated enable_number_decoder
-
+  reserved 9;   // Deprecated enable_number_decoder
   reserved 10;  // Deprecated cancel_segment_model_penalty_for_prediction
-
   reserved 11;  // Deprecated enable_environmental_filter_rewriter
-
   reserved 12;  // Deprecated undo_partial_commit
-
   reserved 13;  // Deprecated use_actual_converter_for_realtime_conversion
-
-  // Enable single kanji prediction feature to generate single kanji candidates
-  // in predictor rather than rewriter.
-  optional bool enable_single_kanji_prediction = 14 [default = false];
-
-  // Cost offset for single kanji prediction feature.
-  // The default cost is 800(~= 500*ln(5)).
-  optional int32 single_kanji_prediction_cost_offset = 15 [default = 800];
+  reserved 14;  // Deprecated enable_single_kanji_prediction
+  reserved 15;  // Deprecated single_kanji_prediction_cost_offset
 
   // Parameters for typing correction candidates
-  reserved 16;  // Deprecated use_typing_correction_diff_cost
   optional int32 typing_correction_max_count = 17 [default = 3];
   optional int32 typing_correction_max_rank = 18 [default = 10];
-  reserved 19;  // Deprecated typing_correction_cost_offset
-
-  // Parameters for the new typing correction.
   optional float typing_correction_identity_score_max_diff = 21 [default = 0.0];
   optional float typing_correction_top_score_max_diff = 22 [default = 1.0];
-  optional float typing_correction_score_offset = 23 [default = 0.0];
-  optional bool typing_correction_move_literal_candidate_to_top = 24
-      [default = false];
 
-  // Cancel suffix penalty for content word in prediction module.
-  optional bool cancel_content_word_suffix_penalty = 20 [default = false];
+  reserved 38;  // Deprecated typing_correction_conversion_cost_max_diff
+  reserved 46;  // Deprecated enable_typing_correction_mixer_v2
+
+  // Trigger literal on top if
+  // correction_score <=
+  //          typing_correction_literal_on_top_correction_score_max_diff
+  //  OR
+  // conversion_cost_diff <=
+  //          typing_correction_literal_on_top_spatial_score_max_diff
+  //  OR
+  // correction_score <=
+  //   typing_correction_literal_on_top_length_score_max_diff
+  //     * (typing_correction_literal_on_top_length_decay^(input_length-3))
+  optional float typing_correction_literal_on_top_correction_score_max_diff = 47
+      [default = 0.5];
+  optional int32 typing_correction_literal_on_top_conversion_cost_max_diff = 48
+      [default = 2000];
+  // Literal candidate is placed at least second position.
+  optional bool typing_correction_literal_at_least_second = 49
+      [default = false];
+  // Character-length based triggering.
+  optional float typing_correction_literal_on_top_length_score_max_diff = 56
+      [default = 0.0];
+  optional float typing_correction_literal_on_top_length_decay = 57
+      [default = 0.0];
+
+  // Parameters for completion
+  // The diff against the identity score.
+  optional float typing_completion_identity_score_max_diff = 39
+      [default = -1.0];
+  // The maximum number of characters to complete. If zero, completion is
+  // disabled.
+  optional int32 typing_completion_max_length = 40 [default = 0];
+  // Starts the completion when |query| >= start_length.
+  optional int32 typing_completion_start_length = 41 [default = 4];
+
+  reserved 16;  // Deprecated use_typing_correction_diff_cost
+  reserved 19;  // Deprecated typing_correction_cost_offset
+  reserved 20;  // Deprecated cancel_content_word_suffix_penalty
+  reserved 23;  // Deprecated typing_correction_score_offset
+  reserved 24;  // Deprecated typing_correction_move_literal_candidate_to_top
+  reserved 30;  // Deprecated enable_number_style_learning
 
   optional bool disable_zero_query_suffix_prediction = 36 [default = false];
 
-  // Enable number style learning.
-  optional bool enable_number_style_learning = 30 [default = false];
+  optional bool enable_realtime_conversion_v2 = 37 [default = false];
+
+  optional bool enable_findability_oriented_order = 42 [default = false];
+  optional int32 findability_oriented_order_top_size = 43 [default = 10];
+
+  optional bool apply_user_segment_history_rewriter_for_prediction = 44
+      [default = false];
+  optional bool user_segment_history_rewriter_new_replaceable = 53
+      [default = false];
+  optional bool user_segment_history_rewriter_use_inner_segments = 54
+      [default = false];
+
+  optional bool filter_noisy_number_candidate = 45 [default = false];
+
+  // Parameters for new history prediction triggering.
+  // Trigger history prediction if
+  // (freq - history_prediction_min_freq) -
+  //       history_prediction_remaining_char_length_weight *
+  //       remaining_char_length >= 0.0
+  // We can emulate the following extreme cases with these two parameters.
+  // * Disable all history prediction: (inf, 0)
+  // * Always trigger: (0, 0) (current v1 behavior)
+  // * Exact match only: (0, inf)
+  // * freq >= 2:  (2, 0)
+  optional bool enable_history_prediction_triggering_v2 = 50 [default = true];
+  optional float history_prediction_min_freq = 51 [default = 0.0];
+  optional float history_prediction_remaining_char_length_weight = 52
+      [default = 0.0];
+
+  // Parameter for space-insertion for English compounds
+  // value 0: no insertion. Candidates will be like this.
+  // - "Google"
+  // - "GOOGLE"
+  // - "google"
+  // value 1: expand for all English candidates
+  // This mode adds space-prefixed candidates for three style, like this.
+  // - "Google"
+  // - " Google"
+  // - "GOOGLE"
+  // - " GOOGLE"
+  // - "google"
+  // - " google"
+  optional int32 english_variation_space_insertion_mode = 55 [default = 0];
 }
 
 // Clients' request to the server.
@@ -776,9 +849,9 @@ message Request {
   // by "かつこう".
   optional bool kana_modifier_insensitive_conversion = 9 [default = false];
 
-  // Enables Auto partial suggestion.
-  // For Auto partial suggestion, we can see first segment only candidates
-  // adding to normal realtime conversion suggestion results.
+  // Enables Auto partial suggestion (prefix candidates).
+  // For Auto partial suggestion, we can see candidates that match
+  // the prefix of the input reading.
   // If we commit that candidate, we will show suggestions for remaining part
   // of key.
   //
@@ -880,6 +953,7 @@ message Request {
   // WARNING: Although cases are mutually exclusive now, they are not
   // necessarily mutually exclusive. However, the current implementation in
   // NormalizationRewriter assumes they are mutually exclusive.
+  // Next ID: 13
   enum AdditionalRenderableCharacterGroup {
     // Do not use this case. This case is reserved for future usage.
     // Because 0th element in enum is used as default value, in order to prevend
@@ -914,6 +988,8 @@ message Request {
     EMOJI_14_0 = 8;
     // Emoji 15.0, released September 2022
     EMOJI_15_0 = 9;
+    // Emoji 15.1, released September 2023
+    EMOJI_15_1 = 12;
 
     // Additional Hieroglyphs (U+13000 ~ U+1342E)
     // Unicode 5.2, released October 2009
@@ -1055,13 +1131,11 @@ message Input {
     // Sends reload spellchecker.
     RELOAD_SPELL_CHECKER = 29;
 
+    GET_SERVER_VERSION = 19;
+
     // Number of commands.
     // When new command is added, the command should use below number
     // and NUM_OF_COMMANDS should be incremented.
-    //
-    // Note: This enum lack the value for 19 and it may cause a crash.
-    //       Please reuse these value if you can.
-    //       19 was used to clear synced data on dev channel.
     NUM_OF_COMMANDS = 30;
   }
   required CommandType type = 1;
@@ -1102,7 +1176,7 @@ message Input {
   }
   message TouchPosition {
     optional TouchAction action = 1;
-    // x, y potision: keyboad left-top is (0, 0), right-bottom is (1, 1).
+    // x, y potision: keyboard left-top is (0, 0), right-bottom is (1, 1).
     optional float x = 2;
     optional float y = 3;
     // timestamp (in ms) is set to zero when the touch event starts.
@@ -1274,7 +1348,7 @@ message DeletionRange {
   optional int32 length = 2;
 }
 
-// Next ID: 26
+// Next ID: 27
 message Output {
   optional uint64 id = 1 [jstype = JS_STRING];
 
@@ -1366,6 +1440,12 @@ message Output {
   // Candidate words stored in 1D array. The field should be filled without
   // using any personal data.
   optional CandidateList incognito_candidate_words = 25;
+
+  message VersionInfo {
+    optional string mozc_version = 1;
+    optional string data_version = 2;
+  }
+  optional VersionInfo server_version = 26;
 }
 
 message Command {

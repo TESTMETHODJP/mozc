@@ -34,21 +34,23 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/dictionary_test_util.h"
 #include "dictionary/dictionary_token.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/system/codec_interface.h"
 #include "request/conversion_request.h"
+#include "storage/louds/louds_trie.h"
 #include "storage/louds/louds_trie_builder.h"
 #include "testing/gunit.h"
-#include "absl/strings/string_view.h"
-
-using mozc::storage::louds::LoudsTrie;
-using mozc::storage::louds::LoudsTrieBuilder;
 
 namespace mozc {
 namespace dictionary {
+namespace {
+
+using ::mozc::storage::louds::LoudsTrie;
+using ::mozc::storage::louds::LoudsTrieBuilder;
 
 class ValueDictionaryTest : public ::testing::Test {
  protected:
@@ -184,5 +186,6 @@ TEST_F(ValueDictionaryTest, LookupExact) {
   EXPECT_EQ(callback.tokens()[0].value, "war");
 }
 
+}  // namespace
 }  // namespace dictionary
 }  // namespace mozc

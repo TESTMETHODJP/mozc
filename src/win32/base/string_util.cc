@@ -32,11 +32,11 @@
 #include <memory>
 #include <string>
 
-#include "base/japanese_util.h"
-#include "base/util.h"
-#include "protocol/commands.pb.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "base/japanese_util.h"
+#include "base/win32/wide_char.h"
+#include "protocol/commands.pb.h"
 
 namespace mozc {
 namespace win32 {
@@ -45,8 +45,7 @@ namespace {
 constexpr size_t kMaxReadingChars = 512;
 
 void Utf8ToSjis(absl::string_view input, std::string *output) {
-  std::wstring utf16;
-  Util::Utf8ToWide(input, &utf16);
+  const std::wstring utf16 = Utf8ToWide(input);
   if (utf16.empty()) {
     output->clear();
     return;
@@ -77,8 +76,7 @@ void Utf8ToSjis(absl::string_view input, std::string *output) {
 }  // namespace
 
 std::wstring StringUtil::KeyToReading(absl::string_view key) {
-  std::string katakana;
-  japanese_util::HiraganaToKatakana(key, &katakana);
+  std::string katakana = japanese_util::HiraganaToKatakana(key);
 
   DWORD lcid =
       MAKELCID(MAKELANGID(LANG_JAPANESE, SUBLANG_DEFAULT), SORT_JAPANESE_XJIS);
@@ -126,16 +124,13 @@ std::wstring StringUtil::KeyToReading(absl::string_view key) {
 }
 
 std::string StringUtil::KeyToReadingA(absl::string_view key) {
-  std::string ret;
-  mozc::Util::WideToUtf8(KeyToReading(key), &ret);
-  return ret;
+  return WideToUtf8(KeyToReading(key));
 }
 
 std::wstring StringUtil::ComposePreeditText(const commands::Preedit &preedit) {
   std::wstring value;
   for (int i = 0; i < preedit.segment_size(); ++i) {
-    std::wstring segment_value;
-    mozc::Util::Utf8ToWide(preedit.segment(i).value(), &segment_value);
+    const std::wstring segment_value = Utf8ToWide(preedit.segment(i).value());
     value.append(segment_value);
   }
   return value;

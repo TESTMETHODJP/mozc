@@ -34,9 +34,15 @@
 #include <memory>
 #include <string>
 
+#include "absl/flags/flag.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "base/const.h"
 #include "base/logging.h"
 #include "base/system_util.h"
+#include "base/vlog.h"
+#include "client/client_interface.h"
 #include "config/config_handler.h"
 #include "ipc/ipc.h"
 #include "ipc/named_event.h"
@@ -44,15 +50,11 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "protocol/renderer_command.pb.h"
-#include "absl/flags/flag.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/time.h"
-#include "client/client_interface.h"
 #include "renderer/renderer_interface.h"
 
 #ifdef _WIN32
 #include <windows.h>
+#include "base/win32/win_util.h"
 #endif  // _WIN32
 
 // By default, mozc_renderer quits when user-input continues to be
@@ -101,7 +103,7 @@ class RendererServerSendCommand : public client::SendCommandInterface {
       return false;
     }
 
-    HWND target = reinterpret_cast<HWND>(receiver_handle_);
+    HWND target = WinUtil::DecodeWindowHandle(receiver_handle_);
     if (target == nullptr) {
       LOG(ERROR) << "target window is nullptr";
       return false;
@@ -143,7 +145,7 @@ RendererServer::RendererServer()
       [this](ProcessWatchDog::SignalType type) {
         if (type == ProcessWatchDog::SignalType::PROCESS_SIGNALED ||
             type == ProcessWatchDog::SignalType::THREAD_SIGNALED) {
-          VLOG(1) << "Parent process is terminated: call Hide event";
+          MOZC_VLOG(1) << "Parent process is terminated: call Hide event";
           mozc::commands::RendererCommand command;
           command.set_type(mozc::commands::RendererCommand::UPDATE);
           command.set_visible(false);
@@ -163,12 +165,12 @@ RendererServer::RendererServer()
 
   timeout_ =
       1000 * std::max(3, std::min(24 * 60 * 60, absl::GetFlag(FLAGS_timeout)));
-  VLOG(2) << "timeout is set to be : " << timeout_;
+  MOZC_VLOG(2) << "timeout is set to be : " << timeout_;
 
 #ifndef MOZC_NO_LOGGING
   config::Config config;
   config::ConfigHandler::GetConfig(&config);
-  Logging::SetConfigVerboseLevel(config.verbose_level());
+  mozc::internal::SetConfigVLogLevel(config.verbose_level());
 #endif  // MOZC_NO_LOGGING
 }
 
@@ -215,7 +217,7 @@ bool RendererServer::ExecCommandInternal(
     return false;
   }
 
-  VLOG(2) << MOZC_LOG_PROTOBUF(command);
+  MOZC_VLOG(2) << command;
 
   // Check process info if update mode
   if (command.type() == commands::RendererCommand::UPDATE) {

@@ -38,6 +38,9 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/logging.h"
 #include "base/util.h"
@@ -58,9 +61,6 @@
 #include "session/session_usage_stats_util.h"
 #include "transliteration/transliteration.h"
 #include "usage_stats/usage_stats.h"
-#include "absl/strings/match.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/time.h"
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>  // for TARGET_OS_IPHONE
@@ -236,6 +236,9 @@ void Session::InitContext(ImeContext *context) const {
   context->SetConfig(&context->GetConfig());
   context->SetKeyMapManager(&context->GetKeyMapManager());
 
+  // TODO(team): Remove #if based behavior change for cascading window.
+  // Tests for session layer (session_handler_scenario_test, etc) can be
+  // unstable.
 #if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__linux__) || \
     defined(__wasm__)
   context->mutable_converter()->set_use_cascading_window(false);
@@ -390,8 +393,11 @@ bool Session::SendCommand(commands::Command *command) {
     case commands::SessionCommand::STOP_KEY_TOGGLING:
       result = StopKeyToggling(command);
       break;
+    case commands::SessionCommand::UPDATE_COMPOSITION:
+      result = UpdateComposition(command);
+      break;
     default:
-      LOG(WARNING) << "Unknown command" << MOZC_LOG_PROTOBUF(*command);
+      LOG(WARNING) << "Unknown command" << *command;
       result = DoNothing(command);
       break;
   }
@@ -531,6 +537,49 @@ bool Session::SendKey(commands::Command *command) {
   SessionUsageStatsUtil::AddSendKeyOutputStats(command->output());
 
   MaybeSetUndoStatus(command);
+  return result;
+}
+
+bool Session::UpdateCompositionInternal(commands::Command *command) {
+  command->mutable_output()->set_consumed(true);
+
+  context_->mutable_composer()->Reset();
+  // Use the top entry for now.
+  context_->mutable_composer()->SetCompositionsForHandwriting(
+      command->input().command().composition_events());
+  ClearUndoContext();
+  SetSessionState(ImeContext::COMPOSITION, context_.get());
+
+  if (Suggest(command->input())) {
+    Output(command);
+    return true;
+  }
+
+  OutputComposition(command);
+  return true;
+}
+
+bool Session::UpdateComposition(commands::Command *command) {
+  bool result = false;
+  switch (context_->state()) {
+    case ImeContext::DIRECT:
+      result = EchoBackAndClearUndoContext(command);
+      break;
+
+    case ImeContext::PRECOMPOSITION:
+      [[fallthrough]];
+    case ImeContext::COMPOSITION:
+      result = UpdateCompositionInternal(command);
+      break;
+
+    case ImeContext::CONVERSION:
+      result = false;
+      break;
+
+    case ImeContext::NONE:
+      result = false;
+      break;
+  }
   return result;
 }
 
@@ -1151,11 +1200,6 @@ void Session::SetKeyMapManager(
   context_->SetKeyMapManager(key_map_manager);
 }
 
-void Session::SetSpellCheckerService(
-    const spelling::SpellCheckerServiceInterface *spellchecker_service) {
-  context_->mutable_composer()->SetSpellCheckerService(spellchecker_service);
-}
-
 bool Session::GetStatus(commands::Command *command) {
   OutputMode(command);
   return true;
@@ -1439,7 +1483,7 @@ absl::Time Session::last_command_time() const {
 
 bool Session::InsertCharacter(commands::Command *command) {
   if (!command->input().has_key()) {
-    LOG(ERROR) << "No key event: " << MOZC_LOG_PROTOBUF(command->input());
+    LOG(ERROR) << "No key event: " << command->input();
     return false;
   }
 
@@ -1483,8 +1527,7 @@ bool Session::InsertCharacter(commands::Command *command) {
     return true;
   }
 
-  std::string composition;
-  context_->composer().GetQueryForConversion(&composition);
+  const std::string composition = context_->composer().GetQueryForConversion();
   bool should_commit = (context_->state() == ImeContext::CONVERSION);
 
   if (context_->GetRequest().space_on_alphanumeric() ==
@@ -1882,9 +1925,8 @@ void Session::CommitHeadToFocusedSegmentsInternal(
 }
 
 void Session::CommitCompositionDirectly(commands::Command *command) {
-  std::string composition, conversion;
-  context_->composer().GetQueryForConversion(&composition);
-  context_->composer().GetStringForSubmission(&conversion);
+  const std::string composition = context_->composer().GetQueryForConversion();
+  const std::string conversion = context_->composer().GetStringForSubmission();
   CommitStringDirectly(composition, conversion, command);
 }
 
@@ -1896,8 +1938,7 @@ void Session::CommitSourceTextDirectly(commands::Command *command) {
 }
 
 void Session::CommitRawTextDirectly(commands::Command *command) {
-  std::string raw_text;
-  context_->composer().GetRawString(&raw_text);
+  const std::string raw_text = context_->composer().GetRawString();
   CommitStringDirectly(raw_text, raw_text, command);
 }
 
@@ -1931,6 +1972,10 @@ namespace {
 bool SuppressSuggestion(const commands::Input &input) {
   if (!input.has_context()) {
     return false;
+  }
+  if (input.context().has_suppress_suggestion() &&
+      input.context().suppress_suggestion()) {
+    return true;
   }
   // If the target input field is in Chrome's Omnibox or Google
   // search box, the suggest window is hidden.
@@ -1966,10 +2011,11 @@ bool Session::Suggest(const commands::Input &input) {
         context_->converter().conversion_preferences();
     conversion_preferences.request_suggestion = input.request_suggestion();
     return context_->mutable_converter()->SuggestWithPreferences(
-        context_->composer(), conversion_preferences);
+        context_->composer(), input.context(), conversion_preferences);
   }
 
-  return context_->mutable_converter()->Suggest(context_->composer());
+  return context_->mutable_converter()->Suggest(context_->composer(),
+                                                input.context());
 }
 
 bool Session::ConvertToTransliteration(
@@ -2316,8 +2362,7 @@ bool Session::StopKeyToggling(commands::Command *command) {
 
 bool Session::Convert(commands::Command *command) {
   command->mutable_output()->set_consumed(true);
-  std::string composition;
-  context_->composer().GetQueryForConversion(&composition);
+  const std::string composition = context_->composer().GetQueryForConversion();
 
   // TODO(komatsu): Make a function like ConvertOrSpace.
   // Handle a space key on the ASCII composition mode.
@@ -2819,8 +2864,7 @@ bool Session::CanStartAutoConversion(
 
   const uint32_t key_code = key_event.key_code();
 
-  std::string preedit;
-  context_->composer().GetStringForPreedit(&preedit);
+  const std::string preedit = context_->composer().GetStringForPreedit();
   const absl::string_view last_char =
       Util::Utf8SubString(preedit, length - 1, 1);
   if (last_char.empty()) {

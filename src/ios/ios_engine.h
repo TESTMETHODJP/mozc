@@ -34,11 +34,11 @@
 #include <memory>
 #include <string>
 
+#include "absl/base/thread_annotations.h"
+#include "absl/synchronization/mutex.h"
 #include "base/port.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/synchronization/mutex.h"
 
 namespace mozc {
 
@@ -62,10 +62,6 @@ class IosEngine {
   explicit IosEngine(const std::string &data_file_path);
 
   ~IosEngine();
-
-  // Initializes global modules.  This function should be called before the
-  // initialization of IosEngine.
-  static void InitMozc();
 
   // The following methods are helpers to populate command proto and send it
   // to the session handler.  Input to and output from the session handler are

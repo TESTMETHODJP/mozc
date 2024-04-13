@@ -80,15 +80,8 @@ class Util {
   // Returns true if the text in the rage [first, last) is capitalized ASCII.
   static bool IsCapitalizedAscii(absl::string_view s);
 
-  ABSL_DEPRECATED("Use strings::OneCharLen")
-  static size_t OneCharLen(const char *src);
-
   // Returns the lengths of [src, src+size] encoded in UTF8.
-  static size_t CharsLen(const char *src, size_t size);
-
-  static size_t CharsLen(absl::string_view str) {
-    return CharsLen(str.data(), str.size());
-  }
+  static size_t CharsLen(absl::string_view str);
 
   // Converts a UTF-8 string to UTF-32.
   static std::u32string Utf8ToUtf32(absl::string_view str);
@@ -97,23 +90,24 @@ class Util {
 
   // Converts the first character of UTF8 string starting at |begin| to UCS4.
   // The read byte length is stored to |mblen|.
-  static char32_t Utf8ToUcs4(const char *begin, const char *end, size_t *mblen);
-  static char32_t Utf8ToUcs4(absl::string_view s) {
+  static char32_t Utf8ToCodepoint(const char *begin, const char *end,
+                                  size_t *mblen);
+  static char32_t Utf8ToCodepoint(absl::string_view s) {
     size_t mblen = 0;
-    return Utf8ToUcs4(s.data(), s.data() + s.size(), &mblen);
+    return Utf8ToCodepoint(s.data(), s.data() + s.size(), &mblen);
   }
 
   // Converts a UCS4 code point to UTF8 string.
-  static void Ucs4ToUtf8(char32_t c, std::string *output);
+  static std::string CodepointToUtf8(char32_t c);
 
   // Converts a UCS4 code point to UTF8 string and appends it to |output|, i.e.,
   // |output| is not cleared.
-  static void Ucs4ToUtf8Append(char32_t c, std::string *output);
+  static void CodepointToUtf8Append(char32_t c, std::string *output);
 
   // Converts a UCS4 code point to UTF8 and stores it to char array.  The result
   // is terminated by '\0'.  Returns the byte length of converted UTF8 string.
   // REQUIRES: The output buffer must be longer than 7 bytes.
-  static size_t Ucs4ToUtf8(char32_t c, char *output);
+  static size_t CodepointToUtf8(char32_t c, char *output);
 
   // Returns true if |s| is split into |first_char32| + |rest|.
   // You can pass nullptr to |first_char32| and/or |rest| to ignore the matched
@@ -134,27 +128,6 @@ class Util {
   // Returns true if |s| is a valid UTF8.
   static bool IsValidUtf8(absl::string_view s);
 
-#ifdef _WIN32
-  // Returns how many wide characters are necessary in UTF-16 to represent
-  // given UTF-8 string. Note that the result of this method becomes greater
-  // than that of Util::CharsLen if |src| contains any character which is
-  // encoded by the surrogate-pair in UTF-16.
-  ABSL_DEPRECATED("Use win32::WideCharsLen")
-  static size_t WideCharsLen(absl::string_view src);
-  // Converts the encoding of the specified string from UTF-8 to UTF-16, and
-  // vice versa.
-  ABSL_DEPRECATED("Use win32::Utf8ToWide")
-  static int Utf8ToWide(absl::string_view input, std::wstring *output);
-  ABSL_DEPRECATED("Use win32::Utf8ToWide")
-  static std::wstring Utf8ToWide(absl::string_view input);
-  ABSL_DEPRECATED("Use win32::WideToUtf8")
-  static int WideToUtf8(const wchar_t *input, std::string *output);
-  ABSL_DEPRECATED("Use win32::WideToUtf8")
-  static int WideToUtf8(const std::wstring &input, std::string *output);
-  ABSL_DEPRECATED("Use win32::WideToUtf8")
-  static std::string WideToUtf8(const std::wstring &input);
-#endif  // _WIN32
-
   // Extracts a substring range, where both start and length are in terms of
   // UTF8 size. Note that the returned string view refers to the same memory
   // block as the input.
@@ -169,7 +142,7 @@ class Util {
                             std::string *result);
 
   // Strip a heading UTF-8 BOM (binary order mark) sequence (= \xef\xbb\xbf).
-  static void StripUtf8Bom(std::string *line);
+  static absl::string_view StripUtf8Bom(absl::string_view line);
 
   // return true the line starts with UTF16-LE/UTF16-BE BOM.
   static bool IsUtf16Bom(absl::string_view line);
@@ -205,12 +178,6 @@ class Util {
   // Returns true if input is a bracket pair text (e.g. "「」").
   static bool IsBracketPairText(absl::string_view input);
 
-  // Escape any characters into \x prefixed hex digits.
-  // ex.  "ABC" => "\x41\x42\x43".
-  static void Escape(absl::string_view input, std::string *output);
-  static std::string Escape(absl::string_view input);
-  static bool Unescape(absl::string_view input, std::string *output);
-
   enum ScriptType {
     UNKNOWN_SCRIPT,
     KATAKANA,
@@ -225,15 +192,12 @@ class Util {
   // return script type of w
   static ScriptType GetScriptType(char32_t w);
 
-  // return script type of first character in [begin, end)
+  // Returns the script type of the first character in `str`.
   // This function finds the first UTF-8 chars and returns its script type.
-  // The length of the character will be returned in *mblen.
   // This function calls GetScriptType(char32_t) internally.
-  static ScriptType GetScriptType(const char *begin, const char *end,
-                                  size_t *mblen);
-
-  // return script type of first character in str
-  static ScriptType GetFirstScriptType(absl::string_view str);
+  // Also sets the UTF-8 byte size of the chracter to `*mblen` if it's given.
+  static ScriptType GetFirstScriptType(absl::string_view str,
+                                       size_t *mblen = nullptr);
 
   // return script type of string. all chars in str must be
   // KATAKANA/HIRAGANA/KANJI/NUMBER or ALPHABET.

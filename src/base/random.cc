@@ -32,9 +32,9 @@
 #include <cstddef>
 #include <string>
 
-#include "base/util.h"
 #include "absl/algorithm/container.h"
 #include "absl/random/random.h"
+#include "base/util.h"
 
 namespace mozc {
 
@@ -42,8 +42,8 @@ std::string Random::Utf8String(size_t len, char32_t lo, char32_t hi) {
   std::string result;
   result.reserve(len);
   for (size_t i = 0; i < len; ++i) {
-    Util::Ucs4ToUtf8Append(absl::Uniform(absl::IntervalClosed, bitgen_, lo, hi),
-                           &result);
+    Util::CodepointToUtf8Append(
+        absl::Uniform(absl::IntervalClosed, bitgen_, lo, hi), &result);
   }
   return result;
 }

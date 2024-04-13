@@ -35,13 +35,14 @@
 #include <utility>
 #include <vector>
 
+#include "absl/random/random.h"
 #include "base/logging.h"
 #include "base/mmap.h"
+#include "base/vlog.h"
 #include "data_manager/connection_file_reader.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/random/random.h"
 
 namespace mozc {
 namespace {
@@ -54,12 +55,12 @@ struct ConnectionDataEntry {
 
 TEST(ConnectorTest, CompareWithRawData) {
   const std::string path = testing::GetSourceFileOrDie(
-      {"data_manager", "testing", "connection.data"});
+      {MOZC_SRC_COMPONENTS("data_manager"), "testing", "connection.data"});
   absl::StatusOr<Mmap> cmmap = Mmap::Map(path);
   ASSERT_OK(cmmap) << cmmap.status();
   auto status_or_connector =
       Connector::Create(cmmap->begin(), cmmap->size(), 256);
-  ASSERT_TRUE(status_or_connector.ok()) << status_or_connector.status();
+  ASSERT_OK(status_or_connector);
   auto connector = std::move(status_or_connector).value();
   ASSERT_EQ(1, connector.GetResolution());
 
@@ -93,7 +94,7 @@ TEST(ConnectorTest, CompareWithRawData) {
 
 TEST(ConnectorTest, BrokenData) {
   const std::string path = testing::GetSourceFileOrDie(
-      {"data_manager", "testing", "connection.data"});
+      {MOZC_SRC_COMPONENTS("data_manager"), "testing", "connection.data"});
   absl::StatusOr<Mmap> cmmap = Mmap::Map(path);
   ASSERT_OK(cmmap) << cmmap.status();
 
@@ -105,7 +106,7 @@ TEST(ConnectorTest, BrokenData) {
     *reinterpret_cast<uint16_t *>(&data[0]) = 0;
     const auto status =
         Connector::Create(data.data(), data.size(), 256).status();
-    VLOG(1) << status;
+    MOZC_VLOG(1) << status;
     EXPECT_FALSE(status.ok());
   }
   // Not square.
@@ -116,7 +117,7 @@ TEST(ConnectorTest, BrokenData) {
     array[3] = 200;
     const auto status =
         Connector::Create(data.data(), data.size(), 256).status();
-    VLOG(1) << status;
+    MOZC_VLOG(1) << status;
     EXPECT_FALSE(status.ok());
   }
   // Incomplete data.
@@ -125,7 +126,7 @@ TEST(ConnectorTest, BrokenData) {
     for (size_t divider : {2, 3, 5, 7, 10, 100, 1000}) {
       const auto size = data.size() / divider;
       const auto status = Connector::Create(data.data(), size, 256).status();
-      VLOG(1) << "Divider=" << divider << ": " << status;
+      MOZC_VLOG(1) << "Divider=" << divider << ": " << status;
       EXPECT_FALSE(status.ok());
     }
   }
@@ -135,7 +136,7 @@ TEST(ConnectorTest, BrokenData) {
     data.insert(2, cmmap->begin(), cmmap->size());  // Align at 16-bit boundary.
     const auto status =
         Connector::Create(data.data() + 2, cmmap->size(), 256).status();
-    VLOG(1) << status;
+    MOZC_VLOG(1) << status;
     EXPECT_FALSE(status.ok());
   }
 }

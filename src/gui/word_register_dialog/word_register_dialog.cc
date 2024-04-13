@@ -51,17 +51,20 @@
 #include <string>
 #include <vector>
 
+#include "absl/time/time.h"
 #include "base/const.h"
 #include "base/logging.h"
-#include "base/util.h"
+#include "client/client.h"
 #include "data_manager/pos_list_provider.h"
 #include "dictionary/user_dictionary_session.h"
 #include "dictionary/user_dictionary_storage.h"
 #include "dictionary/user_dictionary_util.h"
-#include "protocol/user_dictionary_storage.pb.h"
-#include "absl/time/time.h"
-#include "client/client.h"
 #include "gui/base/util.h"
+#include "protocol/user_dictionary_storage.pb.h"
+
+#if defined(_WIN32)
+#include "base/win32/wide_char.h"
+#endif  // _WIN32
 
 namespace mozc {
 namespace gui {
@@ -78,8 +81,7 @@ constexpr int kMaxReverseConversionLength = 30;
 
 QString GetEnv(const char *envname) {
 #if defined(_WIN32)
-  std::wstring wenvname;
-  mozc::Util::Utf8ToWide(envname, &wenvname);
+  const std::wstring wenvname = mozc::win32::Utf8ToWide(envname);
   const DWORD buffer_size =
       ::GetEnvironmentVariable(wenvname.c_str(), nullptr, 0);
   if (buffer_size == 0) {
@@ -156,14 +158,18 @@ WordRegisterDialog::WordRegisterDialog()
 #endif  // !ENABLE_CLOUD_SYNC
 
   // Initialize ComboBox
-  std::vector<std::string> pos_set;
-  pos_list_provider_->GetPosList(&pos_set);
+  const std::vector<std::string> pos_set = pos_list_provider_->GetPosList();
   CHECK(!pos_set.empty());
 
   for (const std::string &pos : pos_set) {
     CHECK(!pos.empty());
     PartOfSpeechcomboBox->addItem(QString::fromUtf8(pos.c_str()));
   }
+  // Set the default POS to "名詞" indexed with 1.
+  PartOfSpeechcomboBox->setCurrentIndex(
+      pos_list_provider_->GetPosListDefaultIndex());
+  DCHECK(PartOfSpeechcomboBox->currentText() == "名詞")
+      << "The default POS is not 名詞";
 
   // Create new dictionary if empty
   if (!session_->mutable_storage()->Exists().ok() ||
@@ -354,13 +360,13 @@ void WordRegisterDialog::LaunchDictionaryTool() {
   QWidget::close();
 }
 
-const QString WordRegisterDialog::GetReading(const QString &str) {
+QString WordRegisterDialog::GetReading(const QString &str) {
   if (str.isEmpty()) {
     LOG(ERROR) << "given string is empty";
     return QLatin1String("");
   }
 
-  if (str.count() >= kMaxReverseConversionLength) {
+  if (str.size() >= kMaxReverseConversionLength) {
     LOG(ERROR) << "too long input";
     return QLatin1String("");
   }
@@ -394,10 +400,7 @@ const QString WordRegisterDialog::GetReading(const QString &str) {
   }
 
   std::string key;
-  for (size_t segment_index = 0;
-       segment_index < output.preedit().segment_size(); ++segment_index) {
-    const commands::Preedit::Segment &segment =
-        output.preedit().segment(segment_index);
+  for (const commands::Preedit::Segment &segment : output.preedit().segment()) {
     if (!segment.has_key()) {
       LOG(ERROR) << "No segment";
       return QLatin1String("");
@@ -476,7 +479,7 @@ bool WordRegisterDialog::SetDefaultEntryFromEnvironmentVariable() {
   return true;
 }
 
-const QString WordRegisterDialog::TrimValue(const QString &str) const {
+QString WordRegisterDialog::TrimValue(const QString &str) const {
   return str.trimmed()
       .replace(QLatin1Char('\r'), QLatin1String(""))
       .replace(QLatin1Char('\n'), QLatin1String(""));

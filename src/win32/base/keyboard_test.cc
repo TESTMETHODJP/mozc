@@ -31,9 +31,8 @@
 
 #include <cstddef>
 
-#include "testing/googletest.h"
-#include "testing/gunit.h"
 #include "absl/base/casts.h"
+#include "testing/gunit.h"
 
 namespace mozc {
 namespace win32 {

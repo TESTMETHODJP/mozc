@@ -53,14 +53,14 @@
 #include "base/config_file_stream.h"
 #include "base/logging.h"
 #include "base/run_level.h"
+#include "client/client.h"
 #include "config/config_handler.h"
 #include "config/stats_config_util.h"
-#include "protocol/config.pb.h"
-#include "session/internal/keymap.h"
-#include "client/client.h"
 #include "gui/base/util.h"
 #include "gui/config_dialog/keymap_editor.h"
 #include "gui/config_dialog/roman_table_editor.h"
+#include "protocol/config.pb.h"
+#include "session/internal/keymap.h"
 
 #ifdef __APPLE__
 #include "base/mac/mac_util.h"
@@ -82,9 +82,9 @@ void Connect(const QList<T *> &objects, const char *signal,
 }  // namespace
 
 namespace mozc {
-
 namespace gui {
-using mozc::config::StatsConfigUtil;
+
+using ::mozc::config::StatsConfigUtil;
 
 ConfigDialog::ConfigDialog()
     : client_(client::ClientFactory::NewClient()),
@@ -307,8 +307,6 @@ ConfigDialog::ConfigDialog()
   usageStatsCheckBox->setEnabled(false);
 #endif  // CHANNEL_DEV
 }
-
-ConfigDialog::~ConfigDialog() {}
 
 bool ConfigDialog::SetConfig(const config::Config &config) {
   if (!client_->CheckVersionOrRestartServer()) {

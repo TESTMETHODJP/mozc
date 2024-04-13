@@ -34,24 +34,24 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
-#include "base/util.h"
-#include "composer/composer.h"
-#include "converter/converter_interface.h"
-#include "converter/segments.h"
-#include "request/conversion_request.h"
 #include "absl/algorithm/container.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "base/logging.h"
+#include "base/util.h"
+#include "composer/composer.h"
+#include "converter/converter_interface.h"
+#include "converter/segments.h"
+#include "request/conversion_request.h"
 
 namespace mozc {
 namespace {
 
-// Checks given string is ucs4 expression or not.
-bool IsValidUcs4Expression(const absl::string_view input) {
+// Checks given string is codepoint expression or not.
+bool IsValidCodepointExpression(const absl::string_view input) {
   if (input.size() < 3 || input.size() > 8) {
     return false;
   }
@@ -64,9 +64,10 @@ bool IsValidUcs4Expression(const absl::string_view input) {
 }
 
 // Converts given string to 32bit unsigned integer.
-bool UCS4ExpressionToInteger(const absl::string_view input, uint32_t *ucs4) {
-  DCHECK(ucs4);
-  return absl::SimpleHexAtoi(input.substr(2), ucs4);
+bool UCS4ExpressionToInteger(const absl::string_view input,
+                             uint32_t *codepoint) {
+  DCHECK(codepoint);
+  return absl::SimpleHexAtoi(input.substr(2), codepoint);
 }
 
 void AddCandidate(std::string key, std::string value, int index,
@@ -115,10 +116,8 @@ bool UnicodeRewriter::RewriteToUnicodeCharFormat(
   }
 
   const std::string &source_char = request.composer().source_text();
-  size_t mblen = 0;
-  const char32_t ucs4 = Util::Utf8ToUcs4(
-      source_char.data(), source_char.data() + source_char.size(), &mblen);
-  std::string value = absl::StrFormat("U+%04X", ucs4);
+  const char32_t codepoint = Util::Utf8ToCodepoint(source_char);
+  std::string value = absl::StrFormat("U+%04X", codepoint);
 
   const std::string &key = segments->conversion_segment(0).key();
   Segment *segment = segments->mutable_conversion_segment(0);
@@ -131,25 +130,24 @@ bool UnicodeRewriter::RewriteToUnicodeCharFormat(
 bool UnicodeRewriter::RewriteFromUnicodeCharFormat(
     const ConversionRequest &request, Segments *segments) const {
   std::string key;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    key += segments->conversion_segment(i).key();
+  for (const Segment &segment : segments->conversion_segments()) {
+    key += segment.key();
   }
 
-  if (!IsValidUcs4Expression(key)) {
+  if (!IsValidCodepointExpression(key)) {
     return false;
   }
 
-  uint32_t ucs4 = 0;
-  if (!UCS4ExpressionToInteger(key, &ucs4)) {
+  uint32_t codepoint = 0;
+  if (!UCS4ExpressionToInteger(key, &codepoint)) {
     return false;
   }
 
-  if (!Util::IsAcceptableCharacterAsCandidate(ucs4)) {
+  if (!Util::IsAcceptableCharacterAsCandidate(codepoint)) {
     return false;
   }
 
-  std::string value;
-  Util::Ucs4ToUtf8(ucs4, &value);
+  const std::string value = Util::CodepointToUtf8(codepoint);
   if (value.empty()) {
     return false;
   }

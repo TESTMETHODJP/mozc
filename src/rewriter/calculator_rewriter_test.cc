@@ -32,6 +32,8 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "config/config_handler.h"
 #include "converter/converter_mock.h"
@@ -47,8 +49,6 @@
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/strings/match.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {

@@ -35,12 +35,11 @@ load(
     "mozc_cc_library",
     "mozc_cc_test",
 )
+load("//bazel:stubs.bzl", "lexan")
 load(
     "//bazel/win32:build_defs.bzl",
-    "copts_wtl",
     "features_gdi",
 )
-load("//bazel:stubs.bzl", "lexan")
 
 package(
     default_visibility = ["//win32:__subpackages__"],
@@ -69,6 +68,7 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         "//base:logging",
+        "//base:vlog",
         "//protocol:commands_cc_proto",
     ],
 )
@@ -164,9 +164,6 @@ mozc_cc_library(
         ":input_dll",
         ":tsf_profile",
         "//base:logging",
-        "//base:system_util",
-        "//base/win32:com",
-        "//base/win32:scoped_com",
         "//base/win32:wide_char",
         "@com_microsoft_wil//:wil",
     ],
@@ -231,27 +228,7 @@ mozc_cc_test(
     deps = [
         ":keyboard",
         "//testing:gunit_main",
-    ],
-)
-
-mozc_cc_library(
-    name = "keyboard_layout_id",
-    srcs = ["keyboard_layout_id.cc"],
-    hdrs = ["keyboard_layout_id.h"],
-    tags = MOZC_TAGS.WIN_ONLY,
-    target_compatible_with = ["@platforms//os:windows"],
-    deps = ["//base:logging"],
-)
-
-mozc_cc_test(
-    name = "keyboard_layout_id_test",
-    srcs = ["keyboard_layout_id_test.cc"],
-    tags = MOZC_TAGS.WIN_ONLY,
-    target_compatible_with = ["@platforms//os:windows"],
-    deps = [
-        ":keyboard_layout_id",
-        "//base:util",
-        "//testing:gunit_main",
+        "@com_google_absl//absl/base",
     ],
 )
 
@@ -268,6 +245,7 @@ mozc_cc_library(
         "//base:japanese_util",
         "//base:logging",
         "//base:util",
+        "//base/win32:wide_char",
         "//client:client_interface",
         "//config:config_handler",
         "//protocol:commands_cc_proto",
@@ -307,7 +285,7 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":keyboard",
-        "//base:logging",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )
 
@@ -327,33 +305,33 @@ mozc_cc_library(
     name = "text_icon",
     srcs = ["text_icon.cc"],
     hdrs = ["text_icon.h"],
-    copts = copts_wtl(),
     features = features_gdi(),
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         "//base:logging",
         "//base:util",
-        "//third_party/wtl",
+        "//base/win32:wide_char",
+        "//bazel/win32:gdi32",
+        "//bazel/win32:user32",
         "@com_google_absl//absl/strings",
+        "@com_microsoft_wil//:wil",
     ],
 )
 
 mozc_cc_test(
     name = "text_icon_test",
     srcs = ["text_icon_test.cc"],
-    copts = copts_wtl(),
     features = features_gdi(),
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":text_icon",
-        "//base:logging",
-        "//base:mmap",
-        "//base:util",
         "//base/win32:win_font_test_helper",
+        "//bazel/win32:gdi32",
+        "//bazel/win32:user32",
         "//testing:gunit_main",
-        "//third_party/wtl",
+        "@com_microsoft_wil//:wil",
     ],
 )
 
@@ -410,6 +388,31 @@ mozc_cc_test(
     ],
 )
 
+lexan.cc_windows_dll(
+    name = "msctf_dll",
+    srcs = [
+        "msctf_dll.cc",
+    ],
+    tags = MOZC_TAGS.WIN_ONLY,
+    target_compatible_with = ["@platforms//os:windows"],
+    win_def_file = "msctf_dll.def",
+    deps = [
+        "//base:logging",
+    ],
+)
+
+mozc_cc_test(
+    name = "msctf_dll_test",
+    srcs = ["msctf_dll_test.cc"],
+    tags = MOZC_TAGS.WIN_ONLY,
+    target_compatible_with = ["@platforms//os:windows"],
+    deps = [
+        ":msctf_dll",
+        "//testing:gunit_main",
+        "@com_microsoft_wil//:wil",
+    ],
+)
+
 mozc_cc_library(
     name = "string_util",
     srcs = ["string_util.cc"],
@@ -419,6 +422,7 @@ mozc_cc_library(
     deps = [
         "//base:japanese_util",
         "//base:util",
+        "//base/win32:wide_char",
         "//protocol:commands_cc_proto",
         "@com_google_absl//absl/strings",
     ],
@@ -468,11 +472,13 @@ mozc_cc_library(
     name = "win32_window_util",
     srcs = ["win32_window_util.cc"],
     hdrs = ["win32_window_util.h"],
-    copts = copts_wtl(),
     features = features_gdi(),
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
-    deps = ["//base:logging"],
+    deps = [
+        "//base:logging",
+        "//base:vlog",
+    ],
 )
 
 mozc_cc_library(
@@ -482,30 +488,10 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
-        ":imm_util",
         ":input_dll",
-        ":keyboard_layout_id",
+        ":msctf_dll",
         ":tsf_profile",
         "//base:logging",
-        "//base:system_util",
-        "//base/win32:com",
-        "//base/win32:scoped_com",
-        "//testing:gunit_prod",
-        "@com_microsoft_wil//:wil",
-    ],
-)
-
-mozc_cc_test(
-    name = "uninstall_helper_test",
-    srcs = ["uninstall_helper_test.cc"],
-    features = features_gdi(),
-    tags = MOZC_TAGS.WIN_ONLY,
-    target_compatible_with = ["@platforms//os:windows"],
-    deps = [
-        ":tsf_profile",
-        ":uninstall_helper",
-        "//base:const",
         "//base/win32:wide_char",
-        "//testing:gunit_main",
     ],
 )

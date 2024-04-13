@@ -34,12 +34,12 @@
 #include <string>
 #include <vector>
 
-#include "base/thread.h"
-#include "testing/gunit.h"
-#include "testing/mozctest.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "base/thread.h"
+#include "testing/gunit.h"
+#include "testing/mozctest.h"
 
 #ifdef __APPLE__
 #include "ipc/ipc_test_util.h"

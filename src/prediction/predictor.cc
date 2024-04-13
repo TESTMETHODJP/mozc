@@ -36,15 +36,18 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/util.h"
+#include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "prediction/predictor_interface.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc::prediction {
 namespace {
@@ -304,10 +307,42 @@ ConversionRequest MobilePredictor::GetRequestForPredict(
       break;
     }
     default:
-      DLOG(ERROR) << "Never reach here.";
+      DLOG(ERROR) << "Unexpected request type: " << request.request_type();
   }
   return ret;
 }
+
+namespace {
+// Fills empty lid and rid of candidates with the candidates of the same value.
+void MaybeFillFallbackPos(Segments *segments) {
+  for (Segment &segment : segments->conversion_segments()) {
+    absl::flat_hash_map<absl::string_view, Segment::Candidate *> posless_cands;
+    for (size_t ci = 0; ci < segment.candidates_size(); ++ci) {
+      Segment::Candidate *cand = segment.mutable_candidate(ci);
+      // Candidates with empty POS come before candidates with filled POS.
+      if (cand->lid == 0 || cand->rid == 0) {
+        posless_cands[cand->value] = cand;
+        continue;
+      }
+      if (!posless_cands.contains(cand->value)) {
+        continue;
+      }
+
+      Segment::Candidate *posless_cand = posless_cands[cand->value];
+      if (posless_cand->lid == 0) {
+        posless_cand->lid = cand->lid;
+      }
+      if (posless_cand->rid == 0) {
+        posless_cand->rid = cand->rid;
+      }
+      if (posless_cand->lid != 0 && posless_cand->rid != 0) {
+        posless_cands.erase(cand->value);
+      }
+      MOZC_CANDIDATE_LOG(cand, "Fallback POSes were filled.");
+    }
+  }
+}
+}  // namespace
 
 bool MobilePredictor::PredictForRequest(const ConversionRequest &request,
                                         Segments *segments) const {
@@ -356,10 +391,11 @@ bool MobilePredictor::PredictForRequest(const ConversionRequest &request,
                                                          segments);
       break;
     }
-    default: {
-    }  // Never reach here
+    default:
+      DLOG(FATAL) << "Unexpected request type: " << request.request_type();
   }
 
+  MaybeFillFallbackPos(segments);
   return result;
 }
 

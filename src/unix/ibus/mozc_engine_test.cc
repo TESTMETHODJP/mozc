@@ -33,12 +33,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "base/port.h"
+#include "client/client_mock.h"
 #include "protocol/commands.pb.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
-#include "absl/container/flat_hash_map.h"
-#include "client/client_mock.h"
 #include "unix/ibus/ibus_config.h"
 
 namespace mozc {

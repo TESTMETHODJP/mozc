@@ -39,6 +39,7 @@ Typical usage:
 
 import glob
 import logging
+import multiprocessing
 import optparse
 import os
 import pathlib
@@ -152,11 +153,11 @@ def GetGypFileNames(options):
       glob.glob('%s/data/test/session/scenario/*/*.gyp' % OSS_SRC_DIR)
   )
   # Include subdirectories of data_manager
-  gyp_file_names.extend(glob.glob('%s/data_manager/*/*.gyp' % SRC_DIR))
+  gyp_file_names.extend(glob.glob('%s/data_manager/*/*.gyp' % OSS_SRC_DIR))
   # Include subdirectory of dictionary
-  gyp_file_names.extend(glob.glob('%s/dictionary/*/*.gyp' % SRC_DIR))
+  gyp_file_names.extend(glob.glob('%s/dictionary/*/*.gyp' % OSS_SRC_DIR))
   # Include subdirectory of rewriter
-  gyp_file_names.extend(glob.glob('%s/rewriter/*/*.gyp' % SRC_DIR))
+  gyp_file_names.extend(glob.glob('%s/rewriter/*/*.gyp' % OSS_SRC_DIR))
   # Include subdirectory of win32 and breakpad for Windows
   if options.target_platform == 'Windows':
     gyp_file_names.extend(glob.glob('%s/win32/*/*.gyp' % OSS_SRC_DIR))
@@ -297,7 +298,7 @@ def ExpandMetaTarget(options, meta_target_name):
 
   if target_platform == 'Linux':
     targets = [
-        SRC_DIR + '/server/server.gyp:mozc_server',
+        OSS_SRC_DIR + '/server/server.gyp:mozc_server',
         OSS_SRC_DIR + '/gui/gui.gyp:mozc_tool',
     ]
   elif target_platform == 'Mac':
@@ -309,6 +310,8 @@ def ExpandMetaTarget(options, meta_target_name):
         'out_win/%s_x64:mozc_win32_build64' % config,
         'out_win/%s:mozc_installers_win' % config,
     ]
+  else:
+    raise ValueError('unrecognized platform: %s' % target_platform)
 
   return dependencies + targets
 
@@ -452,9 +455,9 @@ def GypMain(options, unused_args):
   logging.info('Building GYP command line...')
   gyp_options = ['--depth=.']
   if target_platform == 'Windows':
-    gyp_options.extend(['--include=%s/gyp/common_win.gypi' % SRC_DIR])
+    gyp_options.extend(['--include=%s/gyp/common_win.gypi' % OSS_SRC_DIR])
   else:
-    gyp_options.extend(['--include=%s/gyp/common.gypi' % SRC_DIR])
+    gyp_options.extend(['--include=%s/gyp/common.gypi' % OSS_SRC_DIR])
 
   gyp_options.extend(['-D', 'abs_depth=%s' % MOZC_ROOT])
   gyp_options.extend(['-D', 'ext_third_party_dir=%s' % EXT_THIRD_PARTY_DIR])
@@ -526,10 +529,11 @@ def GypMain(options, unused_args):
   short_basename = GetBuildShortBaseName(target_platform)
   gyp_options.extend(['-G', 'output_dir=%s' % short_basename])
 
-  # Enable cross-compile
-  # TODO(yukawa): Enable GYP_CROSSCOMPILE for Windows.
-  if not IsWindows():
-    os.environ['GYP_CROSSCOMPILE'] = '1'
+  if IsWindows() and multiprocessing.cpu_count() > 63:
+    # GYP fails on Windows with more than 63 cores:
+    #   "ValueError: need at most 63 handles"
+    # GYP doesn't have an option to set max threads, just disable parallel.
+    gyp_options.append('--no-parallel')
 
   # Run GYP.
   logging.info('Running GYP...')
@@ -796,7 +800,7 @@ def RunTestsMain(options, args):
     if target_platform == 'Windows':
       targets.append('out_win/%sDynamic_x64:unittests' % options.configuration)
     else:
-      targets.append('%s/gyp/tests.gyp:unittests' % SRC_DIR)
+      targets.append('%s/gyp/tests.gyp:unittests' % OSS_SRC_DIR)
 
   # Build the test targets
   (build_opts, build_args) = ParseBuildOptions(build_options + targets)

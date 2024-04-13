@@ -34,9 +34,7 @@ load(
     "mozc_select",
 )
 
-package(default_visibility = [
-    "//:__subpackages__",
-])
+package(default_visibility = ["//:__subpackages__"])
 
 mozc_cc_library(
     name = "config_handler",
@@ -46,14 +44,17 @@ mozc_cc_library(
         "//base:clock",
         "//base:config_file_stream",
         "//base:hash",
-        "//base:logging",
         "//base:port",
         "//base:singleton",
         "//base:system_util",
         "//base:version",
+        "//base:vlog",
         "//base/strings:assign",
         "//protocol:config_cc_proto",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
     ],
@@ -64,7 +65,6 @@ mozc_cc_test(
     size = "small",
     srcs = ["config_handler_test.cc"],
     data = ["//data/test/config:config_test_data"],
-    requires_full_emulation = False,
     deps = [
         ":config_handler",
         "//base:clock",
@@ -106,15 +106,16 @@ mozc_cc_test(
     name = "stats_config_util_test",
     size = "small",
     srcs = ["stats_config_util_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":config_handler",
         ":stats_config_util",
         "//base:file_util",
         "//base:singleton",
         "//base:system_util",
+        "//base/file:temp_dir",
         "//protocol:config_cc_proto",
         "//testing:gunit_main",
+        "//testing:mozctest",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/flags:flag",
@@ -134,7 +135,6 @@ mozc_cc_library(
     name = "character_form_manager",
     srcs = ["character_form_manager.cc"],
     hdrs = ["character_form_manager.h"],
-    visibility = ["//:__subpackages__"],
     deps = [
         ":config_handler",
         "//base:config_file_stream",
@@ -142,6 +142,7 @@ mozc_cc_library(
         "//base:number_util",
         "//base:singleton",
         "//base:util",
+        "//base:vlog",
         "//base/strings:assign",
         "//base/strings:japanese",
         "//base/strings:unicode",
@@ -156,7 +157,6 @@ mozc_cc_test(
     name = "character_form_manager_test",
     size = "large",
     srcs = ["character_form_manager_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":character_form_manager",
         "//protocol:config_cc_proto",

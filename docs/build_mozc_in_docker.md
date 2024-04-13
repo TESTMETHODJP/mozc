@@ -128,12 +128,11 @@ bazel test base:util_test --config oss_linux -c dbg
 ### Output logs to stderr
 
 ```
-bazel test base:util_test --config oss_linux --test_arg=--logtostderr --test_output=all
+bazel test base:util_test --config oss_linux --test_arg=--stderrthreshold=0 --test_output=all
 ```
 
-* The `--test_arg=--logtostderr --test_output=all` flags shows the output of
-unitests to stderr.
-
+*   The `--test_arg=--stderrthreshold=0 --test_output=all` flags shows the
+    output of unitests to stderr.
 
 ## Build Mozc on other Linux environment
 
@@ -172,6 +171,21 @@ This command reverts the above change.
 git update-index --no-assume-unchanged src/config.bzl
 ```
 
+### Forcing reconfigure external dependencies
+
+You may have some build errors when you update build environment or configurations.
+In that case, try the following command to [refetch external repositories](https://bazel.build/extending/repo#forcing_refetch_of_external_repositories).
+
+```
+bazel sync --configure
+```
+
+If the issue persists, also try the following command to [clean Bazel's build cache](https://bazel.build/docs/user-manual#clean)
+
+```
+bazel clean --expunge
+```
+
 ## Build Mozc library for Android:
 
 Client code for Android apk is deprecated.
@@ -184,51 +198,13 @@ The conversion engine for Android is built with Bazel.
 bazel build package --config oss_android
 ```
 
-`package` is an alias to build `android/jni:mozc_lib`.
+`package` is an alias to build `android/jni:native_libs`.
 
 -----
 
-## Build Mozc for Linux Desktop with GYP (maintenance mode):
+## Build Mozc for Linux Desktop with GYP (deprecated):
 
-⚠️ The GYP build no longer support the Ibus client and the GTK candidate window.
-* https://github.com/google/mozc/issues/567
+⚠️ The GYP build is deprecated and no longer supported.
 
-To keep using the GYP build without the Ibus client and the GTK candidate window
-at this moment, please add the `--no_ibus_build` and `--no_gtk_build` flags
-to build_mozc.py.
-
-```
-python3 build_mozc.py gyp
-python3 build_mozc.py build -c Release package --no_ibus_build --no_gtk_build
-```
-
-`package` is an alias to build:
-* //server:mozc_server
-* //gui/tool:mozc_tool
-
-
-You can also run unittests as follows.
-
-```
-python3 build_mozc.py runtests -c Debug
-```
-
-### Differences between Bazel build and GYP build
-
-GYP build is under maintenance mode. New features might be supported by
-Bazel only, and some features might be dropped as a trade-off to accept PRs.
-
-Targets only for Bazel:
-* Ibus client (//unix/ibus)
-* AUX dictionary (//data/dictionary_oss:aux_dictionary)
-* Filtered dictionary (//data/dictionary_oss:filtered_dictionary)
-* SVS character input instead of CJK compatibility ideographs (//rewriter:single_kanji_rewriter)
-* Zip code conversion (//server:mozc_server)
-* Qt-based candidate window (//renderer:mozc_renderer)
-* Build rules for icons (//unix/icons)
-
-
-## GYP Build configurations
-
-For the build configurations, please check the previous version.
-https://github.com/google/mozc/blob/2.28.4880.102/docs/build_mozc_in_docker.md#gyp-build-configurations
+Please check the previous version for more information.
+https://github.com/google/mozc/blob/2.29.5374.102/docs/build_mozc_in_docker.md#build-mozc-for-linux-desktop-with-gyp-maintenance-mode

@@ -36,13 +36,13 @@
 #include <memory>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "converter/segments.h"
 #include "dictionary/pos_group.h"
 #include "dictionary/pos_matcher.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 #include "storage/lru_storage.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 
@@ -60,6 +60,8 @@ class UserSegmentHistoryRewriter : public RewriterInterface {
   void Clear() override;
 
  private:
+  friend class UserSegmentHistoryRewriterTestPeer;
+
   struct Score {
     constexpr void Update(const Score other) {
       score = std::max(score, other.score);
@@ -83,13 +85,18 @@ class UserSegmentHistoryRewriter : public RewriterInterface {
     const Segment::Candidate *candidate;
   };
 
+  static Segments MakeLearningSegmentsFromInnerSegments(
+      const Segments &segments);
+
   bool IsAvailable(const ConversionRequest &request,
                    const Segments &segments) const;
-  Score GetScore(const Segments &segments, size_t segment_index,
-                 int candidate_index) const;
-  bool Replaceable(const Segment::Candidate &lhs,
+  Score GetScore(const ConversionRequest &request, const Segments &segments,
+                 size_t segment_index, int candidate_index) const;
+  bool Replaceable(const ConversionRequest &request,
+                   const Segment::Candidate &lhs,
                    const Segment::Candidate &rhs) const;
-  void RememberFirstCandidate(const Segments &segments, size_t segment_index);
+  void RememberFirstCandidate(const ConversionRequest &request,
+                              const Segments &segments, size_t segment_index);
   void RememberNumberPreference(const Segment &segment);
   bool RewriteNumber(Segment *segment) const;
   bool ShouldRewrite(const Segment &segment, size_t *max_candidates_size) const;

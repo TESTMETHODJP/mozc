@@ -33,14 +33,14 @@
 #include <cstdint>
 #include <string>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "dictionary/dictionary_token.h"
 #include "dictionary/system/codec_interface.h"
 #include "dictionary/system/words_info.h"
 #include "storage/louds/louds_trie.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace dictionary {
@@ -165,7 +165,7 @@ inline void TokenDecodeIterator::NextInternal() {
     }
     case TokenInfo::AS_IS_KATAKANA: {
       if (!key_.empty() && key_katakana_.empty()) {
-        japanese_util::HiraganaToKatakana(key_, &key_katakana_);
+        key_katakana_ = japanese_util::HiraganaToKatakana(key_);
       }
       token_.value = key_katakana_;
       break;

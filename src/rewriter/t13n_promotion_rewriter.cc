@@ -30,17 +30,20 @@
 #include "rewriter/t13n_promotion_rewriter.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/string_view.h"
 #include "base/util.h"
 #include "composer/composer.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
+#include "request/request_util.h"
+#include "rewriter/rewriter_interface.h"
 #include "rewriter/rewriter_util.h"
 #include "transliteration/transliteration.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 
@@ -142,6 +145,9 @@ bool MaybePromoteT13n(const ConversionRequest &request, Segment *segment) {
   if (IsLatinInputMode(request) || Util::IsAscii(segment->key())) {
     return MaybeInsertLatinT13n(segment);
   }
+  if (request_util::IsFindabilityOrientedOrderEnabled(request)) {
+    return false;
+  }
   return MaybePromoteKatakana(segment);
 }
 
@@ -162,9 +168,8 @@ int T13nPromotionRewriter::capability(const ConversionRequest &request) const {
 bool T13nPromotionRewriter::Rewrite(const ConversionRequest &request,
                                     Segments *segments) const {
   bool modified = false;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    modified |=
-        MaybePromoteT13n(request, segments->mutable_conversion_segment(i));
+  for (Segment &segment : segments->conversion_segments()) {
+    modified |= MaybePromoteT13n(request, &segment);
   }
   return modified;
 }

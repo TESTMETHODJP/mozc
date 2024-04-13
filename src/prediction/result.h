@@ -36,13 +36,13 @@
 #include <utility>
 #include <vector>
 
-#include "converter/segments.h"
-#include "dictionary/dictionary_token.h"
-#include "prediction/zero_query_dict.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "converter/segments.h"
+#include "dictionary/dictionary_token.h"
+#include "prediction/zero_query_dict.h"
 
 namespace mozc {
 namespace prediction {
@@ -70,16 +70,16 @@ enum PredictionType {
   // entries from single kanji dictionary.
   SINGLE_KANJI = 256,
 
+#if MOZC_ENABLE_NGRAM_RESCORING
+  // entries from N-gram model.
+  NGRAM = 512,
+#endif  // MOZC_ENABLE_NGRAM_RESCORING
+
   // Suggests from |converter_|. The difference from REALTIME is that it uses
   // the full converter with rewriter, history, etc.
   // TODO(noriyukit): This label should be integrated with REALTIME. This is
   // why 65536 is used to indicate that it is a temporary assignment.
   REALTIME_TOP = 65536,
-
-  // Results from new typing correction algorithm.
-  // TODO(taku): This label should be integrated with TYPING_CORRECTION. This is
-  // why 65536 * 2 is used to indicate that it is a temporary assignment.
-  EXTENDED_TYPING_CORRECTION = 65536 * 2,
 };
 // Bitfield to store a set of PredictionType.
 using PredictionTypes = int32_t;
@@ -129,6 +129,8 @@ struct Result {
   int cost_before_rescoring = 0;
   // If removed is true, this result is not used for a candidate.
   bool removed = false;
+  // confidence score of typing correction. Larger is more confident.
+  float typing_correction_score = 0.0;
 #ifndef NDEBUG
   std::string log;
 #endif  // NDEBUG

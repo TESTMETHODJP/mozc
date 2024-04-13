@@ -34,10 +34,10 @@
 #include <optional>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "base/number_util.h"
 #include "base/singleton.h"
 #include "protocol/config.pb.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 

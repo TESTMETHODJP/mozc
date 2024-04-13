@@ -32,15 +32,15 @@
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/util.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/ascii.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -253,8 +253,8 @@ int SmallLetterRewriter::capability(const ConversionRequest &request) const {
 bool SmallLetterRewriter::Rewrite(const ConversionRequest &request,
                                   Segments *segments) const {
   std::string key;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    key += segments->conversion_segment(i).key();
+  for (const Segment &segment : segments->conversion_segments()) {
+    key += segment.key();
   }
 
   std::string value;

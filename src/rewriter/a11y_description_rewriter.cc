@@ -29,15 +29,20 @@
 
 #include "rewriter/a11y_description_rewriter.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/util.h"
+#include "converter/segments.h"
 #include "data_manager/serialized_dictionary.h"
 #include "protocol/commands.pb.h"
-#include "absl/strings/string_view.h"
+#include "request/conversion_request.h"
+#include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 namespace {
@@ -102,7 +107,7 @@ std::string A11yDescriptionRewriter::GetKanaCharacterLabel(
        current_type != HALF_WIDTH_KATAKANA_SMALL_LETTER)) {
     // The expected result of "あい" is "あい。 ヒラガナ あい",
     // thus the output of "い" should be "い" only rather than "ヒラガナ い".
-    Util::Ucs4ToUtf8Append(codepoint, &buf);
+    Util::CodepointToUtf8Append(codepoint, &buf);
     return buf;
   }
   absl::StrAppend(&buf, "。");
@@ -146,7 +151,7 @@ std::string A11yDescriptionRewriter::GetKanaCharacterLabel(
     default:
       break;
   }
-  Util::Ucs4ToUtf8Append(codepoint, &buf);
+  Util::CodepointToUtf8Append(codepoint, &buf);
   return buf;
 }
 
@@ -193,8 +198,7 @@ void A11yDescriptionRewriter::AddA11yDescription(
       previous_type = current_type;
       current_type = GetCharacterType(codepoint);
       if (current_type == OTHERS) {
-        std::string key;
-        Util::Ucs4ToUtf8(codepoint, &key);
+        const std::string key = Util::CodepointToUtf8(codepoint);
         const SerializedDictionary::IterRange range =
             description_map_->equal_range(key);
         if (range.first != range.second) {
@@ -227,10 +231,9 @@ int A11yDescriptionRewriter::capability(
 bool A11yDescriptionRewriter::Rewrite(const ConversionRequest &request,
                                       Segments *segments) const {
   bool modified = false;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    Segment *segment = segments->mutable_conversion_segment(i);
-    for (size_t j = 0; j < segment->candidates_size(); ++j) {
-      Segment::Candidate *candidate = segment->mutable_candidate(j);
+  for (Segment &segment : segments->conversion_segments()) {
+    for (size_t j = 0; j < segment.candidates_size(); ++j) {
+      Segment::Candidate *candidate = segment.mutable_candidate(j);
       AddA11yDescription(candidate);
       modified = true;
     }

@@ -43,6 +43,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/const.h"
 #include "base/process.h"
 #include "base/strings/zstring_view.h"
@@ -53,8 +55,6 @@
 #include "base/win32/wide_char.h"
 #include "base/win32/win_sandbox.h"
 #include "base/win32/win_util.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 #include "client/client.h"
 #include "client/client_interface.h"
 #include "renderer/renderer_client.h"
@@ -220,11 +220,9 @@ UINT __stdcall EnsureAllApplicationPackagesPermisssions(MSIHANDLE msi_handle) {
           GetMozcComponentPath(mozc::kMozcTIP32))) {
     return ERROR_INSTALL_FAILURE;
   }
-  if (mozc::SystemUtil::IsWindowsX64()) {
-    if (!mozc::WinSandbox::EnsureAllApplicationPackagesPermisssion(
-            GetMozcComponentPath(mozc::kMozcTIP64))) {
-      return ERROR_INSTALL_FAILURE;
-    }
+  if (!mozc::WinSandbox::EnsureAllApplicationPackagesPermisssion(
+          GetMozcComponentPath(mozc::kMozcTIP64))) {
+    return ERROR_INSTALL_FAILURE;
   }
   return ERROR_SUCCESS;
 }
@@ -264,23 +262,6 @@ UINT __stdcall RestoreUserIMEEnvironment(MSIHANDLE msi_handle) {
   DEBUG_BREAK_FOR_DEBUGGER();
   const bool result =
       mozc::win32::UninstallHelper::RestoreUserIMEEnvironmentMain();
-  return result ? ERROR_SUCCESS : ERROR_INSTALL_FAILURE;
-}
-
-// [Return='ignore']
-UINT __stdcall EnsureIMEIsDisabledForServiceAccount(MSIHANDLE msi_handle) {
-  DEBUG_BREAK_FOR_DEBUGGER();
-  bool is_service = false;
-  if (!mozc::WinUtil::IsServiceAccount(&is_service)) {
-    return ERROR_INSTALL_FAILURE;
-  }
-  if (!is_service) {
-    // Do nothing if this is not a service account.
-    return ERROR_SUCCESS;
-  }
-
-  const bool result =
-      mozc::win32::UninstallHelper::EnsureIMEIsRemovedForCurrentUser(true);
   return result ? ERROR_SUCCESS : ERROR_INSTALL_FAILURE;
 }
 

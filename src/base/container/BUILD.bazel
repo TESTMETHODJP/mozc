@@ -35,9 +35,7 @@ load(
     "mozc_cc_test",
 )
 
-package(default_visibility = [
-    "//:__subpackages__",
-])
+package(default_visibility = ["//:__subpackages__"])
 
 mozc_cc_library(
     name = "bitarray",
@@ -48,7 +46,6 @@ mozc_cc_test(
     name = "bitarray_test",
     size = "small",
     srcs = ["bitarray_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":bitarray",
         "//testing:gunit_main",
@@ -60,6 +57,7 @@ mozc_cc_library(
     name = "freelist",
     hdrs = ["freelist.h"],
     visibility = ["//:__subpackages__"],
+    deps = ["//testing:friend_test"],
 )
 
 mozc_cc_test(
@@ -79,7 +77,6 @@ mozc_cc_library(
     deps = [
         "//base:file_util",
         "//base:logging",
-        "//base:status",
         "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
@@ -90,7 +87,6 @@ mozc_cc_test(
     name = "serialized_string_array_test",
     size = "small",
     srcs = ["serialized_string_array_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":serialized_string_array",
         "//testing:gunit_main",
@@ -114,7 +110,6 @@ mozc_cc_test(
     name = "trie_test",
     size = "small",
     srcs = ["trie_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":trie",
         "//testing:gunit_main",

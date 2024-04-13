@@ -32,20 +32,6 @@
 
 #include "base/protobuf/protobuf.h"
 
-#include "google/protobuf/message.h"
-
-// |ptotobuf::Utf8Format| is available only in Protobuf 24.0 and later.
-// Define our own version to avoid build breakages.
-#if defined(GOOGLE_PROTOBUF_VERSION) && GOOGLE_PROTOBUF_VERSION < 4024000
-namespace google {
-namespace protobuf {
-
-inline std::string Utf8Format(const Message &message) {
-  return message.Utf8DebugString();
-}
-
-}  // namespace protobuf
-}  // namespace google
-#endif  // GOOGLE_PROTOBUF_VERSION < 4024000
+#include "google/protobuf/message.h"  // IWYU pragma: export
 
 #endif  // MOZC_BASE_PROTOBUF_MESSAGE_H_

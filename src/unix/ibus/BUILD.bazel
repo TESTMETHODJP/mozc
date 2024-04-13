@@ -210,14 +210,16 @@ mozc_cc_library(
         "//base:singleton",
         "//base:system_util",
         "//base:util",
+        "//base:vlog",
         "//client",
         "//protocol:candidates_cc_proto",
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
         "//renderer:renderer_client",
-        "//testing:gunit_prod",
+        "//testing:friend_test",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
@@ -279,7 +281,11 @@ mozc_cc_binary(
         "//unix:icons",
     ],
     defines = mozc_select(
-        linux = ["MOZC_NO_LOGGING"],
+        linux = [
+            # TODO(komatsu): Define MOZC_NO_LOGGING properly in bazel build.
+            "MOZC_NO_LOGGING",
+            "ABSL_MIN_LOG_LEVEL=100",
+        ],
         oss_linux = [],
     ),
     deps = [
@@ -365,6 +371,7 @@ mozc_cc_test(
     deps = [
         ":candidate_window_handler",
         "//base:coordinates",
+        "//base/protobuf:text_format",
         "//protocol:candidates_cc_proto",
         "//protocol:commands_cc_proto",
         "//protocol:renderer_cc_proto",

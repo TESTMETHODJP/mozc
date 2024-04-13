@@ -61,7 +61,6 @@ def mozc_dataset(
         varname,
         zero_query_def,
         zero_query_number_def,
-        typing_models = [],
         suggestion_filter_safe_def_srcs = [],
         usage_dict = None,
         extra_data = []):
@@ -102,7 +101,7 @@ def mozc_dataset(
 
     Args:
       name: data set target name to be generated.
-      outs: list of output files (mozc.data, mozc_data.inc, and pos_list.h).
+      outs: list of output files (mozc.data, mozc_data.inc, and pos_list.inc).
       a11y_description_src: the source of a11y descriptions.
       boundary_def: boundary definition file.
       cforms: cform definition file.
@@ -134,7 +133,6 @@ def mozc_dataset(
       varname: C++ variable name for the embedded data.
       zero_query_def: rule-based zero query suggestion data file.
       zero_query_number_def: rule-based zero query number suggestion data file.
-      typing_models: typing model files.
       suggestion_filter_safe_def_srcs: safe list for suggestion filter.
       usage_dict: usage dictionary data.
       extra_data: a list of any data files to include.
@@ -207,11 +205,6 @@ def mozc_dataset(
         "a11y_description_string:32:$(@D)/a11y_description_string.data " +
         "version:32:$(location :" + name + "@version) "
     )
-    for model_file in typing_models:
-        filename = Label(model_file).name
-        sources.append(":" + name + "@" + filename)
-        arguments += "%s:32:$(@D)/%s " % (filename, filename + ".data")
-
     if usage_dict:
         sources.append(":" + name + "@usage")
         arguments += (
@@ -454,6 +447,7 @@ def mozc_dataset(
             "//converter:gen_segmenter_bitarray",
             "//:macro",
             "@com_google_absl//absl/flags:flag",
+            "@com_google_absl//absl/strings",
         ],
     )
 
@@ -689,23 +683,6 @@ def mozc_dataset(
             "--tag=" + tag + " --mozc_version_template=$< --output=$@"
         ),
         tools = ["//data_manager:gen_data_version"],
-    )
-
-    for model_file in typing_models:
-        filename = Label(model_file).name
-        native.genrule(
-            name = name + "@" + filename,
-            srcs = [model_file],
-            outs = [filename + ".data"],
-            cmd = (
-                "$(location //composer/internal:gen_typing_model) " +
-                "--input_path=$< --output_path=$@"
-            ),
-            tools = ["//composer/internal:gen_typing_model"],
-        )
-    native.filegroup(
-        name = name + "@typing_models",
-        srcs = [name + "@" + Label(label).name for label in typing_models],
     )
 
     if usage_dict:

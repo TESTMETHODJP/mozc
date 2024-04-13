@@ -42,18 +42,19 @@
 #include <utility>
 #include <vector>
 
-#include "base/japanese_util.h"
-#include "base/logging.h"
-#include "base/multifile.h"
-#include "base/util.h"
-#include "dictionary/dictionary_token.h"
-#include "dictionary/pos_matcher.h"
 #include "absl/base/attributes.h"
 #include "absl/flags/flag.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "base/japanese_util.h"
+#include "base/logging.h"
+#include "base/multifile.h"
+#include "base/util.h"
+#include "base/vlog.h"
+#include "dictionary/dictionary_token.h"
+#include "dictionary/pos_matcher.h"
 
 ABSL_FLAG(int32_t, tokens_reserve_size, 1400000,
           "Reserve the specified size of token buffer in advance.");
@@ -226,7 +227,7 @@ TextDictionaryLoader::LoadReadingCorrectionTokens(
     // dictionary.
     if (std::binary_search(ref_sorted_tokens.begin(), ref_sorted_tokens.end(),
                            value_key, OrderByValueThenByKey())) {
-      VLOG(1) << "System dictionary has the same key-value: " << line;
+      MOZC_VLOG(1) << "System dictionary has the same key-value: " << line;
       continue;
     }
 
@@ -238,8 +239,8 @@ TextDictionaryLoader::LoadReadingCorrectionTokens(
         std::equal_range(ref_sorted_tokens.begin(), ref_sorted_tokens.end(),
                          value_key.first, OrderByValue());
     if (begin == end) {
-      VLOG(1) << "Cannot find the value in system dicitonary - ignored:"
-              << line;
+      MOZC_VLOG(1) << "Cannot find the value in system dicitonary - ignored:"
+                   << line;
       continue;
     }
     // Now [begin, end) contains all the tokens that have the same value as
@@ -301,14 +302,14 @@ std::unique_ptr<Token> TextDictionaryLoader::ParseTSV(
   auto token = std::make_unique<Token>();
 
   // Parse key, lid, rid, cost, value.
-  japanese_util::NormalizeVoicedSoundMark(columns[0], &token->key);
+  token->key = japanese_util::NormalizeVoicedSoundMark(columns[0]);
   CHECK(absl::SimpleAtoi(columns[1], &token->lid))
       << "Wrong lid: " << columns[1];
   CHECK(absl::SimpleAtoi(columns[2], &token->rid))
       << "Wrong rid: " << columns[2];
   CHECK(absl::SimpleAtoi(columns[3], &token->cost))
       << "Wrong cost: " << columns[3];
-  japanese_util::NormalizeVoicedSoundMark(columns[4], &token->value);
+  token->value = japanese_util::NormalizeVoicedSoundMark(columns[4]);
 
   // Optionally, label (SPELLING_CORRECTION, ZIP_CODE, etc.) may be provided in
   // column 6.

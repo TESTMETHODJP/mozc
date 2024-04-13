@@ -40,14 +40,19 @@
 #include <utility>
 #include <vector>
 
+#include "absl/flags/flag.h"
+#include "absl/log/log.h"
+#include "absl/random/random.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/logging.h"
 #include "base/stopwatch.h"
+#include "base/version.h"
+#include "base/vlog.h"
 #include "composer/table.h"
 #include "config/character_form_manager.h"
 #include "config/config_handler.h"
 #include "dictionary/user_dictionary_session_handler.h"
-#include "engine/engine_builder_interface.h"
 #include "engine/engine_interface.h"
 #include "engine/user_data_manager_interface.h"
 #include "protocol/commands.pb.h"
@@ -57,17 +62,15 @@
 #include "session/common.h"
 #include "session/internal/keymap.h"
 #include "session/session.h"
-#include "session/session_interface.h"
 #include "session/session_observer_handler.h"
+#include "session/session_observer_interface.h"
 #include "usage_stats/usage_stats.h"
-#include "absl/flags/flag.h"
-#include "absl/random/random.h"
-#include "absl/time/time.h"
 
 #ifndef MOZC_DISABLE_SESSION_WATCHDOG
 #include "base/process.h"
 #include "session/session_watch_dog.h"
 #endif  // MOZC_DISABLE_SESSION_WATCHDOG
+
 
 // TODO(b/275437228): Convert this to use `absl::Duration`. Note that existing
 // clients assume a negative value means we do not timeout at all.
@@ -106,7 +109,7 @@ namespace {
 
 using mozc::usage_stats::UsageStats;
 
-bool IsApplicationAlive(const session::SessionInterface *session) {
+bool IsApplicationAlive(const session::Session *session) {
 #ifndef MOZC_DISABLE_SESSION_WATCHDOG
   const commands::ApplicationInfo &info = session->application_info();
   // When the thread/process's current status is unknown, i.e.,
@@ -130,26 +133,13 @@ bool IsApplicationAlive(const session::SessionInterface *session) {
 }
 }  // namespace
 
-SessionHandler::SessionHandler(std::unique_ptr<EngineInterface> engine) {
-  Init(std::move(engine), std::unique_ptr<EngineBuilderInterface>());
-}
-
-SessionHandler::SessionHandler(
-    std::unique_ptr<EngineInterface> engine,
-    std::unique_ptr<EngineBuilderInterface> engine_builder) {
-  Init(std::move(engine), std::move(engine_builder));
-}
-
-void SessionHandler::Init(
-    std::unique_ptr<EngineInterface> engine,
-    std::unique_ptr<EngineBuilderInterface> engine_builder) {
+SessionHandler::SessionHandler(std::unique_ptr<EngineInterface> engine)
+    : engine_(std::move(engine)) {
   is_available_ = false;
   max_session_size_ = 0;
   last_session_empty_time_ = Clock::GetAbslTime();
   last_cleanup_time_ = absl::InfinitePast();
   last_create_session_time_ = absl::InfinitePast();
-  engine_ = std::move(engine);
-  engine_builder_ = std::move(engine_builder);
   observer_handler_ = std::make_unique<session::SessionObserverHandler>();
   user_dictionary_session_handler_ =
       std::make_unique<user_dictionary::UserDictionarySessionHandler>();
@@ -159,12 +149,12 @@ void SessionHandler::Init(
   key_map_manager_ = std::make_unique<keymap::KeyMapManager>(*config_);
 
   if (absl::GetFlag(FLAGS_restricted)) {
-    VLOG(1) << "Server starts with restricted mode";
+    MOZC_VLOG(1) << "Server starts with restricted mode";
     // --restricted is almost always specified when mozc_client is inside Job.
     // The typical case is Startup processes on Vista.
     // On Vista, StartUp processes are in Job for 60 seconds. In order
     // to launch new mozc_server inside sandbox, we set the timeout
-    // to be 60sec. Client application hopefully re-launch mozc_server.
+    // to be 60sec. Client application hopefully relaunch mozc_server.
     absl::SetFlag(&FLAGS_timeout, 60);
     absl::SetFlag(&FLAGS_max_session_size, 8);
     absl::SetFlag(&FLAGS_watch_dog_interval, 15);
@@ -181,18 +171,9 @@ void SessionHandler::Init(
     return;
   }
 
+
   // everything is OK
   is_available_ = true;
-}
-
-SessionHandler::~SessionHandler() {
-  for (SessionElement *element =
-           const_cast<SessionElement *>(session_map_->Head());
-       element != nullptr; element = element->next) {
-    delete element->value;
-    element->value = nullptr;
-  }
-  session_map_->Clear();
 }
 
 bool SessionHandler::IsAvailable() const { return is_available_; }
@@ -208,52 +189,49 @@ void SessionHandler::StartWatchDog() {
 
 void SessionHandler::UpdateSessions(const config::Config &config,
                                     const commands::Request &request) {
-  auto new_config = std::make_unique<config::Config>(config);
-  auto new_request = std::make_unique<commands::Request>(request);
-  const auto *data_manager = engine_->GetDataManager();
-  const composer::Table *table =
-      data_manager != nullptr
-          ? table_manager_->GetTable(*new_request, *new_config, *data_manager)
-          : nullptr;
-  auto new_key_map_manager =
-      keymap::KeyMapManager::IsSameKeyMapManagerApplicable(*config_,
-                                                           *new_config)
-          ? nullptr
-          : std::make_unique<keymap::KeyMapManager>(*new_config);
+  // Since sessions internally use config_, request_ and key_map_manager_,
+  // they are moved to prev_ variables to avoid releasing until sessions switch
+  // those values.
+  std::unique_ptr<const config::Config> prev_config = std::move(config_);
+  std::unique_ptr<const commands::Request> prev_request = std::move(request_);
+  std::unique_ptr<keymap::KeyMapManager> prev_key_map_manager;
 
-  for (SessionElement *element =
-           const_cast<SessionElement *>(session_map_->Head());
-       element != nullptr; element = element->next) {
-    if (element->value != nullptr) {
-      element->value->SetConfig(new_config.get());
-      element->value->SetKeyMapManager(
-          (new_key_map_manager ? new_key_map_manager : key_map_manager_).get());
-      element->value->SetRequest(new_request.get());
-      if (table != nullptr) {
-        element->value->SetTable(table);
-      }
+  config_ = std::make_unique<config::Config>(config);
+  request_ = std::make_unique<commands::Request>(request);
+  const composer::Table *table = nullptr;
+  table = table_manager_->GetTable(*request_, *config_);
+
+  if (!keymap::KeyMapManager::IsSameKeyMapManagerApplicable(*prev_config,
+                                                            *config_)) {
+    prev_key_map_manager = std::move(key_map_manager_);
+    key_map_manager_ = std::make_unique<keymap::KeyMapManager>(*config_);
+  }
+
+  for (SessionElement &element : *session_map_) {
+    std::unique_ptr<session::Session> &session = element.value;
+    if (!session) {
+      continue;
+    }
+    session->SetConfig(config_.get());
+    session->SetKeyMapManager(key_map_manager_.get());
+    session->SetRequest(request_.get());
+    if (table != nullptr) {
+      session->SetTable(table);
     }
   }
   config::CharacterFormManager::GetCharacterFormManager()->ReloadConfig(
-      *new_config);
-  // Now no references to the current config/key_map_manager/request
-  // should exist. We can destroy them here.
-  config_ = std::move(new_config);
-  if (new_key_map_manager) {
-    key_map_manager_ = std::move(new_key_map_manager);
-  }
-  request_ = std::move(new_request);
+      *config_);
 }
 
 bool SessionHandler::SyncData(commands::Command *command) {
-  VLOG(1) << "Syncing user data";
-  engine_->GetUserDataManager()->Sync();
-  engine_->GetUserDataManager()->Wait();
+  MOZC_VLOG(1) << "Syncing user data";
+  engine_->Sync();
+  engine_->Wait();
   return true;
 }
 
 bool SessionHandler::Shutdown(commands::Command *command) {
-  VLOG(1) << "Shutdown server";
+  MOZC_VLOG(1) << "Shutdown server";
   SyncData(command);
   is_available_ = false;
   UsageStats::IncrementCount("ShutDown");
@@ -261,51 +239,51 @@ bool SessionHandler::Shutdown(commands::Command *command) {
 }
 
 bool SessionHandler::Reload(commands::Command *command) {
-  VLOG(1) << "Reloading server";
+  MOZC_VLOG(1) << "Reloading server";
   UpdateSessions(*config::ConfigHandler::GetConfig(), *request_);
   engine_->Reload();
   return true;
 }
 
 bool SessionHandler::ReloadAndWait(commands::Command *command) {
-  VLOG(1) << "Reloading server and wait for reloader";
+  MOZC_VLOG(1) << "Reloading server and wait for reloader";
   UpdateSessions(*config::ConfigHandler::GetConfig(), *request_);
   engine_->ReloadAndWait();
   return true;
 }
 
 bool SessionHandler::ClearUserHistory(commands::Command *command) {
-  VLOG(1) << "Clearing user history";
+  MOZC_VLOG(1) << "Clearing user history";
   engine_->GetUserDataManager()->ClearUserHistory();
   UsageStats::IncrementCount("ClearUserHistory");
   return true;
 }
 
 bool SessionHandler::ClearUserPrediction(commands::Command *command) {
-  VLOG(1) << "Clearing user prediction";
+  MOZC_VLOG(1) << "Clearing user prediction";
   engine_->GetUserDataManager()->ClearUserPrediction();
   UsageStats::IncrementCount("ClearUserPrediction");
   return true;
 }
 
 bool SessionHandler::ClearUnusedUserPrediction(commands::Command *command) {
-  VLOG(1) << "Clearing unused user prediction";
+  MOZC_VLOG(1) << "Clearing unused user prediction";
   engine_->GetUserDataManager()->ClearUnusedUserPrediction();
   UsageStats::IncrementCount("ClearUnusedUserPrediction");
   return true;
 }
 
 bool SessionHandler::GetConfig(commands::Command *command) {
-  VLOG(1) << "Getting config";
+  MOZC_VLOG(1) << "Getting config";
   config::ConfigHandler::GetConfig(command->mutable_output()->mutable_config());
-  // Ensure the onmemory config is same as the locally stored one
+  // Ensure the on-memory config is same as the locally stored one
   // because the local data could be changed by sync.
   UpdateSessions(command->output().config(), *request_);
   return true;
 }
 
 bool SessionHandler::SetConfig(commands::Command *command) {
-  VLOG(1) << "Setting user config";
+  MOZC_VLOG(1) << "Setting user config";
   if (!command->input().has_config()) {
     LOG(WARNING) << "config is empty";
     return false;
@@ -319,7 +297,7 @@ bool SessionHandler::SetConfig(commands::Command *command) {
 }
 
 bool SessionHandler::SetRequest(commands::Command *command) {
-  VLOG(1) << "Setting client's request";
+  MOZC_VLOG(1) << "Setting client's request";
   if (!command->input().has_request()) {
     LOG(WARNING) << "request is empty";
     return false;
@@ -402,6 +380,9 @@ bool SessionHandler::EvalCommand(commands::Command *command) {
     case commands::Input::RELOAD_SPELL_CHECKER:
       eval_succeeded = ReloadSpellChecker(command);
       break;
+    case commands::Input::GET_SERVER_VERSION:
+      eval_succeeded = GetServerVersion(command);
+      break;
     default:
       eval_succeeded = false;
   }
@@ -420,7 +401,7 @@ bool SessionHandler::EvalCommand(commands::Command *command) {
   }
 
   if (eval_succeeded) {
-    // TODO(komatsu): Make sre if checking eval_succeeded is necessary or not.
+    // TODO(komatsu): Make sure if checking eval_succeeded is necessary or not.
     observer_handler_->EvalCommandHandler(*command);
   }
 
@@ -432,9 +413,9 @@ bool SessionHandler::EvalCommand(commands::Command *command) {
   return is_available_;
 }
 
-session::SessionInterface *SessionHandler::NewSession() {
+std::unique_ptr<session::Session> SessionHandler::NewSession() {
   // Session doesn't take the ownership of engine.
-  return new session::Session(engine_.get());
+  return std::make_unique<session::Session>(engine_.get());
 }
 
 void SessionHandler::AddObserver(session::SessionObserverInterface *observer) {
@@ -452,8 +433,8 @@ void SessionHandler::MaybeUpdateConfig(commands::Command *command) {
 
 bool SessionHandler::SendKey(commands::Command *command) {
   const SessionID id = command->input().id();
-  session::SessionInterface **session = session_map_->MutableLookup(id);
-  if (session == nullptr || *session == nullptr) {
+  std::unique_ptr<session::Session> *session = session_map_->MutableLookup(id);
+  if (session == nullptr || !*session) {
     LOG(WARNING) << "SessionID " << id << " is not available";
     return false;
   }
@@ -464,8 +445,8 @@ bool SessionHandler::SendKey(commands::Command *command) {
 
 bool SessionHandler::TestSendKey(commands::Command *command) {
   const SessionID id = command->input().id();
-  session::SessionInterface **session = session_map_->MutableLookup(id);
-  if (session == nullptr || *session == nullptr) {
+  std::unique_ptr<session::Session> *session = session_map_->MutableLookup(id);
+  if (session == nullptr || !*session) {
     LOG(WARNING) << "SessionID " << id << " is not available";
     return false;
   }
@@ -475,14 +456,39 @@ bool SessionHandler::TestSendKey(commands::Command *command) {
 
 bool SessionHandler::SendCommand(commands::Command *command) {
   const SessionID id = command->input().id();
-  session::SessionInterface **session =
-      const_cast<session::SessionInterface **>(session_map_->Lookup(id));
-  if (session == nullptr || *session == nullptr) {
+  std::unique_ptr<session::Session> *session = session_map_->MutableLookup(id);
+  if (session == nullptr || !*session) {
     LOG(WARNING) << "SessionID " << id << " is not available";
     return false;
   }
   (*session)->SendCommand(command);
   MaybeUpdateConfig(command);
+  return true;
+}
+
+void SessionHandler::MaybeReloadEngine(commands::Command *command) {
+  if (session_map_->Size() > 0) {
+    // Some sessions still use the current engine_.
+    return;
+  }
+
+  EngineReloadResponse engine_reload_response;
+  if (!engine_->MaybeReloadEngine(&engine_reload_response)) {
+    // Engine is not reloaded. output.engine_reload_response must be empty.
+    return;
+  }
+
+  LOG(INFO) << "Engine reloaded";
+  *command->mutable_output()->mutable_engine_reload_response() =
+      engine_reload_response;
+  table_manager_->ClearCaches();
+}
+
+bool SessionHandler::GetServerVersion(mozc::commands::Command *command) const {
+  commands::Output::VersionInfo *version_info =
+      command->mutable_output()->mutable_server_version();
+  version_info->set_mozc_version(Version::GetMozcVersion());
+  version_info->set_data_version(engine_->GetDataVersion());
   return true;
 }
 
@@ -497,7 +503,7 @@ bool SessionHandler::CreateSession(commands::Command *command) {
   const absl::Time current_time = Clock::GetAbslTime();
   const absl::Duration create_session_interval =
       current_time - last_create_session_time_;
-  // `create_session_interval` can be nagative if a user modifies their system
+  // `create_session_interval` can be negative if a user modifies their system
   // clock.
   if (create_session_interval >= absl::Duration() &&
       create_session_interval < create_session_minimum_interval) {
@@ -507,51 +513,27 @@ bool SessionHandler::CreateSession(commands::Command *command) {
   last_create_session_time_ = current_time;
 
   // if session map is FULL, remove the oldest item from the LRU
-  SessionElement *oldest_element = nullptr;
   if (session_map_->Size() >= max_session_size_) {
-    oldest_element = const_cast<SessionElement *>(session_map_->Tail());
+    SessionElement *oldest_element = session_map_->MutableTail();
     if (oldest_element == nullptr) {
       LOG(ERROR) << "oldest SessionElement is NULL";
       return false;
     }
-    delete oldest_element->value;
-    oldest_element->value = nullptr;
+
+    oldest_element->value.reset();
     session_map_->Erase(oldest_element->key);
-    VLOG(1) << "Session is FULL, oldest SessionID " << oldest_element->key
-            << " is removed";
+    MOZC_VLOG(1) << "Session is FULL, oldest SessionID " << oldest_element->key
+                 << " is removed";
   }
 
-  if (engine_builder_ && session_map_->Size() == 0 &&
-      engine_builder_->HasResponse()) {
-    auto *response =
-        command->mutable_output()->mutable_engine_reload_response();
-    engine_builder_->GetResponse(response);
-    if (response->status() == EngineReloadResponse::RELOAD_READY) {
-      if (engine_->GetUserDataManager()) {
-        engine_->GetUserDataManager()->Wait();
-      }
-      engine_.reset();
-      engine_ = engine_builder_->BuildFromPreparedData();
-      LOG_IF(FATAL, !engine_) << "Critical failure in engine replace";
-      table_manager_->ClearCaches();
-      response->set_status(EngineReloadResponse::RELOADED);
-    }
-    engine_builder_->Clear();
-  }
+  // CreateSession is called on a relatively safer timing to reload engine_.
+  MaybeReloadEngine(command);
 
-  session::SessionInterface *session = NewSession();
-  if (session == nullptr) {
+  std::unique_ptr<session::Session> session = NewSession();
+  if (!session) {
     LOG(ERROR) << "Cannot allocate new Session";
     return false;
   }
-
-  const SessionID new_id = CreateNewSessionID();
-  SessionElement *element = session_map_->Insert(new_id);
-  element->value = session;
-  command->mutable_output()->set_id(new_id);
-
-  // The oldes item should be reused
-  DCHECK(oldest_element == nullptr || oldest_element == element);
 
   if (command->input().has_capability()) {
     session->set_client_capability(command->input().capability());
@@ -560,6 +542,11 @@ bool SessionHandler::CreateSession(commands::Command *command) {
   if (command->input().has_application_info()) {
     session->set_application_info(command->input().application_info());
   }
+
+  const SessionID new_id = CreateNewSessionID();
+  SessionElement *element = session_map_->Insert(new_id);
+  element->value = std::move(session);
+  command->mutable_output()->set_id(new_id);
 
   // The created session has not been fully initialized yet.
   // SetConfig() will complete the initialization by setting information
@@ -577,9 +564,7 @@ bool SessionHandler::CreateSession(commands::Command *command) {
 
 bool SessionHandler::DeleteSession(commands::Command *command) {
   DeleteSessionID(command->input().id());
-  if (engine_->GetUserDataManager()) {
-    engine_->GetUserDataManager()->Sync();
-  }
+  engine_->Sync();
   return true;
 }
 
@@ -622,34 +607,32 @@ bool SessionHandler::Cleanup(commands::Command *command) {
                    absl::Seconds(7200)));
 
   std::vector<SessionID> remove_ids;
-  for (SessionElement *element =
-           const_cast<SessionElement *>(session_map_->Head());
-       element != nullptr; element = element->next) {
-    session::SessionInterface *session = element->value;
+  for (const SessionElement &element : *session_map_) {
+    const session::Session *session = element.value.get();
     if (!IsApplicationAlive(session)) {
-      VLOG(2) << "Application is not alive. Removing: " << element->key;
-      remove_ids.push_back(element->key);
+      MOZC_VLOG(2) << "Application is not alive. Removing: " << element.key;
+      remove_ids.push_back(element.key);
     } else if (session->last_command_time() == absl::InfinitePast()) {
-      // no command is exectuted
+      // no command is executed
       if ((current_time - session->create_session_time()) >=
           create_session_timeout) {
-        remove_ids.push_back(element->key);
+        remove_ids.push_back(element.key);
       }
     } else {  // some commands are executed already
       if ((current_time - session->last_command_time()) >=
           last_command_timeout) {
-        remove_ids.push_back(element->key);
+        remove_ids.push_back(element.key);
       }
     }
   }
 
   for (size_t i = 0; i < remove_ids.size(); ++i) {
     DeleteSessionID(remove_ids[i]);
-    VLOG(1) << "Session ID " << remove_ids[i] << " is removed by server";
+    MOZC_VLOG(1) << "Session ID " << remove_ids[i] << " is removed by server";
   }
 
   // Sync all data. This is a regression bug fix http://b/3033708
-  engine_->GetUserDataManager()->Sync();
+  engine_->Sync();
 
   // timeout is enabled.
   if (absl::GetFlag(FLAGS_timeout) > 0 &&
@@ -678,12 +661,15 @@ bool SessionHandler::SendUserDictionaryCommand(commands::Command *command) {
 }
 
 bool SessionHandler::SendEngineReloadRequest(commands::Command *command) {
-  if (!engine_builder_ || !command->input().has_engine_reload_request()) {
+  if (!command->input().has_engine_reload_request()) {
     return false;
   }
-  engine_builder_->PrepareAsync(
-      command->input().engine_reload_request(),
-      command->mutable_output()->mutable_engine_reload_response());
+  if (!engine_->SendEngineReloadRequest(
+          command->input().engine_reload_request())) {
+    return false;
+  }
+  command->mutable_output()->mutable_engine_reload_response()->set_status(
+      EngineReloadResponse::ACCEPTED);
   return true;
 }
 
@@ -695,6 +681,7 @@ bool SessionHandler::CheckSpelling(commands::Command *command) {
     return true;
   }
 
+
   return true;
 }
 
@@ -702,7 +689,7 @@ bool SessionHandler::ReloadSpellChecker(commands::Command *command) {
   return true;
 }
 
-// Create Random Session ID in order to make the session id unpredicable
+// Create Random Session ID in order to make the session id unpredictable
 SessionID SessionHandler::CreateNewSessionID() {
   while (true) {
     // don't allow id == 0, as it is reserved for "invalid id"
@@ -718,12 +705,12 @@ SessionID SessionHandler::CreateNewSessionID() {
 }
 
 bool SessionHandler::DeleteSessionID(SessionID id) {
-  session::SessionInterface **session = session_map_->MutableLookup(id);
-  if (session == nullptr || *session == nullptr) {
+  std::unique_ptr<session::Session> *session = session_map_->MutableLookup(id);
+  if (session == nullptr || !*session) {
     LOG_IF(WARNING, id != 0) << "cannot find SessionID " << id;
     return false;
   }
-  delete *session;
+  session->reset();
 
   session_map_->Erase(id);  // remove from LRU
 

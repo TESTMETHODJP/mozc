@@ -39,6 +39,11 @@
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "base/const.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
@@ -49,13 +54,9 @@
 #include "base/singleton.h"
 #include "base/system_util.h"
 #include "base/version.h"
+#include "base/vlog.h"
 #include "ipc/ipc.h"
 #include "ipc/ipc.pb.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
-#include "absl/synchronization/mutex.h"
 
 #if defined(__ANDROID__) || defined(__wasm__)
 #error "This platform is not supported."
@@ -224,7 +225,7 @@ bool IPCPathManager::SavePathName() {
     return false;
   }
 
-  VLOG(1) << "ServerIPCKey: " << ipc_path_info_.key();
+  MOZC_VLOG(1) << "ServerIPCKey: " << ipc_path_info_.key();
 
   last_modified_ = GetIPCFileTimeStamp();
   return true;
@@ -323,7 +324,7 @@ bool IPCPathManager::IsValidServer(uint32_t pid,
   }
 
   if (pid == static_cast<uint32_t>(-1)) {
-    VLOG(1) << "pid is -1. so assume that it is an invalid program";
+    MOZC_VLOG(1) << "pid is -1. so assume that it is an invalid program";
     return false;
   }
 
@@ -404,7 +405,7 @@ bool IPCPathManager::IsValidServer(uint32_t pid,
   server_pid_ = pid;
 #endif  // __linux__
 
-  VLOG(1) << "server path: " << server_path << " " << server_path_;
+  MOZC_VLOG(1) << "server path: " << server_path << " " << server_path_;
   if (server_path == server_path_) {
     return true;
   }
@@ -447,7 +448,7 @@ time_t IPCPathManager::GetIPCFileTimeStamp() const {
   const std::string filename = GetIPCKeyFileName(name_);
   struct stat filestat;
   if (::stat(filename.c_str(), &filestat) == -1) {
-    VLOG(2) << "stat(2) failed.  Skipping reload";
+    MOZC_VLOG(2) << "stat(2) failed.  Skipping reload";
     return static_cast<time_t>(-1);
   }
   return filestat.st_mtime;
@@ -526,8 +527,8 @@ bool IPCPathManager::LoadPathNameInternal() {
     return false;
   }
 
-  VLOG(1) << "ClientIPCKey: " << ipc_path_info_.key();
-  VLOG(1) << "ProtocolVersion: " << ipc_path_info_.protocol_version();
+  MOZC_VLOG(1) << "ClientIPCKey: " << ipc_path_info_.key();
+  MOZC_VLOG(1) << "ProtocolVersion: " << ipc_path_info_.protocol_version();
 
   last_modified_ = GetIPCFileTimeStamp();
   return true;

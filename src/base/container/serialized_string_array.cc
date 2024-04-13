@@ -34,12 +34,11 @@
 #include <memory>
 #include <string>
 
-#include "base/file_util.h"
-#include "base/logging.h"
-#include "base/status.h"
 #include "absl/base/config.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/file_util.h"
+#include "base/logging.h"
 
 namespace mozc {
 

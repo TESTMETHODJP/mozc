@@ -32,11 +32,11 @@
 #include <algorithm>
 #include <string>
 
+#include "absl/random/random.h"
+#include "absl/strings/str_format.h"
 #include "base/logging.h"
 #include "converter/segments.h"
 #include "request/conversion_request.h"
-#include "absl/random/random.h"
-#include "absl/strings/str_format.h"
 
 namespace mozc {
 namespace {

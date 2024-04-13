@@ -39,13 +39,13 @@
 #include <cstdlib>
 #include <string>
 
+#include "third_party/breakpad/src/client/windows/handler/exception_handler.h"
 #include "base/const.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/system_util.h"
 #include "base/version.h"
 #include "base/win32/wide_char.h"
-#include "third_party/breakpad/src/client/windows/handler/exception_handler.h"
 
 namespace {
 
@@ -262,7 +262,10 @@ bool CrashReportHandler::Initialize(bool check_address) {
         SystemUtil::GetCrashReportDirectory();
     // create a crash dump directory if not exist.
     if (absl::Status s = FileUtil::FileExists(acrashdump_directory); !s.ok()) {
-      FileUtil::CreateDirectory(acrashdump_directory);
+      if (s = FileUtil::CreateDirectory(acrashdump_directory); !s.ok()) {
+        LOG(ERROR) << "Failed to create crash dump directory: " << s;
+        return false;
+      }
     }
 
     const std::wstring crashdump_directory =

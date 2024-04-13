@@ -32,12 +32,10 @@
 #  - Windows SDK library link options.
 #  - (that's it for now)
 
-load("//bazel/win32:internal.bzl", "mozc_win32_lib")
 load("//bazel:stubs.bzl", "bzl_library")
+load("//bazel/win32:internal.bzl", "mozc_win32_lib")
 
-package(default_visibility = [
-    "//:__subpackages__",
-])
+package(default_visibility = ["//:__subpackages__"])
 
 bzl_library(
     name = "build_defs_bzl",
@@ -72,6 +70,10 @@ mozc_win32_lib(
 )
 
 mozc_win32_lib(
+    name = "gdi32",
+)
+
+mozc_win32_lib(
     name = "gdiplus",
 )
 
@@ -80,11 +82,11 @@ mozc_win32_lib(
 )
 
 mozc_win32_lib(
-    name = "ktmw32",
+    name = "msi",
 )
 
 mozc_win32_lib(
-    name = "msi",
+    name = "msimg32",
 )
 
 mozc_win32_lib(

@@ -32,9 +32,9 @@
 
 #include <cstdint>
 
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "dictionary/dictionary_interface.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace dictionary {

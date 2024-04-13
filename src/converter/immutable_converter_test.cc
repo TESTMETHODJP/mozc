@@ -29,48 +29,39 @@
 
 #include "converter/immutable_converter.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
-#include "base/util.h"
-#include "converter/connector.h"
-#include "converter/lattice.h"
-#include "converter/segmenter.h"
-#include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
-#include "data_manager/testing/mock_data_manager.h"
-#include "dictionary/dictionary_impl.h"
-#include "dictionary/dictionary_interface.h"
-#include "dictionary/pos_group.h"
-#include "dictionary/suffix_dictionary.h"
-#include "dictionary/suppression_dictionary.h"
-#include "dictionary/system/system_dictionary.h"
-#include "dictionary/system/value_dictionary.h"
-#include "dictionary/user_dictionary_stub.h"
-#include "prediction/suggestion_filter.h"
-#include "protocol/commands.pb.h"
-#include "request/conversion_request.h"
-#include "testing/googletest.h"
-#include "testing/gunit.h"
+#include "absl/log/check.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "base/util.h"
+#include "converter/lattice.h"
+#include "converter/node.h"
+#include "converter/segments.h"
+#include "converter/segments_matchers.h"
+#include "data_manager/testing/mock_data_manager.h"
+#include "dictionary/dictionary_interface.h"
+#include "dictionary/user_dictionary_stub.h"
+#include "engine/modules.h"
+#include "protocol/commands.pb.h"
+#include "request/conversion_request.h"
+#include "request/request_test_util.h"
+#include "testing/gmock.h"
+#include "testing/gunit.h"
 
 namespace mozc {
 namespace {
 
-using dictionary::DictionaryImpl;
 using dictionary::DictionaryInterface;
-using dictionary::PosGroup;
-using dictionary::SuffixDictionary;
-using dictionary::SuppressionDictionary;
-using dictionary::SystemDictionary;
 using dictionary::UserDictionaryStub;
-using dictionary::ValueDictionary;
+using ::testing::StrEq;
 
 void SetCandidate(absl::string_view key, absl::string_view value,
                   Segment *segment) {
@@ -95,78 +86,31 @@ class MockDataAndImmutableConverter {
   // nullptr is passed, the default mock dictionary is used. This class owns the
   // first argument dictionary but doesn't the second because the same
   // dictionary may be passed to the arguments.
-  explicit MockDataAndImmutableConverter(
-      const DictionaryInterface *dictionary = nullptr,
-      const DictionaryInterface *suffix_dictionary = nullptr) {
-    data_manager_ = std::make_unique<testing::MockDataManager>();
+  MockDataAndImmutableConverter() {
+    modules_.PresetUserDictionary(std::make_unique<UserDictionaryStub>());
+    CHECK_OK(modules_.Init(std::make_unique<testing::MockDataManager>()));
 
-    pos_matcher_.Set(data_manager_->GetPosMatcherData());
-
-    suppression_dictionary_ = std::make_unique<SuppressionDictionary>();
-    CHECK(suppression_dictionary_.get());
-
-    if (dictionary) {
-      dictionary_.reset(dictionary);
-    } else {
-      const char *dictionary_data = nullptr;
-      int dictionary_size = 0;
-      data_manager_->GetSystemDictionaryData(&dictionary_data,
-                                             &dictionary_size);
-      std::unique_ptr<SystemDictionary> sysdic =
-          SystemDictionary::Builder(dictionary_data, dictionary_size)
-              .Build()
-              .value();
-      auto value_dic = std::make_unique<ValueDictionary>(pos_matcher_,
-                                                         &sysdic->value_trie());
-      dictionary_ = std::make_unique<DictionaryImpl>(
-          std::move(sysdic), std::move(value_dic), &user_dictionary_stub_,
-          suppression_dictionary_.get(), &pos_matcher_);
-    }
-    CHECK(dictionary_.get());
-
-    if (!suffix_dictionary) {
-      absl::string_view suffix_key_array_data, suffix_value_array_data;
-      const uint32_t *token_array;
-      data_manager_->GetSuffixDictionaryData(
-          &suffix_key_array_data, &suffix_value_array_data, &token_array);
-      suffix_dictionary_ = std::make_unique<SuffixDictionary>(
-          suffix_key_array_data, suffix_value_array_data, token_array);
-      suffix_dictionary = suffix_dictionary_.get();
-    }
-    CHECK(suffix_dictionary);
-
-    connector_ = Connector::CreateFromDataManager(*data_manager_).value();
-
-    segmenter_ = Segmenter::CreateFromDataManager(*data_manager_);
-    CHECK(segmenter_.get());
-
-    pos_group_ = std::make_unique<PosGroup>(data_manager_->GetPosGroupData());
-    CHECK(pos_group_.get());
-
-    suggestion_filter_ =
-        SuggestionFilter::CreateOrDie(data_manager_->GetSuggestionFilterData());
-
-    immutable_converter_ = std::make_unique<ImmutableConverterImpl>(
-        dictionary_.get(), suffix_dictionary, suppression_dictionary_.get(),
-        connector_, segmenter_.get(), &pos_matcher_, pos_group_.get(),
-        suggestion_filter_);
-    CHECK(immutable_converter_.get());
+    immutable_converter_ = std::make_unique<ImmutableConverter>(modules_);
+    CHECK(immutable_converter_);
   }
 
-  ImmutableConverterImpl *GetConverter() { return immutable_converter_.get(); }
+  MockDataAndImmutableConverter(
+      std::unique_ptr<DictionaryInterface> dictionary,
+      std::unique_ptr<DictionaryInterface> suffix_dictionary) {
+    modules_.PresetUserDictionary(std::make_unique<UserDictionaryStub>());
+    modules_.PresetDictionary(std::move(dictionary));
+    modules_.PresetSuffixDictionary(std::move(suffix_dictionary));
+    CHECK_OK(modules_.Init(std::make_unique<testing::MockDataManager>()));
+
+    immutable_converter_ = std::make_unique<ImmutableConverter>(modules_);
+    CHECK(immutable_converter_);
+  }
+
+  ImmutableConverter *GetConverter() { return immutable_converter_.get(); }
 
  private:
-  std::unique_ptr<const DataManagerInterface> data_manager_;
-  std::unique_ptr<const SuppressionDictionary> suppression_dictionary_;
-  Connector connector_;
-  std::unique_ptr<const Segmenter> segmenter_;
-  std::unique_ptr<const DictionaryInterface> suffix_dictionary_;
-  std::unique_ptr<const DictionaryInterface> dictionary_;
-  std::unique_ptr<const PosGroup> pos_group_;
-  SuggestionFilter suggestion_filter_;
-  std::unique_ptr<ImmutableConverterImpl> immutable_converter_;
-  UserDictionaryStub user_dictionary_stub_;
-  dictionary::PosMatcher pos_matcher_;
+  engine::Modules modules_;
+  std::unique_ptr<ImmutableConverter> immutable_converter_;
 };
 
 }  // namespace
@@ -279,13 +223,18 @@ TEST(ImmutableConverterTest, PredictiveNodesOnlyForConversionKey) {
   Lattice lattice;
   lattice.SetKey("いいんじゃないか");
 
-  KeyCheckDictionary *dictionary = new KeyCheckDictionary("ないか");
-  std::unique_ptr<MockDataAndImmutableConverter> data_and_converter(
-      new MockDataAndImmutableConverter(dictionary, dictionary));
-  ImmutableConverterImpl *converter = data_and_converter->GetConverter();
+  auto dictionary = std::make_unique<KeyCheckDictionary>("ないか");
+  KeyCheckDictionary *dictionary_ptr = dictionary.get();
+  auto suffix_dictionary = std::make_unique<KeyCheckDictionary>("ないか");
+  KeyCheckDictionary *suffix_dictionary_ptr = dictionary.get();
+
+  auto data_and_converter = std::make_unique<MockDataAndImmutableConverter>(
+      std::move(dictionary), std::move(suffix_dictionary));
+  ImmutableConverter *converter = data_and_converter->GetConverter();
   const ConversionRequest request;
   converter->MakeLatticeNodesForPredictiveNodes(segments, request, &lattice);
-  EXPECT_FALSE(dictionary->received_target_query());
+  EXPECT_FALSE(dictionary_ptr->received_target_query());
+  EXPECT_FALSE(suffix_dictionary_ptr->received_target_query());
 }
 
 TEST(ImmutableConverterTest, AddPredictiveNodes) {
@@ -300,16 +249,21 @@ TEST(ImmutableConverterTest, AddPredictiveNodes) {
   Lattice lattice;
   lattice.SetKey("よろしくおねがいしま");
 
-  KeyCheckDictionary *dictionary = new KeyCheckDictionary("しま");
-  std::unique_ptr<MockDataAndImmutableConverter> data_and_converter(
-      new MockDataAndImmutableConverter(dictionary, dictionary));
-  ImmutableConverterImpl *converter = data_and_converter->GetConverter();
+  auto dictionary = std::make_unique<KeyCheckDictionary>("しま");
+  KeyCheckDictionary *dictionary_ptr = dictionary.get();
+  auto suffix_dictionary = std::make_unique<KeyCheckDictionary>("しま");
+  KeyCheckDictionary *suffix_dictionary_ptr = suffix_dictionary.get();
+
+  auto data_and_converter = std::make_unique<MockDataAndImmutableConverter>(
+      std::move(dictionary), std::move(suffix_dictionary));
+  ImmutableConverter *converter = data_and_converter->GetConverter();
 
   {
     ConversionRequest request;
     request.set_request_type(ConversionRequest::CONVERSION);
     converter->MakeLatticeNodesForPredictiveNodes(segments, request, &lattice);
-    EXPECT_TRUE(dictionary->received_target_query());
+    EXPECT_FALSE(dictionary_ptr->received_target_query());
+    EXPECT_TRUE(suffix_dictionary_ptr->received_target_query());
   }
 }
 
@@ -376,10 +330,33 @@ TEST(ImmutableConverterTest, NoInnerSegmenBoundaryForConversion) {
   }
 }
 
+TEST(ImmutableConverterTest, MakeLatticeKatakana) {
+  std::unique_ptr<MockDataAndImmutableConverter> data_and_converter(
+      new MockDataAndImmutableConverter);
+  ImmutableConverter *converter = data_and_converter->GetConverter();
+
+  Segments segments;
+
+  Segment *segment = segments.add_segment();
+  segment->set_segment_type(Segment::FREE);
+  segment->set_key("カタカナです");
+
+  Lattice lattice;
+  lattice.SetKey("カタカナです");
+  const ConversionRequest request;
+  converter->MakeLattice(request, &segments, &lattice);
+
+  // If the first character of a node is `ALPHABET` or `KATAKANA`,
+  // `AddCharacterTypeBasedNodes` should create a node of the character type.
+  Node *node = lattice.begin_nodes(0);
+  EXPECT_EQ(node->key, "カタカナ");
+  EXPECT_EQ(node->value, "カタカナ");
+}
+
 TEST(ImmutableConverterTest, NotConnectedTest) {
   std::unique_ptr<MockDataAndImmutableConverter> data_and_converter(
       new MockDataAndImmutableConverter);
-  ImmutableConverterImpl *converter = data_and_converter->GetConverter();
+  ImmutableConverter *converter = data_and_converter->GetConverter();
 
   Segments segments;
 
@@ -532,12 +509,41 @@ TEST(ImmutableConverterTest, AutoPartialSuggestionForSingleSegment) {
     for (size_t i = 0; i < segments.segment(0).candidates_size(); ++i) {
       const Segment::Candidate &cand = segments.segment(0).candidate(i);
       if (cand.attributes & Segment::Candidate::PARTIALLY_KEY_CONSUMED) {
-        EXPECT_LT(cand.key.size(), segment_key.size()) << cand.DebugString();
+        EXPECT_LT(cand.key.size(), segment_key.size()) << cand;
       } else {
-        EXPECT_GE(cand.key.size(), segment_key.size()) << cand.DebugString();
+        EXPECT_GE(cand.key.size(), segment_key.size()) << cand;
       }
     }
   }
+}
+
+TEST(ImmutableConverterTest, FirstInnerSegment) {
+  commands::Request request;
+  request_test_util::FillMobileRequest(&request);
+  request.mutable_decoder_experiment_params()
+      ->set_enable_realtime_conversion_v2(true);
+  ConversionRequest conversion_request;
+  conversion_request.set_request_type(ConversionRequest::PREDICTION);
+  conversion_request.set_request(&request);
+  conversion_request.set_create_partial_candidates(true);
+  conversion_request.set_max_conversion_candidates_size(100);
+
+  std::unique_ptr<MockDataAndImmutableConverter> data_and_converter(
+      new MockDataAndImmutableConverter);
+
+  Segments segments;
+  Segment *segment = segments.add_segment();
+  segment->set_key("くるまでこうどうした");
+  EXPECT_TRUE(data_and_converter->GetConverter()->ConvertForRequest(
+      conversion_request, &segments));
+
+  constexpr auto KeyIs = [](const auto &key) {
+    return Field(&Segment::Candidate::key, StrEq(key));
+  };
+
+  EXPECT_THAT(*segment, ContainsCandidate(KeyIs("くるまでこうどうした")));
+  EXPECT_THAT(*segment, ContainsCandidate(KeyIs("くるまで")));
+  EXPECT_THAT(*segment, ContainsCandidate(KeyIs("くる")));
 }
 
 }  // namespace mozc

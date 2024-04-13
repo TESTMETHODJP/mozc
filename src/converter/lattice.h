@@ -34,10 +34,10 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "converter/node.h"
 #include "converter/node_allocator.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 

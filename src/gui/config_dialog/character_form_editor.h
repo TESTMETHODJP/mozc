@@ -33,22 +33,16 @@
 #include <QTableWidget>
 #include <memory>
 
+#include "gui/config_dialog/combobox_delegate.h"
 #include "protocol/config.pb.h"
 
 namespace mozc {
-namespace config {
-class Config;
-}
-
 namespace gui {
-
-class ComboBoxDelegate;
 
 class CharacterFormEditor : public QTableWidget {
   Q_OBJECT
  public:
   explicit CharacterFormEditor(QWidget *parent = nullptr);
-  ~CharacterFormEditor() override;
 
   void Load(const config::Config &config);
   void Save(config::Config *config);

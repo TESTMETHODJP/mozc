@@ -33,11 +33,12 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/thread.h"
+#include "base/vlog.h"
 #include "ipc/ipc_path_manager.h"
-#include "absl/strings/string_view.h"
 
 #ifdef _WIN32
 #include <wil/resource.h>
@@ -123,7 +124,7 @@ bool IPCClient::TerminateServer(const absl::string_view name) {
     return false;
   }
 
-  VLOG(1) << "Success to terminate the server: " << name << " " << pid;
+  MOZC_VLOG(1) << "Success to terminate the server: " << name << " " << pid;
 
   return true;
 #else   // _WIN32

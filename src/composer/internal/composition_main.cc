@@ -32,10 +32,10 @@
 #include <sstream>
 #include <string>
 
+#include "absl/flags/flag.h"
 #include "base/init_mozc.h"
 #include "composer/internal/composition.h"
 #include "composer/table.h"
-#include "absl/flags/flag.h"
 
 ABSL_FLAG(std::string, table, "system://romanji-hiragana.tsv",
           "preedit conversion table file.");
@@ -49,7 +49,6 @@ int main(int argc, char **argv) {
   mozc::composer::Composition composition(&table);
 
   std::string command;
-  std::string result;
   size_t pos = 0;
 
   while (std::getline(std::cin, command)) {
@@ -65,7 +64,6 @@ int main(int argc, char **argv) {
     } else {
       pos = composition.InsertAt(pos, command);
     }
-    composition.GetString(&result);
-    std::cout << result << " : " << pos << std::endl;
+    std::cout << composition.GetString() << " : " << pos << std::endl;
   }
 }

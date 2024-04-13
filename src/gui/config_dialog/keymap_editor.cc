@@ -43,22 +43,25 @@
 #include <utility>
 #include <vector>
 
-#include "base/config_file_stream.h"
-#include "base/logging.h"
-#include "base/singleton.h"
-#include "base/util.h"
-#include "composer/key_parser.h"
-#include "protocol/commands.pb.h"
-#include "protocol/config.pb.h"
-#include "session/internal/keymap.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+#include "base/config_file_stream.h"
+#include "base/logging.h"
+#include "base/singleton.h"
+#include "base/util.h"
+#include "base/vlog.h"
+#include "composer/key_parser.h"
 #include "gui/base/table_util.h"
 #include "gui/base/util.h"
 #include "gui/config_dialog/combobox_delegate.h"
+#include "gui/config_dialog/generic_table_editor.h"
 #include "gui/config_dialog/keybinding_editor_delegate.h"
+#include "protocol/commands.pb.h"
+#include "protocol/config.pb.h"
+#include "session/internal/keymap.h"
 // TODO(komatsu): internal files should not be used from external modules.
 
 #if defined(__ANDROID__) || defined(__wasm__)
@@ -69,7 +72,7 @@ namespace mozc {
 namespace gui {
 namespace {
 
-config::Config::SessionKeymap kKeyMaps[] = {
+constexpr config::Config::SessionKeymap kKeyMaps[] = {
     config::Config::ATOK,
     config::Config::MSIME,
     config::Config::KOTOERI,
@@ -128,20 +131,20 @@ class KeyMapValidator {
     mozc::commands::KeyEvent key_event;
     const bool parse_success = mozc::KeyParser::ParseKey(key, &key_event);
     if (!parse_success) {
-      VLOG(3) << "key parse failed";
+      MOZC_VLOG(3) << "key parse failed";
       return false;
     }
     for (size_t i = 0; i < key_event.modifier_keys_size(); ++i) {
       if (invisible_modifiers_.find(key_event.modifier_keys(i)) !=
           invisible_modifiers_.end()) {
-        VLOG(3) << "invisible modifiers: " << key_event.modifier_keys(i);
+        MOZC_VLOG(3) << "invisible modifiers: " << key_event.modifier_keys(i);
         return false;
       }
     }
     if (key_event.has_special_key() &&
         (invisible_key_events_.find(key_event.special_key()) !=
          invisible_key_events_.end())) {
-      VLOG(3) << "invisible special key: " << key_event.special_key();
+      MOZC_VLOG(3) << "invisible special key: " << key_event.special_key();
       return false;
     }
     return true;
@@ -154,7 +157,7 @@ class KeyMapValidator {
 
   bool IsVisibleCommand(const absl::string_view command) {
     if (invisible_commands_.contains(command)) {
-      VLOG(3) << "invisible command: " << command;
+      MOZC_VLOG(3) << "invisible command: " << command;
       return false;
     }
     return true;
@@ -162,7 +165,7 @@ class KeyMapValidator {
 
   // Returns true if the key map entry is valid
   // invalid keymaps are not exported/imported.
-  bool IsValidEntry(const std::vector<std::string> &fields) {
+  bool IsValidEntry(absl::Span<const std::string> fields) {
     if (fields.size() < 3) {
       return false;
     }
@@ -177,7 +180,7 @@ class KeyMapValidator {
 
   // Returns true if the key map entry is configurable and
   // we want to show them.
-  bool IsVisibleEntry(const std::vector<std::string> &fields) {
+  bool IsVisibleEntry(absl::Span<const std::string> fields) {
     if (fields.size() < 3) {
       return false;
     }
@@ -222,7 +225,7 @@ class KeyMapTableLoader {
       }
     }
     for (const std::string &command : commands) {
-      commands_ << QString::fromUtf8(command.data(), command.size());
+      commands_ << QString::fromStdString(command);
     }
 
     for (const absl::string_view status : kKeyMapStatus) {
@@ -241,8 +244,8 @@ class KeyMapTableLoader {
 
 KeyMapEditorDialog::KeyMapEditorDialog(QWidget *parent)
     : GenericTableEditorDialog(parent, 3),
-      actions_(std::make_unique<QAction *[]>(MENU_SIZE)),
-      import_actions_(std::make_unique<QAction *[]>(std::size(kKeyMaps))),
+      actions_(MENU_SIZE),
+      import_actions_(std::size(kKeyMaps)),
       status_delegate_(std::make_unique<ComboBoxDelegate>()),
       commands_delegate_(std::make_unique<ComboBoxDelegate>()),
       keybinding_delegate_(std::make_unique<KeyBindingEditorDelegate>()) {
@@ -342,7 +345,7 @@ bool KeyMapEditorDialog::LoadFromStream(std::istream *is) {
     std::vector<std::string> fields =
         absl::StrSplit(line, '\t', absl::SkipEmpty());
     if (fields.size() < 3) {
-      VLOG(3) << "field size < 3";
+      MOZC_VLOG(3) << "field size < 3";
       continue;
     }
 
@@ -352,19 +355,15 @@ bool KeyMapEditorDialog::LoadFromStream(std::istream *is) {
 
     // don't accept invalid keymap entries.
     if (!Singleton<KeyMapValidator>::get()->IsValidEntry(fields)) {
-      VLOG(3) << "invalid entry.";
+      MOZC_VLOG(3) << "invalid entry.";
       continue;
     }
 
     // don't show invisible (not configurable) keymap entries.
     if (!Singleton<KeyMapValidator>::get()->IsVisibleEntry(fields)) {
-      VLOG(3) << "invalid entry to show. add to invisible_keymap_table_";
-      invisible_keymap_table_ += status;
-      invisible_keymap_table_ += '\t';
-      invisible_keymap_table_ += key;
-      invisible_keymap_table_ += '\t';
-      invisible_keymap_table_ += command;
-      invisible_keymap_table_ += '\n';
+      MOZC_VLOG(3) << "invalid entry to show. add to invisible_keymap_table_";
+      absl::StrAppend(&invisible_keymap_table_, status, "\t", key, "\t",
+                      command, "\n");
       continue;
     }
 
@@ -374,7 +373,7 @@ bool KeyMapEditorDialog::LoadFromStream(std::istream *is) {
 
     QTableWidgetItem *status_item = new QTableWidgetItem(tr(status.c_str()));
     QTableWidgetItem *key_item =
-        new QTableWidgetItem(QString::fromUtf8(key.data(), key.size()));
+        new QTableWidgetItem(QString::fromStdString(key));
     QTableWidgetItem *command_item = new QTableWidgetItem(tr(command.c_str()));
 
     mutable_table_widget()->insertRow(row);

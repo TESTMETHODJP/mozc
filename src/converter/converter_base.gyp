@@ -45,7 +45,7 @@
         'segmenter.cc',
       ],
       'dependencies': [
-        '../base/base.gyp:base',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
       ],
     },
     {
@@ -55,9 +55,9 @@
         'connector.cc',
       ],
       'dependencies': [
-        '../base/absl.gyp:absl_status',
-        '../base/base.gyp:base',
-        '../storage/louds/louds.gyp:simple_succinct_bit_vector_index',
+        '<(mozc_oss_src_dir)/base/absl.gyp:absl_status',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
+        '<(mozc_oss_src_dir)/storage/louds/louds.gyp:simple_succinct_bit_vector_index',
       ],
     },
     {
@@ -68,61 +68,28 @@
         'node_allocator.h',
       ],
       'dependencies': [
-        '../base/base.gyp:base',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
       ],
     },
     {
       'target_name': 'segments',
       'type': 'static_library',
       'sources': [
-        '<(gen_out_mozc_dir)/dictionary/pos_matcher.h',
+        '<(gen_out_mozc_dir)/dictionary/pos_matcher_impl.inc',
         'candidate_filter.cc',
         'nbest_generator.cc',
         'segments.cc',
       ],
       'dependencies': [
-        '../base/absl.gyp:absl_strings',
-        '../base/base.gyp:base',
-        '../dictionary/dictionary_base.gyp:pos_matcher',
-        '../prediction/prediction_base.gyp:suggestion_filter',
-        '../protocol/protocol.gyp:commands_proto',
-        '../transliteration/transliteration.gyp:transliteration',
+        '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
+        '<(mozc_oss_src_dir)/dictionary/dictionary_base.gyp:pos_matcher',
+        '<(mozc_oss_src_dir)/prediction/prediction_base.gyp:suggestion_filter',
+        '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
+        '<(mozc_oss_src_dir)/transliteration/transliteration.gyp:transliteration',
         'connector',
         'lattice',
         'segmenter',
-      ],
-    },
-    {
-      'target_name': 'immutable_converter_interface',
-      'type': 'static_library',
-      'sources': [
-        'immutable_converter_interface.cc',
-      ],
-      'dependencies': [
-        '../request/request.gyp:conversion_request',
-      ],
-    },
-    {
-      'target_name': 'immutable_converter',
-      'type': 'static_library',
-      'sources': [
-        'immutable_converter.cc',
-        'key_corrector.cc',
-      ],
-      'dependencies': [
-        '../base/base.gyp:base',
-        '../base/base.gyp:japanese_util',
-        '../config/config.gyp:config_handler',
-        '../dictionary/dictionary.gyp:suffix_dictionary',
-        '../dictionary/dictionary_base.gyp:pos_matcher',
-        '../dictionary/dictionary_base.gyp:suppression_dictionary',
-        '../protocol/protocol.gyp:commands_proto',
-        '../protocol/protocol.gyp:config_proto',
-        '../rewriter/rewriter_base.gyp:gen_rewriter_files#host',
-        'connector',
-        'immutable_converter_interface',
-        'segmenter',
-        'segments',
       ],
     },
     {
@@ -133,8 +100,8 @@
         'gen_segmenter_bitarray.cc',
       ],
       'dependencies' : [
-        '../base/base.gyp:base',
-        '../protocol/protocol.gyp:segmenter_data_proto',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
+        '<(mozc_oss_src_dir)/protocol/protocol.gyp:segmenter_data_proto',
       ]
     },
     {
@@ -144,9 +111,9 @@
         'pos_id_printer.cc',
       ],
       'dependencies': [
-        '../base/absl.gyp:absl_strings',
-        '../base/base.gyp:base',
-        '../base/base.gyp:number_util',
+        '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
+        '<(mozc_oss_src_dir)/base/base.gyp:number_util',
       ],
     },
   ],

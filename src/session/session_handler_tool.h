@@ -35,6 +35,9 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "engine/engine_interface.h"
 #include "engine/user_data_manager_interface.h"
 #include "protocol/candidates.pb.h"
@@ -42,8 +45,6 @@
 #include "protocol/config.pb.h"
 #include "session/session_handler_interface.h"
 #include "session/session_observer_interface.h"
-#include "absl/status/status.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace session {
@@ -72,6 +73,8 @@ class SessionHandlerTool {
   bool TestSendKeyWithOption(const commands::KeyEvent &key,
                              const commands::Input &option,
                              commands::Output *output);
+  bool UpdateComposition(absl::Span<const std::string> args,
+                         commands::Output *output);
   bool SelectCandidate(uint32_t id, commands::Output *output);
   bool SubmitCandidate(uint32_t id, commands::Output *output);
 
@@ -82,7 +85,8 @@ class SessionHandlerTool {
   bool SetRequest(const commands::Request &request, commands::Output *output);
   bool SetConfig(const config::Config &config, commands::Output *output);
   bool SyncData();
-  void SetCallbackText(const std::string &text);
+  void SetCallbackText(absl::string_view text);
+  bool ReloadSpellchecker(absl::string_view model_path);
 
  private:
   bool EvalCommand(commands::Input *input, commands::Output *output);
@@ -96,11 +100,11 @@ class SessionHandlerTool {
   std::string callback_text_;
 };
 
-class SessionHandlerInterpreter {
+class SessionHandlerInterpreter final {
  public:
   SessionHandlerInterpreter();
   explicit SessionHandlerInterpreter(std::unique_ptr<EngineInterface> engine);
-  virtual ~SessionHandlerInterpreter();
+  ~SessionHandlerInterpreter();
 
   void ClearState();
   void ClearAll();
@@ -113,9 +117,12 @@ class SessionHandlerInterpreter {
       absl::string_view value) const;
   bool GetCandidateIdByValue(absl::string_view value, uint32_t *id) const;
   std::vector<uint32_t> GetCandidateIdsByValue(absl::string_view value) const;
-  std::vector<std::string> Parse(const std::string &line);
-  absl::Status Eval(const std::vector<std::string> &args);
+  std::vector<uint32_t> GetRemovedCandidateIdsByValue(
+      absl::string_view value) const;
+  std::vector<std::string> Parse(absl::string_view line);
+  absl::Status Eval(absl::Span<const std::string> args);
   void SetRequest(const commands::Request &request);
+  void ReloadSpellchecker(absl::string_view model_path);
 
  private:
   std::unique_ptr<SessionHandlerTool> client_;

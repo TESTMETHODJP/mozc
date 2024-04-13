@@ -35,10 +35,20 @@
       'target_name': 'conversion_request',
       'type': 'none',
       'dependencies': [
-        '../base/base.gyp:base',
-        '../config/config.gyp:config_handler',
-        '../protocol/protocol.gyp:commands_proto',
-        '../protocol/protocol.gyp:config_proto',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
+        '<(mozc_oss_src_dir)/config/config.gyp:config_handler',
+        '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
+        '<(mozc_oss_src_dir)/protocol/protocol.gyp:config_proto',
+      ],
+    },
+    {
+      'target_name': 'request_test_util',
+      'type': 'static_library',
+      'sources': [
+        'request_test_util.cc',
+      ],
+      'dependencies': [
+        '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
       ],
     },
   ],

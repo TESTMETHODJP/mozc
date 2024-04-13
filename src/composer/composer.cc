@@ -33,42 +33,36 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "absl/hash/hash.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "base/clock.h"
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/strings/assign.h"
 #include "base/strings/unicode.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "composer/internal/composition.h"
 #include "composer/internal/composition_input.h"
 #include "composer/internal/mode_switching_handler.h"
 #include "composer/internal/transliterators.h"
-#include "composer/internal/typing_corrector.h"
 #include "composer/key_event_util.h"
 #include "composer/table.h"
-#include "composer/type_corrected_query.h"
 #include "config/character_form_manager.h"
 #include "config/config_handler.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "transliteration/transliteration.h"
-#include "absl/flags/flag.h"
-#include "absl/strings/match.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/time.h"
-
-// Use flags instead of constant for performance evaluation.
-ABSL_FLAG(uint64_t, max_typing_correction_query_candidates, 40,
-          "Maximum # of typing correction query temporary candidates.");
-ABSL_FLAG(uint64_t, max_typing_correction_query_results, 8,
-          "Maximum # of typing correction query results.");
 
 namespace mozc {
 namespace composer {
@@ -128,60 +122,57 @@ transliteration::TransliterationType GetTransliterationType(
   return default_type;
 }
 
-void Transliterate(const transliteration::TransliterationType mode,
-                   const absl::string_view input, std::string *output) {
+std::string Transliterate(const transliteration::TransliterationType mode,
+                          const absl::string_view input) {
   // When the mode is HALF_KATAKANA, Full width ASCII is also
   // transformed.
   if (mode == transliteration::HALF_KATAKANA) {
-    std::string tmp_input;
-    japanese_util::HiraganaToKatakana(input, &tmp_input);
-    japanese_util::FullWidthToHalfWidth(tmp_input, output);
-    return;
+    const std::string katakana = japanese_util::HiraganaToKatakana(input);
+    return japanese_util::FullWidthToHalfWidth(katakana);
   }
 
   switch (mode) {
     case transliteration::HALF_ASCII:
-      japanese_util::FullWidthAsciiToHalfWidthAscii(input, output);
-      break;
-    case transliteration::HALF_ASCII_UPPER:
-      japanese_util::FullWidthAsciiToHalfWidthAscii(input, output);
-      Util::UpperString(output);
-      break;
-    case transliteration::HALF_ASCII_LOWER:
-      japanese_util::FullWidthAsciiToHalfWidthAscii(input, output);
-      Util::LowerString(output);
-      break;
-    case transliteration::HALF_ASCII_CAPITALIZED:
-      japanese_util::FullWidthAsciiToHalfWidthAscii(input, output);
-      Util::CapitalizeString(output);
-      break;
-
+      return japanese_util::FullWidthAsciiToHalfWidthAscii(input);
+    case transliteration::HALF_ASCII_UPPER: {
+      std::string output = japanese_util::FullWidthAsciiToHalfWidthAscii(input);
+      Util::UpperString(&output);
+      return output;
+    }
+    case transliteration::HALF_ASCII_LOWER: {
+      std::string output = japanese_util::FullWidthAsciiToHalfWidthAscii(input);
+      Util::LowerString(&output);
+      return output;
+    }
+    case transliteration::HALF_ASCII_CAPITALIZED: {
+      std::string output = japanese_util::FullWidthAsciiToHalfWidthAscii(input);
+      Util::CapitalizeString(&output);
+      return output;
+    }
     case transliteration::FULL_ASCII:
-      japanese_util::HalfWidthAsciiToFullWidthAscii(input, output);
-      break;
-    case transliteration::FULL_ASCII_UPPER:
-      japanese_util::HalfWidthAsciiToFullWidthAscii(input, output);
-      Util::UpperString(output);
-      break;
-    case transliteration::FULL_ASCII_LOWER:
-      japanese_util::HalfWidthAsciiToFullWidthAscii(input, output);
-      Util::LowerString(output);
-      break;
-    case transliteration::FULL_ASCII_CAPITALIZED:
-      japanese_util::HalfWidthAsciiToFullWidthAscii(input, output);
-      Util::CapitalizeString(output);
-      break;
-
+      return japanese_util::HalfWidthAsciiToFullWidthAscii(input);
+    case transliteration::FULL_ASCII_UPPER: {
+      std::string output = japanese_util::HalfWidthAsciiToFullWidthAscii(input);
+      Util::UpperString(&output);
+      return output;
+    }
+    case transliteration::FULL_ASCII_LOWER: {
+      std::string output = japanese_util::HalfWidthAsciiToFullWidthAscii(input);
+      Util::LowerString(&output);
+      return output;
+    }
+    case transliteration::FULL_ASCII_CAPITALIZED: {
+      std::string output = japanese_util::HalfWidthAsciiToFullWidthAscii(input);
+      Util::CapitalizeString(&output);
+      return output;
+    }
     case transliteration::FULL_KATAKANA:
-      japanese_util::HiraganaToKatakana(input, output);
-      break;
+      return japanese_util::HiraganaToKatakana(input);
     case transliteration::HIRAGANA:
-      strings::Assign(*output, input);
-      break;
+      return std::string{input};
     default:
       LOG(ERROR) << "Unknown TransliterationType: " << mode;
-      strings::Assign(*output, input);
-      break;
+      return std::string{input};
   }
 }
 
@@ -269,10 +260,6 @@ Composer::Composer(const Table *table, const commands::Request *request,
       input_field_type_(commands::Context::NORMAL),
       shifted_sequence_count_(0),
       composition_(table),
-      typing_corrector_(
-          request, table,
-          absl::GetFlag(FLAGS_max_typing_correction_query_candidates),
-          absl::GetFlag(FLAGS_max_typing_correction_query_results)),
       max_length_(kMaxPreeditLength),
       request_(request),
       config_(config),
@@ -282,7 +269,6 @@ Composer::Composer(const Table *table, const commands::Request *request,
   if (config_ == nullptr) {
     config_ = &config::ConfigHandler::DefaultConfig();
   }
-  typing_corrector_.SetConfig(config_);
   Reset();
 }
 
@@ -291,8 +277,8 @@ void Composer::Reset() {
   ResetInputMode();
   SetOutputMode(transliteration::HIRAGANA);
   source_text_.clear();
-  typing_corrector_.Reset();
   timeout_threshold_msec_ = config_->composing_timeout_threshold_msec();
+  compositions_for_handwriting_.clear();
 }
 
 void Composer::ResetInputMode() { SetInputMode(comeback_input_mode_); }
@@ -306,23 +292,13 @@ bool Composer::Empty() const { return (GetLength() == 0); }
 void Composer::SetTable(const Table *table) {
   table_ = table;
   composition_.SetTable(table);
-  typing_corrector_.SetTable(table);
 }
 
 void Composer::SetRequest(const commands::Request *request) {
-  typing_corrector_.SetRequest(request);
   request_ = request;
 }
 
-void Composer::SetSpellCheckerService(
-    const spelling::SpellCheckerServiceInterface *spellchecker_service) {
-  spellchecker_service_ = spellchecker_service;
-}
-
-void Composer::SetConfig(const config::Config *config) {
-  config_ = config;
-  typing_corrector_.SetConfig(config);
-}
+void Composer::SetConfig(const config::Config *config) { config_ = config; }
 
 void Composer::SetInputMode(transliteration::TransliterationType mode) {
   comeback_input_mode_ = mode;
@@ -462,7 +438,6 @@ bool Composer::ProcessCompositionInput(CompositionInput input) {
     return false;
   }
 
-  typing_corrector_.InsertCharacter(input);
   position_ = composition_.InsertInput(position_, std::move(input));
   is_new_input_ = false;
   return true;
@@ -507,19 +482,16 @@ void Composer::InsertCharacterPreedit(const absl::string_view input) {
 // Note: This method is only for test.
 void Composer::SetPreeditTextForTestOnly(const absl::string_view input) {
   composition_.SetInputMode(Transliterators::RAW_STRING);
-  size_t begin = 0;
-  const size_t end = input.size();
-  while (begin < end) {
-    const size_t mblen = OneCharLen(input[begin]);
+
+  const Utf8AsChars input_chars(input);
+  for (const absl::string_view c : input_chars) {
     CompositionInput composition_input;
-    composition_input.set_raw(input.substr(begin, mblen));
+    composition_input.set_raw(c);
     composition_input.set_is_new_input(is_new_input_);
     position_ =
         composition_.InsertInput(position_, std::move(composition_input));
     is_new_input_ = false;
-    begin += mblen;
   }
-  DCHECK_EQ(begin, end);
 
   std::string lower_input(input);
   Util::LowerString(&lower_input);
@@ -528,6 +500,37 @@ void Composer::SetPreeditTextForTestOnly(const absl::string_view input) {
     // This is useful to test the behavior of alphabet keyboard.
     SetTemporaryInputMode(transliteration::HALF_ASCII);
   }
+}
+
+void Composer::SetCompositionsForHandwriting(
+    absl::Span<const commands::SessionCommand::CompositionEvent *const>
+        compositions) {
+  Reset();
+  compositions_for_handwriting_.clear();
+  for (const auto &elm : compositions) {
+    compositions_for_handwriting_.push_back(*elm);
+  }
+
+  if (compositions_for_handwriting_.empty()) {
+    return;
+  }
+  composition_.SetInputMode(Transliterators::RAW_STRING);
+
+  const Utf8AsChars input_chars(
+      compositions_for_handwriting_.front().composition_string());
+  for (const absl::string_view c : input_chars) {
+    CompositionInput composition_input;
+    composition_input.set_raw(c);
+    composition_input.set_is_new_input(is_new_input_);
+    position_ =
+        composition_.InsertInput(position_, std::move(composition_input));
+    is_new_input_ = false;
+  }
+}
+
+const std::vector<commands::SessionCommand::CompositionEvent> &
+Composer::GetHandwritingCompositions() const {
+  return compositions_for_handwriting_;
 }
 
 bool Composer::InsertCharacterKeyAndPreedit(const absl::string_view key,
@@ -589,7 +592,6 @@ bool Composer::InsertCharacterKeyEvent(const commands::KeyEvent &key) {
     if (input.is_asis()) {
       composition_.SetInputMode(Transliterators::CONVERSION_STRING);
       // Disable typing correction mainly for Android. b/258369101
-      typing_corrector_.Invalidate();
       ProcessCompositionInput(std::move(input));
       SetInputMode(comeback_input_mode_);
     } else {
@@ -618,31 +620,23 @@ void Composer::DeleteAt(size_t pos) {
   if (position_ > pos) {
     position_--;
   }
-  // We do not call UpdateInputMode() here.
-  // 1. In composition mode, UpdateInputMode finalizes pending chunk.
-  // 2. In conversion mode, InputMode needs not to change.
-  typing_corrector_.Invalidate();
 }
 
 void Composer::Delete() {
   position_ = composition_.DeleteAt(position_);
   UpdateInputMode();
-
-  typing_corrector_.Invalidate();
 }
 
 void Composer::DeleteRange(size_t pos, size_t length) {
   for (int i = 0; i < length && pos < composition_.GetLength(); ++i) {
     DeleteAt(pos);
   }
-  typing_corrector_.Invalidate();
 }
 
 void Composer::EditErase() {
   composition_.Erase();
   position_ = 0;
   SetInputMode(comeback_input_mode_);
-  typing_corrector_.Reset();
 }
 
 void Composer::Backspace() {
@@ -665,8 +659,6 @@ void Composer::Backspace() {
 
   // Delete 'character to be deleted'
   position_ = composition_.DeleteAt(position_);
-
-  typing_corrector_.Invalidate();
 }
 
 void Composer::MoveCursorLeft() {
@@ -674,8 +666,6 @@ void Composer::MoveCursorLeft() {
     --position_;
   }
   UpdateInputMode();
-
-  typing_corrector_.Invalidate();
 }
 
 void Composer::MoveCursorRight() {
@@ -683,15 +673,11 @@ void Composer::MoveCursorRight() {
     ++position_;
   }
   UpdateInputMode();
-
-  typing_corrector_.Invalidate();
 }
 
 void Composer::MoveCursorToBeginning() {
   position_ = 0;
   SetInputMode(comeback_input_mode_);
-
-  typing_corrector_.Invalidate();
 }
 
 void Composer::MoveCursorToEnd() {
@@ -699,8 +685,6 @@ void Composer::MoveCursorToEnd() {
   // Behavior between MoveCursorToEnd and MoveCursorToRight is different.
   // MoveCursorToEnd always makes current input mode default.
   SetInputMode(comeback_input_mode_);
-
-  typing_corrector_.Invalidate();
 }
 
 void Composer::MoveCursorTo(uint32_t new_position) {
@@ -708,7 +692,6 @@ void Composer::MoveCursorTo(uint32_t new_position) {
     position_ = new_position;
     UpdateInputMode();
   }
-  typing_corrector_.Invalidate();
 }
 
 void Composer::GetPreedit(std::string *left, std::string *focused,
@@ -730,9 +713,9 @@ void Composer::GetPreedit(std::string *left, std::string *focused,
   }
 }
 
-void Composer::GetStringForPreedit(std::string *output) const {
-  composition_.GetString(output);
-  TransformCharactersForNumbers(output);
+std::string Composer::GetStringForPreedit() const {
+  std::string output = composition_.GetString();
+  TransformCharactersForNumbers(&output);
   // If the input field type needs half ascii characters,
   // perform conversion here.
   // Note that this purpose is also achieved by the client by setting
@@ -752,22 +735,21 @@ void Composer::GetStringForPreedit(std::string *output) const {
   if (field_type == commands::Context::NUMBER ||
       field_type == commands::Context::PASSWORD ||
       field_type == commands::Context::TEL) {
-    const std::string tmp = *output;
-    japanese_util::FullWidthAsciiToHalfWidthAscii(tmp, output);
+    output = japanese_util::FullWidthAsciiToHalfWidthAscii(output);
   }
+  return output;
 }
 
-void Composer::GetStringForSubmission(std::string *output) const {
+std::string Composer::GetStringForSubmission() const {
   // TODO(komatsu): We should make sure if we can integrate this
   // function to GetStringForPreedit after a while.
-  GetStringForPreedit(output);
+  return GetStringForPreedit();
 }
 
-void Composer::GetQueryForConversion(std::string *output) const {
-  std::string base_output;
-  composition_.GetStringWithTrimMode(FIX, &base_output);
+std::string Composer::GetQueryForConversion() const {
+  std::string base_output = composition_.GetStringWithTrimMode(FIX);
   TransformCharactersForNumbers(&base_output);
-  japanese_util::FullWidthAsciiToHalfWidthAscii(base_output, output);
+  return japanese_util::FullWidthAsciiToHalfWidthAscii(base_output);
 }
 
 namespace {
@@ -828,25 +810,21 @@ std::string *GetBaseQueryForPrediction(std::string *asis_query,
 }
 }  // namespace
 
-void Composer::GetQueryForPrediction(std::string *output) const {
-  std::string asis_query;
-  composition_.GetStringWithTrimMode(ASIS, &asis_query);
+std::string Composer::GetQueryForPrediction() const {
+  std::string asis_query = composition_.GetStringWithTrimMode(ASIS);
 
   switch (input_mode_) {
     case transliteration::HALF_ASCII: {
-      output->assign(asis_query);
-      return;
+      return asis_query;
     }
     case transliteration::FULL_ASCII: {
-      japanese_util::FullWidthAsciiToHalfWidthAscii(asis_query, output);
-      return;
+      return japanese_util::FullWidthAsciiToHalfWidthAscii(asis_query);
     }
     default: {
     }
   }
 
-  std::string trimed_query;
-  composition_.GetStringWithTrimMode(TRIM, &trimed_query);
+  std::string trimed_query = composition_.GetStringWithTrimMode(TRIM);
 
   // NOTE(komatsu): This is a hack to go around the difference
   // expectation between Romanji-Input and Kana-Input.  "かn" in
@@ -858,7 +836,7 @@ void Composer::GetQueryForPrediction(std::string *output) const {
   std::string *base_query =
       GetBaseQueryForPrediction(&asis_query, &trimed_query);
   TransformCharactersForNumbers(base_query);
-  japanese_util::FullWidthAsciiToHalfWidthAscii(*base_query, output);
+  return japanese_util::FullWidthAsciiToHalfWidthAscii(*base_query);
 }
 
 void Composer::GetQueriesForPrediction(std::string *base,
@@ -869,7 +847,7 @@ void Composer::GetQueriesForPrediction(std::string *base,
   switch (input_mode_) {
     case transliteration::HALF_ASCII:
     case transliteration::FULL_ASCII: {
-      GetQueryForPrediction(base);
+      *base = GetQueryForPrediction();
       expanded->clear();
       return;
     }
@@ -883,37 +861,24 @@ void Composer::GetQueriesForPrediction(std::string *base,
   // However, "ざ" is usually composed by explicitly hitting the modifier key.
   // So we don't want to generate prediction from "さ" in this case. The
   // following code removes such unnecessary expansion.
-  std::string asis;
-  composition_.GetStringWithTrimMode(ASIS, &asis);
+  const std::string asis = composition_.GetStringWithTrimMode(ASIS);
   RemoveExpandedCharsForModifier(asis, base_query, expanded);
 
-  japanese_util::FullWidthAsciiToHalfWidthAscii(base_query, base);
+  *base = japanese_util::FullWidthAsciiToHalfWidthAscii(base_query);
 }
 
-std::optional<std::vector<TypeCorrectedQuery>>
-Composer::GetTypeCorrectedQueries(absl::string_view context) const {
-
-  return std::nullopt;
-}
-
-void Composer::GetTypeCorrectedQueriesForPrediction(
-    std::vector<TypeCorrectedQuery> *queries) const {
-  typing_corrector_.GetQueriesForPrediction(queries);
-  for (auto &query : *queries) {
-    RemoveExpandedCharsForModifier(query.asis, query.base, &query.expanded);
-  }
+std::string Composer::GetStringForTypeCorrection() const {
+  return composition_.GetStringWithTrimMode(ASIS);
 }
 
 size_t Composer::GetLength() const { return composition_.GetLength(); }
 
 size_t Composer::GetCursor() const { return position_; }
 
-void Composer::GetTransliteratedText(Transliterators::Transliterator t12r,
-                                     const size_t position, const size_t size,
-                                     std::string *result) const {
-  DCHECK(result);
-  std::string full_base;
-  composition_.GetStringWithTransliterator(t12r, &full_base);
+std::string Composer::GetTransliteratedText(
+    Transliterators::Transliterator t12r, const size_t position,
+    const size_t size) const {
+  const std::string full_base = composition_.GetStringWithTransliterator(t12r);
 
   const size_t t13n_start =
       composition_.ConvertPosition(position, Transliterators::LOCAL, t12r);
@@ -921,18 +886,16 @@ void Composer::GetTransliteratedText(Transliterators::Transliterator t12r,
       position + size, Transliterators::LOCAL, t12r);
   const size_t t13n_size = t13n_end - t13n_start;
 
-  Util::Utf8SubString(full_base, t13n_start, t13n_size, result);
+  return std::string{Util::Utf8SubString(full_base, t13n_start, t13n_size)};
 }
 
-void Composer::GetRawString(std::string *raw_string) const {
-  GetRawSubString(0, GetLength(), raw_string);
+std::string Composer::GetRawString() const {
+  return GetRawSubString(0, GetLength());
 }
 
-void Composer::GetRawSubString(const size_t position, const size_t size,
-                               std::string *raw_sub_string) const {
-  DCHECK(raw_sub_string);
-  GetTransliteratedText(Transliterators::RAW_STRING, position, size,
-                        raw_sub_string);
+std::string Composer::GetRawSubString(const size_t position,
+                                      const size_t size) const {
+  return GetTransliteratedText(Transliterators::RAW_STRING, position, size);
 }
 
 void Composer::GetTransliterations(
@@ -940,24 +903,21 @@ void Composer::GetTransliterations(
   GetSubTransliterations(0, GetLength(), t13ns);
 }
 
-void Composer::GetSubTransliteration(
+std::string Composer::GetSubTransliteration(
     const transliteration::TransliterationType type, const size_t position,
-    const size_t size, std::string *transliteration) const {
+    const size_t size) const {
   const Transliterators::Transliterator t12r = GetTransliterator(type);
-  std::string result;
-  GetTransliteratedText(t12r, position, size, &result);
-  transliteration->clear();
-  Transliterate(type, result, transliteration);
+  const std::string result = GetTransliteratedText(t12r, position, size);
+  return Transliterate(type, result);
 }
 
 void Composer::GetSubTransliterations(
     const size_t position, const size_t size,
     transliteration::Transliterations *transliterations) const {
-  std::string t13n;
   for (size_t i = 0; i < transliteration::NUM_T13N_TYPES; ++i) {
     const transliteration::TransliterationType t13n_type =
         transliteration::TransliterationTypeArray[i];
-    GetSubTransliteration(t13n_type, position, size, &t13n);
+    const std::string t13n = GetSubTransliteration(t13n_type, position, size);
     transliterations->push_back(t13n);
   }
 }
@@ -981,10 +941,9 @@ void Composer::AutoSwitchMode() {
     return;
   }
 
-  std::string key;
   // Key should be in half-width alphanumeric.
-  composition_.GetStringWithTransliterator(
-      GetTransliterator(transliteration::HALF_ASCII), &key);
+  const std::string key = composition_.GetStringWithTransliterator(
+      GetTransliterator(transliteration::HALF_ASCII));
 
   const ModeSwitchingHandler::Rule mode_switching =
       ModeSwitchingHandler::GetModeSwitchingHandler()->GetModeSwitchingRule(
@@ -1153,7 +1112,7 @@ bool Composer::TransformCharactersForNumbers(std::string *query) {
 
   DCHECK_EQ(chars_len, char_scripts.size());
   if (!has_alphanumerics || !has_symbols) {
-    VLOG(1) << "The query contains neither alphanumeric nor symbol.";
+    MOZC_VLOG(1) << "The query contains neither alphanumeric nor symbol.";
     return false;
   }
 
@@ -1232,7 +1191,7 @@ bool Composer::TransformCharactersForNumbers(std::string *query) {
 
     if (append_char.empty()) {
       // Append one character.
-      Util::Ucs4ToUtf8Append(iter.Get(), &transformed_query);
+      Util::CodepointToUtf8Append(iter.Get(), &transformed_query);
     } else {
       // Append the transformed character.
       transformed_query.append(append_char);

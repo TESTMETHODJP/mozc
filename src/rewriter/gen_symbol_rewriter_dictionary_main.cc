@@ -42,16 +42,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/file/temp_dir.h"
-#include "base/file_stream.h"
-#include "base/init_mozc.h"
-#include "base/logging.h"
-#include "base/status.h"
-#include "base/strings/japanese.h"
-#include "base/util.h"
-#include "data_manager/data_manager.h"
-#include "data_manager/serialized_dictionary.h"
-#include "rewriter/dictionary_generator.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/flags/flag.h"
@@ -61,6 +51,16 @@
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/file/temp_dir.h"
+#include "base/file_stream.h"
+#include "base/init_mozc.h"
+#include "base/logging.h"
+#include "base/strings/japanese.h"
+#include "base/util.h"
+#include "base/vlog.h"
+#include "data_manager/data_manager.h"
+#include "data_manager/serialized_dictionary.h"
+#include "rewriter/dictionary_generator.h"
 
 ABSL_FLAG(std::string, sorting_table, "", "sorting table file");
 ABSL_FLAG(std::string, ordering_rule, "", "sorting order file");
@@ -104,10 +104,9 @@ SortingKeyMap CreateSortingKeyMap(const std::string &auto_file,
     const std::vector<absl::string_view> fields =
         absl::StrSplit(line, absl::ByAnyChar("\t "), absl::SkipEmpty());
     CHECK_GE(fields.size(), 2);
-    uint32_t ucs4 = 0;
-    CHECK(absl::SimpleHexAtoi(fields[0], &ucs4));
-    std::string utf8;
-    Util::Ucs4ToUtf8(ucs4, &utf8);
+    uint32_t codepoint = 0;
+    CHECK(absl::SimpleHexAtoi(fields[0], &codepoint));
+    const std::string utf8 = Util::CodepointToUtf8(codepoint);
     if (sorting_keys.contains(utf8)) {
       // ordered by rule
       continue;
@@ -175,7 +174,7 @@ void MakeDictionary(const std::string &symbol_dictionary_file,
     std::vector<absl::string_view> fields =
         absl::StrSplit(line, '\t', absl::AllowEmpty());
     if (fields.size() < 3 || (fields[1].empty() && fields[2].empty())) {
-      VLOG(3) << "invalid format. skip line: " << line;
+      MOZC_VLOG(3) << "invalid format. skip line: " << line;
       continue;
     }
     std::string pos(fields[0]);

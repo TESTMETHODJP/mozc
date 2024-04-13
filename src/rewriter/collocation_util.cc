@@ -31,9 +31,9 @@
 
 #include <string>
 
-#include "base/util.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "base/util.h"
 
 namespace mozc {
 void CollocationUtil::GetNormalizedScript(const absl::string_view str,
@@ -84,7 +84,7 @@ void CollocationUtil::RemoveExtraCharacters(const absl::string_view input,
         w == 0x0025 || w == 0xFF05 ||  // "%", "％"
         w == 0x3006 ||                 // "〆"
         w == 0x301C || w == 0xFF5E) {  // "〜", "～"
-      Util::Ucs4ToUtf8Append(w, output);
+      Util::CodepointToUtf8Append(w, output);
     }
   }
 }

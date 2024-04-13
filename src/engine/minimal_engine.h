@@ -34,10 +34,13 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "converter/converter_interface.h"
 #include "data_manager/data_manager_interface.h"
 #include "dictionary/suppression_dictionary.h"
 #include "engine/engine_interface.h"
+#include "engine/modules.h"
 #include "engine/user_data_manager_interface.h"
 #include "prediction/predictor_interface.h"
 
@@ -52,10 +55,16 @@ class MinimalEngine : public EngineInterface {
   MinimalEngine &operator=(const MinimalEngine &) = delete;
 
   ConverterInterface *GetConverter() const override;
-  prediction::PredictorInterface *GetPredictor() const override;
+  absl::string_view GetPredictorName() const override;
   dictionary::SuppressionDictionary *GetSuppressionDictionary() override;
   bool Reload() override { return true; }
+  bool Sync() override { return true; }
+  bool Wait() override { return true; }
   bool ReloadAndWait() override { return true; }
+  absl::Status ReloadModules(std::unique_ptr<engine::Modules> modules,
+                             bool is_mobile) override {
+    return absl::OkStatus();
+  }
   UserDataManagerInterface *GetUserDataManager() override;
   absl::string_view GetDataVersion() const override { return "0.0.0"; }
   const DataManagerInterface *GetDataManager() const override;

@@ -38,6 +38,13 @@
 #include <utility>
 #include <vector>
 
+#include "absl/flags/flag.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
@@ -59,15 +66,7 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
-#include "session/request_test_util.h"
-#include "absl/flags/flag.h"
-#include "absl/log/check.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/str_join.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
+#include "request/request_test_util.h"
 
 #ifndef NDEBUG
 #define MOZC_DEBUG
@@ -297,14 +296,14 @@ bool ExecCommand(const ConverterInterface &converter, const std::string &line,
   if (func == "startconversion" || func == "start" || func == "s") {
     CHECK_FIELDS_LENGTH(2);
     composer.SetPreeditTextForTestOnly(fields[1]);
-    return converter.StartConversionForRequest(*conversion_request, segments);
+    return converter.StartConversion(*conversion_request, segments);
   } else if (func == "convertwithnodeinfo" || func == "cn") {
     CHECK_FIELDS_LENGTH(5);
     Lattice::SetDebugDisplayNode(
         NumberUtil::SimpleAtoi(fields[2]),  // begin pos
         NumberUtil::SimpleAtoi(fields[3]),  // end pos
         fields[4]);
-    const bool result = converter.StartConversion(segments, fields[1]);
+    const bool result = converter.StartConversionWithKey(segments, fields[1]);
     Lattice::ResetDebugDisplayNode();
     return result;
   } else if (func == "reverseconversion" || func == "reverse" || func == "r") {
@@ -313,16 +312,16 @@ bool ExecCommand(const ConverterInterface &converter, const std::string &line,
   } else if (func == "startprediction" || func == "predict" || func == "p") {
     if (fields.size() >= 2) {
       composer.SetPreeditTextForTestOnly(fields[1]);
-      return converter.StartPredictionForRequest(*conversion_request, segments);
+      return converter.StartPrediction(*conversion_request, segments);
     } else {
-      return converter.StartPredictionForRequest(*conversion_request, segments);
+      return converter.StartPrediction(*conversion_request, segments);
     }
   } else if (func == "startsuggestion" || func == "suggest") {
     if (fields.size() >= 2) {
       composer.SetPreeditTextForTestOnly(fields[1]);
-      return converter.StartSuggestionForRequest(*conversion_request, segments);
+      return converter.StartSuggestion(*conversion_request, segments);
     } else {
-      return converter.StartSuggestionForRequest(*conversion_request, segments);
+      return converter.StartSuggestion(*conversion_request, segments);
     }
   } else if (func == "finishconversion" || func == "finish") {
     converter.FinishConversion(*conversion_request, segments);
@@ -457,8 +456,8 @@ int main(int argc, char **argv) {
     absl::SetFlag(&FLAGS_magic, path_and_magic.second);
   }
   CHECK(!absl::GetFlag(FLAGS_engine_data_path).empty())
-      << "--engine_data_path or --engine is invalid: "
-      << "--engine_data_path=" << absl::GetFlag(FLAGS_engine_data_path) << " "
+      << "--engine_data_path or --engine is invalid: " << "--engine_data_path="
+      << absl::GetFlag(FLAGS_engine_data_path) << " "
       << "--engine_name=" << absl::GetFlag(FLAGS_engine_name);
 
   if (absl::GetFlag(FLAGS_id_def).empty()) {
@@ -489,7 +488,7 @@ int main(int argc, char **argv) {
         mozc::Engine::CreateDesktopEngine(*std::move(data_manager)).value();
   } else if (absl::GetFlag(FLAGS_engine_type) == "mobile") {
     engine = mozc::Engine::CreateMobileEngine(*std::move(data_manager)).value();
-    mozc::commands::RequestForUnitTest::FillMobileRequest(&request);
+    mozc::request_test_util::FillMobileRequest(&request);
     config.set_use_kana_modifier_insensitive_conversion(true);
   } else {
     LOG(FATAL) << "Invalid type: --engine_type="
@@ -504,7 +503,7 @@ int main(int argc, char **argv) {
         << "Invalid DecoderExperimentParams: " << textproto;
     request.mutable_decoder_experiment_params()->MergeFrom(params);
     LOG(INFO) << "DecoderExperimentParams was set:\n"
-              << MOZC_LOG_PROTOBUF(request.decoder_experiment_params());
+              << request.decoder_experiment_params();
   }
 
   mozc::ConverterInterface *converter = engine->GetConverter();
@@ -522,6 +521,8 @@ int main(int argc, char **argv) {
       mozc::ConversionRequest(nullptr, &request, &config);
   conversion_request.set_max_conversion_candidates_size(
       absl::GetFlag(FLAGS_max_conversion_candidates_size));
+  conversion_request.set_create_partial_candidates(
+      request.auto_partial_suggestion());
 
   while (!std::getline(std::cin, line).fail()) {
     if (mozc::ExecCommand(*converter, line, request, &config,

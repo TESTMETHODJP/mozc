@@ -38,10 +38,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "data_manager/data_manager_interface.h"
 #include "dictionary/user_pos_interface.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace dictionary {
@@ -84,9 +84,14 @@ class UserPos : public UserPosInterface {
  public:
   static constexpr size_t kTokenByteLength = 8;
 
-  class iterator
-      : public std::iterator<std::random_access_iterator_tag, uint16_t> {
+  class iterator {
    public:
+    using iterator_category = std::random_access_iterator_tag;
+    using value_type = uint16_t;
+    using difference_type = std::ptrdiff_t;
+    using pointer = uint16_t *;
+    using reference = uint16_t &;
+
     iterator() = default;
     explicit iterator(const char *ptr) : ptr_(ptr) {}
     iterator(const iterator &x) = default;
@@ -185,7 +190,10 @@ class UserPos : public UserPosInterface {
   UserPos &operator=(const UserPos &) = delete;
 
   // Implementation of UserPosInterface.
-  void GetPosList(std::vector<std::string> *pos_list) const override;
+  std::vector<std::string> GetPosList() const override { return pos_list_; }
+  int GetPosListDefaultIndex() const override {
+    return pos_list_default_index_;
+  }
   bool IsValidPos(absl::string_view pos) const override;
   bool GetPosIds(absl::string_view pos, uint16_t *id) const override;
   bool GetTokens(absl::string_view key, absl::string_view value,
@@ -198,8 +206,12 @@ class UserPos : public UserPosInterface {
   }
 
  private:
+  void InitPosList();
+
   absl::string_view token_array_data_;
   SerializedStringArray string_array_;
+  std::vector<std::string> pos_list_;
+  int pos_list_default_index_ = 0;
 };
 
 }  // namespace dictionary

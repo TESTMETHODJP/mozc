@@ -35,9 +35,12 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "base/container/serialized_string_array.h"
 #include "base/logging.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager_interface.h"
 #include "dictionary/dictionary_interface.h"
@@ -45,8 +48,6 @@
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "rewriter/usage_rewriter.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
 
 namespace mozc {
 
@@ -117,11 +118,11 @@ std::string UsageRewriter::GetKanjiPrefixAndOneHiragana(
       // length of kanji <= 2.
       has_kanji = true;
       ++pos;
-      Util::Ucs4ToUtf8Append(w, &result);
+      Util::CodepointToUtf8Append(w, &result);
       continue;
     } else if (pos > 0 && s == Util::HIRAGANA) {
       has_hiragana = true;
-      Util::Ucs4ToUtf8Append(w, &result);
+      Util::CodepointToUtf8Append(w, &result);
       break;
     } else {
       return "";
@@ -181,7 +182,7 @@ UsageRewriter::UsageDictItemIterator UsageRewriter::LookupUsage(
 
 bool UsageRewriter::Rewrite(const ConversionRequest &request,
                             Segments *segments) const {
-  VLOG(2) << segments->DebugString();
+  MOZC_VLOG(2) << segments->DebugString();
 
   const config::Config &config = request.config();
   // Default value of use_local_usage_dictionary() is true.
@@ -241,12 +242,12 @@ bool UsageRewriter::Rewrite(const ConversionRequest &request,
             string_array_[iter.meaning_index()].data(),
             string_array_[iter.meaning_index()].size());
 
-        VLOG(2) << i << ":" << j << ":" << candidate->content_key << ":"
-                << candidate->content_value << ":"
-                << string_array_[iter.key_index()] << ":"
-                << string_array_[iter.value_index()] << ":"
-                << iter.conjugation_id() << ":"
-                << string_array_[iter.meaning_index()];
+        MOZC_VLOG(2) << i << ":" << j << ":" << candidate->content_key << ":"
+                     << candidate->content_value << ":"
+                     << string_array_[iter.key_index()] << ":"
+                     << string_array_[iter.value_index()] << ":"
+                     << iter.conjugation_id() << ":"
+                     << string_array_[iter.meaning_index()];
         modified = true;
       }
     }

@@ -30,13 +30,18 @@
 #include "dictionary/user_dictionary_session.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/optimization.h"
+#include "absl/container/fixed_array.h"
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "base/protobuf/protobuf.h"
 #include "base/protobuf/repeated_field.h"
@@ -45,8 +50,6 @@
 #include "dictionary/user_dictionary_storage.h"
 #include "dictionary/user_dictionary_util.h"
 #include "protocol/user_dictionary_storage.pb.h"
-#include "absl/container/fixed_array.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace user_dictionary {
@@ -71,8 +74,9 @@ class UndoCreateDictionaryCommand : public UserDictionarySession::UndoCommand {
 class UndoDeleteDictionaryCommand : public UserDictionarySession::UndoCommand {
  public:
   // This instance takes the ownership of the given dictionary.
-  UndoDeleteDictionaryCommand(int index, UserDictionary *dictionary)
-      : index_(index), dictionary_(dictionary) {}
+  UndoDeleteDictionaryCommand(int index,
+                              std::unique_ptr<UserDictionary> dictionary)
+      : index_(index), dictionary_(std::move(dictionary)) {}
 
   bool RunUndo(mozc::UserDictionaryStorage *storage) override {
     if (dictionary_ == nullptr) {
@@ -99,8 +103,8 @@ class UndoDeleteDictionaryWithEnsuringNonEmptyStorageCommand
  public:
   // This instance takes the ownership of the given dictionary.
   explicit UndoDeleteDictionaryWithEnsuringNonEmptyStorageCommand(
-      UserDictionary *dictionary)
-      : dictionary_(dictionary) {}
+      std::unique_ptr<UserDictionary> dictionary)
+      : dictionary_(std::move(dictionary)) {}
 
   bool RunUndo(mozc::UserDictionaryStorage *storage) override {
     if (storage->GetProto().dictionaries_size() != 1) {
@@ -406,7 +410,7 @@ UserDictionaryCommandStatus::Status UserDictionarySession::Save() {
       default:
         return UserDictionaryCommandStatus::UNKNOWN_ERROR;
     }
-    // Should never reach here.
+    ABSL_UNREACHABLE();
   }
 
   return UserDictionaryCommandStatus::USER_DICTIONARY_COMMAND_SUCCESS;
@@ -452,7 +456,7 @@ UserDictionaryCommandStatus::Status
 UserDictionarySession::DeleteDictionaryInternal(uint64_t dictionary_id,
                                                 bool ensure_non_empty_storage) {
   int original_index;
-  UserDictionary *deleted_dictionary;
+  std::unique_ptr<UserDictionary> deleted_dictionary;
   if (!UserDictionaryUtil::DeleteDictionary(&storage_->GetProto(),
                                             dictionary_id, &original_index,
                                             &deleted_dictionary)) {
@@ -464,10 +468,10 @@ UserDictionarySession::DeleteDictionaryInternal(uint64_t dictionary_id,
     // The storage was empty.
     AddUndoCommand(std::make_unique<
                    UndoDeleteDictionaryWithEnsuringNonEmptyStorageCommand>(
-        deleted_dictionary));
+        std::move(deleted_dictionary)));
   } else {
     AddUndoCommand(std::make_unique<UndoDeleteDictionaryCommand>(
-        original_index, deleted_dictionary));
+        original_index, std::move(deleted_dictionary)));
   }
 
   return UserDictionaryCommandStatus::USER_DICTIONARY_COMMAND_SUCCESS;
@@ -502,7 +506,7 @@ UserDictionaryCommandStatus::Status UserDictionarySession::RenameDictionary(
         LOG(ERROR) << "Unknown error code: " << storage_->GetLastError();
         return UserDictionaryCommandStatus::UNKNOWN_ERROR;
     }
-    // Should never reach here.
+    ABSL_UNREACHABLE();
   }
 
   AddUndoCommand(std::make_unique<UndoRenameDictionaryCommand>(dictionary_id,

@@ -248,6 +248,7 @@
           'NDEBUG',
           'QT_NO_DEBUG',
           'MOZC_NO_LOGGING',
+          'ABSL_MIN_LOG_LEVEL=100',
           'IGNORE_HELP_FLAG',
           'IGNORE_INVALID_FLAG'
         ],
@@ -310,7 +311,6 @@
       'BUILD_MOZC',  # for ime_shared library
       'ID_TRACE_LEVEL=1',
       'NOMINMAX',
-      'OS_WIN',
       'PSAPI_VERSION=2',
       'UNICODE',
       'WIN32',
@@ -328,7 +328,6 @@
       '_WIN32',
       '_WIN32_WINNT=0x0A00',
       '_WINDOWS',
-      '_WTL_NO_AUTOMATIC_NAMESPACE',
     ],
     'include_dirs': [
       '<@(absl_include_dirs)',
@@ -336,7 +335,6 @@
       '<(SHARED_INTERMEDIATE_DIR)',
       '<@(msvs_includes)',
       '<(third_party_dir)/wil/include',
-      '<(wtl_dir)/include',
     ],
     'msvs_configuration_attributes': {
       'CharacterSet': '<(win_char_set_unicode)',
@@ -375,6 +373,9 @@
           'user32.lib',
           'uuid.lib',
         ],
+        'AdditionalOptions': [
+          '/CETCOMPAT',
+        ],
         'DataExecutionPrevention': '2',        # /NXCOMPAT
         'EnableCOMDATFolding': '2',            # /OPT:ICF
         'GenerateDebugInformation': 'true',    # /DEBUG
@@ -382,9 +383,24 @@
         'OptimizeReferences': '2',             # /OPT:REF
         'RandomizedBaseAddress': '2',          # /DYNAMICBASE
         'target_conditions': [
-          # /TSAWARE is valid only on executable target.
           ['_type=="executable"', {
+            # /TSAWARE is valid only on executable target.
             'TerminalServerAware': '2',        # /TSAWARE
+            'AdditionalOptions': [
+              # We build *.exe with dynamic CRT and deploy CRT DLLs into the
+              # application dir. Thus LOAD_LIBRARY_SEARCH_APPLICATION_DIR is
+              # also necessary.
+              #   0x200: LOAD_LIBRARY_SEARCH_APPLICATION_DIR
+              #   0x800: LOAD_LIBRARY_SEARCH_SYSTEM32
+              '/DEPENDENTLOADFLAG:0xA00',
+            ],
+          }, '_type=="shared_library"', {
+            'AdditionalOptions': [
+              # We build *.dll with staticd CRT. Thus
+              # LOAD_LIBRARY_SEARCH_APPLICATION_DIR is not necessary.
+              #   0x800: LOAD_LIBRARY_SEARCH_SYSTEM32
+              '/DEPENDENTLOADFLAG:0x800',
+            ],
           }],
         ],
       },

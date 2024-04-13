@@ -29,6 +29,7 @@
 
 #include "converter/connector.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <new>
@@ -37,15 +38,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
-#include "base/util.h"
-#include "data_manager/data_manager_interface.h"
-#include "storage/louds/simple_succinct_bit_vector_index.h"
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/escaping.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "base/logging.h"
+#include "data_manager/data_manager_interface.h"
+#include "storage/louds/simple_succinct_bit_vector_index.h"
 
 
 namespace mozc {
@@ -110,8 +113,8 @@ struct Metadata {
 absl::StatusOr<Metadata> ParseMetadata(const char *connection_data,
                                        size_t connection_size) {
   if (connection_size < Metadata::kByteSize) {
-    const auto &data =
-        Util::Escape(absl::string_view(connection_data, connection_size));
+    const std::string data =
+        absl::CHexEscape(absl::string_view(connection_data, connection_size));
     return absl::FailedPreconditionError(absl::StrCat(
         "connector.cc: At least ", Metadata::kByteSize,
         " bytes expected.  Bytes: '", data, "' (", connection_size, " bytes)"));

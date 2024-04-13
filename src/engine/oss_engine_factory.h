@@ -32,9 +32,9 @@
 
 #include <memory>
 
+#include "absl/status/statusor.h"
 #include "data_manager/oss/oss_data_manager.h"
 #include "engine/engine.h"
-#include "absl/status/statusor.h"
 
 namespace mozc {
 
@@ -45,7 +45,7 @@ class OssEngineFactory {
   static absl::StatusOr<std::unique_ptr<Engine>> Create() {
 #ifdef __ANDROID__
     return Engine::CreateMobileEngineHelper<oss::OssDataManager>();
-#else
+#else   // __ANDROID__
     return Engine::CreateDesktopEngineHelper<oss::OssDataManager>();
 #endif  // __ANDROID__
   }

@@ -35,9 +35,9 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "testing/gunit.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {

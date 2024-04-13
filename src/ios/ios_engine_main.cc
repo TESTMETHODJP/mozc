@@ -28,17 +28,19 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <ostream>
 #include <string>
 
-#include "base/init_mozc.h"
-#include "base/logging.h"
-#include "base/util.h"
-#include "protocol/candidates.pb.h"
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "base/init_mozc.h"
+#include "base/strings/unicode.h"
 #include "ios/ios_engine.h"
+#include "protocol/candidates.pb.h"
 
 // mozc/data_manager/testing:mozc_dataset_for_testing is one of datafile.
 ABSL_FLAG(std::string, datafile, "", "Path to a data file to be used");
@@ -53,7 +55,7 @@ void Convert(const std::string &query, mozc::ios::IosEngine *engine,
   const char *begin = query.data();
   const char *end = query.data() + query.size();
   while (begin < end) {
-    const size_t mblen = mozc::Util::OneCharLen(begin);
+    const size_t mblen = mozc::strings::OneCharLen(begin);
     character.assign(begin, mblen);
     if (character == ">") {
       engine->SendSpecialKey(mozc::commands::KeyEvent::VIRTUAL_RIGHT, command);
@@ -100,16 +102,16 @@ int main(int argc, char **argv) {
     Convert(query, &ios_engine, &command);
 
     if (absl::GetFlag(FLAGS_show_full)) {
-      std::cout << command.Utf8DebugString() << std::endl;
+      std::cout << absl::StrCat(command) << std::endl;
     } else {
       std::cout << "----- preedit -----\n"
-                << command.output().preedit().Utf8DebugString() << std::endl;
+                << absl::StrCat(command.output().preedit()) << std::endl;
       const auto &cands = command.output().candidates();
-      const int size = std::min(absl::GetFlag(FLAGS_candsize),
-                                cands.candidate_size());
+      const int size =
+          std::min(absl::GetFlag(FLAGS_candsize), cands.candidate_size());
       for (int i = 0; i < size; ++i) {
         std::cout << "----- candidate " << i << " -----\n"
-                  << cands.candidate(i).Utf8DebugString() << std::endl;
+                  << absl::StrCat(cands.candidate(i)) << std::endl;
       }
     }
   }

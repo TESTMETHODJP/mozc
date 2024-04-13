@@ -32,11 +32,11 @@
 #include <cstdint>
 #include <string>
 
+#include "absl/strings/str_cat.h"
 #include "base/singleton.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "testing/gunit.h"
-#include "absl/strings/str_cat.h"
 
 namespace mozc {
 namespace session {

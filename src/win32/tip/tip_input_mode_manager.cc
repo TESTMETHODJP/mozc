@@ -79,13 +79,11 @@ TipInputModeManagerImpl::StatePair TipInputModeManagerImpl::GetOverriddenState(
       case IS_TIME_FULLTIME:
       case IS_TIME_HOUR:
       case IS_TIME_MINORSEC:
+      case IS_ALPHANUMERIC_HALFWIDTH:
         states.push_back(kDirect);
         break;
       case IS_HIRAGANA:
         states.push_back(kHiragana);
-        break;
-      case IS_ALPHANUMERIC_HALFWIDTH:
-        states.push_back(kHalfAscii);
         break;
       case IS_NUMBER_FULLWIDTH:
       case IS_ALPHANUMERIC_FULLWIDTH:
@@ -217,11 +215,6 @@ TipInputModeManager::Action TipInputModeManager::OnSetFocus(
     if (ConversionModeUtil::ToMozcMode(system_conversion_mode, &mozc_mode)) {
       tsf_state_.conversion_mode = static_cast<ConversionMode>(mozc_mode);
     }
-  }
-
-  if (!new_input_scopes.empty() && (new_input_scopes == input_scope_)) {
-    // The same input scope is specified. Use the previous mode.
-    return kDoNothing;
   }
 
   input_scope_ = std::move(new_input_scopes);

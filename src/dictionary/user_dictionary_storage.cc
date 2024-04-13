@@ -35,18 +35,20 @@
 #include <ostream>
 #include <string>
 
-#include "base/file_stream.h"
-#include "base/file_util.h"
-#include "base/logging.h"
-#include "base/process_mutex.h"
-#include "base/protobuf/zero_copy_stream_impl.h"
-#include "dictionary/user_dictionary_util.h"
-#include "protocol/user_dictionary_storage.pb.h"
+#include "absl/base/optimization.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "base/file_stream.h"
+#include "base/file_util.h"
+#include "base/logging.h"
+#include "base/process_mutex.h"
+#include "base/protobuf/zero_copy_stream_impl.h"
+#include "base/vlog.h"
+#include "dictionary/user_dictionary_util.h"
+#include "protocol/user_dictionary_storage.pb.h"
 
 namespace mozc {
 namespace {
@@ -121,7 +123,7 @@ absl::Status UserDictionaryStorage::Load() {
     status = LoadInternal();
   } else if (absl::IsNotFound(status)) {
     // This is also an expected scenario: e.g., clean installation, unit tests.
-    VLOG(1) << "User dictionary file has not been created";
+    MOZC_VLOG(1) << "User dictionary file has not been created";
     last_error_type_ = FILE_NOT_EXISTS;
   } else {
     // Failed to check file existnce.
@@ -461,7 +463,7 @@ bool UserDictionaryStorage::IsValidDictionaryName(
       LOG(WARNING) << "Unknown status: " << status;
       return false;
   }
-  // Should never reach here.
+  ABSL_UNREACHABLE();
 }
 
 std::string UserDictionaryStorage::default_sync_dictionary_name() {

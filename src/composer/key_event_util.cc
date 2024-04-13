@@ -30,15 +30,18 @@
 #include "composer/key_event_util.h"
 
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 
-#include "base/logging.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "protocol/commands.pb.h"
 
 namespace mozc {
-using commands::KeyEvent;
-
 namespace {
+
+using ::mozc::commands::KeyEvent;
+
 constexpr uint32_t kAltMask =
     KeyEvent::ALT | KeyEvent::LEFT_ALT | KeyEvent::RIGHT_ALT;
 constexpr uint32_t kCtrlMask =
@@ -66,8 +69,8 @@ uint32_t KeyEventUtil::GetModifiers(const KeyEvent &key_event) {
   if (key_event.has_modifiers()) {
     modifiers = key_event.modifiers();
   } else {
-    for (size_t i = 0; i < key_event.modifier_keys_size(); ++i) {
-      modifiers |= key_event.modifier_keys(i);
+    for (const int key : key_event.modifier_keys()) {
+      modifiers |= key;
     }
   }
   return modifiers;
@@ -83,7 +86,7 @@ bool KeyEventUtil::GetKeyInformation(const KeyEvent &key_event,
                                    : KeyEvent::NO_SPECIALKEY;
   const uint32_t key_code = key_event.has_key_code() ? key_event.key_code() : 0;
 
-  // Make sure the translation from the obsolete spesification.
+  // Make sure the translation from the obsolete specification.
   // key_code should no longer contain control characters.
   if (0 < key_code && key_code <= 32) {
     return false;
@@ -171,7 +174,7 @@ void KeyEventUtil::NormalizeNumpadKey(const KeyEvent &key_event,
       new_key_code = ',';
       break;
     default:
-      LOG(ERROR) << "Should not reach here.";
+      LOG(ERROR) << "Unexpected numpad key: " << numpad_key;
       return;
   }
 

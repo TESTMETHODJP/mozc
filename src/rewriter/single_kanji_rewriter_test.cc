@@ -33,16 +33,16 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/pos_matcher.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
-#include "session/request_test_util.h"
+#include "request/request_test_util.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 
@@ -243,22 +243,7 @@ TEST_F(SingleKanjiRewriterTest, TriggerConditionForPrediction) {
     InitSegments("あ", "あ", &segments);
 
     commands::Request request;
-    commands::RequestForUnitTest::FillMobileRequest(&request);
-    ConversionRequest convreq;
-    convreq.set_request_type(ConversionRequest::PREDICTION);
-    convreq.set_request(&request);
-    ASSERT_TRUE(rewriter.capability(convreq) & RewriterInterface::PREDICTION);
-    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
-  }
-
-  {
-    Segments segments;
-    InitSegments("あ", "あ", &segments);
-
-    commands::Request request;
-    commands::RequestForUnitTest::FillMobileRequest(&request);
-    request.mutable_decoder_experiment_params()
-        ->set_enable_single_kanji_prediction(true);
+    request_test_util::FillMobileRequest(&request);
     ConversionRequest convreq;
     convreq.set_request_type(ConversionRequest::PREDICTION);
     convreq.set_request(&request);
@@ -271,10 +256,7 @@ TEST_F(SingleKanjiRewriterTest, TriggerConditionForPrediction) {
     InitSegments("あ", "あ", &segments);
 
     commands::Request request;
-    commands::RequestForUnitTest::FillMobileRequestWithHardwareKeyboard(
-        &request);
-    request.mutable_decoder_experiment_params()
-        ->set_enable_single_kanji_prediction(true);
+    request_test_util::FillMobileRequestWithHardwareKeyboard(&request);
     ConversionRequest convreq;
     convreq.set_request_type(ConversionRequest::PREDICTION);
     convreq.set_request(&request);
@@ -286,10 +268,7 @@ TEST_F(SingleKanjiRewriterTest, TriggerConditionForPrediction) {
     InitSegments("あ", "あ", &segments);
 
     commands::Request request;
-    commands::RequestForUnitTest::FillMobileRequestWithHardwareKeyboard(
-        &request);
-    request.mutable_decoder_experiment_params()
-        ->set_enable_single_kanji_prediction(true);
+    request_test_util::FillMobileRequestWithHardwareKeyboard(&request);
     ConversionRequest convreq;
     convreq.set_request_type(ConversionRequest::CONVERSION);
     convreq.set_request(&request);

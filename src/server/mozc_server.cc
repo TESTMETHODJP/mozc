@@ -37,6 +37,9 @@
 #include <memory>
 #include <string>
 
+#include "absl/base/config.h"
+#include "absl/flags/declare.h"
+#include "absl/flags/flag.h"
 #include "base/crash_report_handler.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
@@ -44,11 +47,9 @@
 #include "base/run_level.h"
 #include "base/singleton.h"
 #include "base/system_util.h"
+#include "base/vlog.h"
 #include "config/stats_config_util.h"
 #include "session/session_server.h"
-#include "absl/base/config.h"
-#include "absl/flags/declare.h"
-#include "absl/flags/flag.h"
 
 ABSL_DECLARE_FLAG(bool, restricted);  // in SessionHandler
 
@@ -90,7 +91,7 @@ void InitMozcAndMozcServer(const char *arg0, int *argc, char ***argv,
   mozc::InitMozc(arg0, argc, argv);
 
   if (run_level == mozc::RunLevel::RESTRICTED) {
-    VLOG(1) << "Mozc server starts with timeout mode";
+    MOZC_VLOG(1) << "Mozc server starts with timeout mode";
     absl::SetFlag(&FLAGS_restricted, true);
   }
 }

@@ -33,6 +33,7 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "composer/composer.h"
 #include "config/config_handler.h"
@@ -42,12 +43,13 @@
 #include "dictionary/dictionary_mock.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/suppression_dictionary.h"
+#include "engine/modules.h"
 #include "prediction/predictor_interface.h"
 #include "prediction/user_history_predictor.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
-#include "session/request_test_util.h"
+#include "request/request_test_util.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 
@@ -58,7 +60,9 @@ using ::mozc::dictionary::MockDictionary;
 using ::mozc::dictionary::SuppressionDictionary;
 using ::testing::_;
 using ::testing::AtMost;
+using ::testing::DoAll;
 using ::testing::Return;
+using ::testing::SetArgPointee;
 using ::testing::StrEq;
 using ::testing::Unused;
 
@@ -158,7 +162,7 @@ class MobilePredictorTest : public ::testing::Test {
     config::ConfigHandler::GetDefaultConfig(config_.get());
 
     request_ = std::make_unique<commands::Request>();
-    commands::RequestForUnitTest::FillMobileRequest(request_.get());
+    request_test_util::FillMobileRequest(request_.get());
     composer_ = std::make_unique<composer::Composer>(nullptr, request_.get(),
                                                      config_.get());
 
@@ -217,15 +221,12 @@ TEST_F(MobilePredictorTest, CallPredictorsForMobilePrediction) {
 
 TEST_F(MobilePredictorTest, CallPredictorsForMobilePartialPrediction) {
   MockConverter converter;
-  MockDictionary dictionary_mock;
-  testing::MockDataManager data_manager;
-  const dictionary::PosMatcher pos_matcher(data_manager.GetPosMatcherData());
-  const SuppressionDictionary suppression_dictionary;
+  engine::Modules modules;
+  modules.PresetDictionary(std::make_unique<MockDictionary>());
+  CHECK_OK(modules.Init(std::make_unique<testing::MockDataManager>()));
   auto predictor = std::make_unique<MobilePredictor>(
       std::make_unique<CheckCandSizeDictionaryPredictor>(200),
-      std::make_unique<UserHistoryPredictor>(&dictionary_mock, &pos_matcher,
-                                             &suppression_dictionary, true),
-      &converter);
+      std::make_unique<UserHistoryPredictor>(modules, true), &converter);
   Segments segments;
   {
     Segment *segment = segments.add_segment();
@@ -491,6 +492,60 @@ TEST_F(PredictorTest, PopulateReadingOfCommittedCandidateIfMissing) {
     EXPECT_TRUE(cand1->key.empty());
     EXPECT_TRUE(cand1->content_key.empty());
   }
+}
+
+TEST_F(MobilePredictorTest, FillPos) {
+  auto mock_dictionary_predictor = std::make_unique<MockPredictor>();
+  auto mock_history_predictor = std::make_unique<MockPredictor>();
+  auto add_candidate = [](absl::string_view key, absl::string_view value,
+                          int lid, int rid, int cost, Segment *segment) {
+    Segment::Candidate *candidate = segment->add_candidate();
+    candidate->key = key;
+    candidate->value = value;
+    candidate->lid = lid;
+    candidate->rid = rid;
+    candidate->cost = cost;
+    candidate->wcost = cost;
+  };
+
+  Segments history_segments;
+  {
+    Segment *segment = history_segments.add_segment();
+    add_candidate("key", "value", 0, 0, 1, segment);
+  }
+  // Mock results of dictionary_predictor. This contains the results from
+  // history_predictor as history_predictor is called before.
+  Segments dictionary_segments;
+  {
+    Segment *segment = dictionary_segments.add_segment();
+    add_candidate("key", "value", 0, 0, 1, segment);
+    add_candidate("key", "value", 2, 3, 100, segment);
+  }
+  EXPECT_CALL(*mock_history_predictor, PredictForRequest(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(history_segments), Return(true)));
+  EXPECT_CALL(*mock_dictionary_predictor, PredictForRequest(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(dictionary_segments), Return(true)));
+
+  MockConverter converter;
+  auto predictor = std::make_unique<MobilePredictor>(
+      std::move(mock_dictionary_predictor), std::move(mock_history_predictor),
+      &converter);
+
+  convreq_->set_request_type(ConversionRequest::SUGGESTION);
+  Segments segments;
+  EXPECT_TRUE(predictor->PredictForRequest(*convreq_, &segments));
+
+  EXPECT_EQ(segments.conversion_segments_size(), 1);
+  EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 2);
+  const Segment::Candidate &candidate =
+      segments.conversion_segment(0).candidate(0);
+  EXPECT_EQ(candidate.key, "key");
+  EXPECT_EQ(candidate.value, "value");
+  // lid and rid are filled from another candidate.
+  EXPECT_EQ(candidate.lid, 2);
+  EXPECT_EQ(candidate.rid, 3);
+  // cost is not changed.
+  EXPECT_EQ(candidate.cost, 1);
 }
 
 }  // namespace mozc::prediction

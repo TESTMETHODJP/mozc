@@ -29,25 +29,25 @@
 
 #include "composer/table.h"
 
-#include <iterator>
+#include <cstddef>
 #include <string>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/string_view.h"
 #include "composer/internal/special_key.h"
 #include "config/config_handler.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "testing/gunit.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc::composer {
 namespace {
 
-using internal::DeleteSpecialKeys;
-using mozc::commands::Request;
-using mozc::config::Config;
+using ::mozc::commands::Request;
+using ::mozc::composer::internal::DeleteSpecialKeys;
+using ::mozc::config::Config;
 
 static void InitTable(Table *table) {
   table->AddRule("a", "あ", "");
@@ -82,12 +82,7 @@ std::string GetInput(const Table &table, const absl::string_view key) {
 
 class TableTest : public ::testing::Test {
  protected:
-  TableTest() = default;
-  TableTest(const TableTest &) = delete;
-  TableTest &operator=(const TableTest &) = delete;
-  ~TableTest() override = default;
-
-  void SetUp() override { config::ConfigHandler::GetDefaultConfig(&config_); }
+  TableTest() { config::ConfigHandler::GetDefaultConfig(&config_); }
 
   const testing::MockDataManager mock_data_manager_;
   config::Config config_;
@@ -95,10 +90,10 @@ class TableTest : public ::testing::Test {
 
 TEST_F(TableTest, LookUp) {
   static const struct TestCase {
-    const char *input;
+    absl::string_view input;
     const bool expected_result;
-    const char *expected_output;
-    const char *expected_pending;
+    absl::string_view expected_output;
+    absl::string_view expected_pending;
   } test_cases[] = {
       {"a", true, "あ", ""},  {"k", false, "", ""},   {"ka", true, "か", ""},
       {"ki", true, "き", ""}, {"ku", true, "く", ""}, {"kk", true, "っ", "k"},
@@ -135,10 +130,10 @@ TEST_F(TableTest, LookUpPredictiveAll) {
 }
 
 TEST_F(TableTest, Punctuations) {
-  static const struct TestCase {
+  constexpr struct TestCase {
     config::Config::PunctuationMethod method;
-    const char *input;
-    const char *expected;
+    absl::string_view input;
+    absl::string_view expected;
   } test_cases[] = {
       {config::Config::KUTEN_TOUTEN, ",", "、"},
       {config::Config::KUTEN_TOUTEN, ".", "。"},
@@ -156,10 +151,10 @@ TEST_F(TableTest, Punctuations) {
     config::Config config;
     config.set_punctuation_method(test_case.method);
     Table table;
-    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config,
-                                                     mock_data_manager_));
+    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config));
+
     const Entry *entry = table.LookUp(test_case.input);
-    EXPECT_TRUE(entry != nullptr) << "Failed index = " << index;
+    EXPECT_NE(entry, nullptr) << "Failed index = " << index;
     if (entry) {
       EXPECT_EQ(entry->result(), test_case.expected);
     }
@@ -168,10 +163,10 @@ TEST_F(TableTest, Punctuations) {
 }
 
 TEST_F(TableTest, Symbols) {
-  static const struct TestCase {
+  constexpr struct TestCase {
     config::Config::SymbolMethod method;
-    const char *input;
-    const char *expected;
+    absl::string_view input;
+    absl::string_view expected;
   } test_cases[] = {
       {config::Config::CORNER_BRACKET_MIDDLE_DOT, "[", "「"},
       {config::Config::CORNER_BRACKET_MIDDLE_DOT, "]", "」"},
@@ -193,10 +188,10 @@ TEST_F(TableTest, Symbols) {
     config::Config config;
     config.set_symbol_method(test_case.method);
     Table table;
-    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config,
-                                                     mock_data_manager_));
+    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config));
+
     const Entry *entry = table.LookUp(test_case.input);
-    EXPECT_TRUE(entry != nullptr) << "Failed index = " << index;
+    EXPECT_NE(entry, nullptr) << "Failed index = " << index;
     if (entry) {
       EXPECT_EQ(entry->result(), test_case.expected);
     }
@@ -210,11 +205,10 @@ TEST_F(TableTest, KanaSuppressed) {
   commands::Request request;
 
   Table table;
-  ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config_,
-                                                   mock_data_manager_));
+  ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config_));
 
   const Entry *entry = table.LookUp("a");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "あ");
   EXPECT_TRUE(entry->pending().empty());
 }
@@ -222,10 +216,10 @@ TEST_F(TableTest, KanaSuppressed) {
 TEST_F(TableTest, KanaCombination) {
   Table table;
   commands::Request request;
-  ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config_,
-                                                   mock_data_manager_));
+  ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config_));
+
   const Entry *entry = table.LookUp("か゛");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "が");
   EXPECT_TRUE(entry->pending().empty());
 }
@@ -239,8 +233,8 @@ TEST_F(TableTest, InvalidEntryTest) {
     EXPECT_TRUE(table.IsLoopingEntry("b", "a"));
     table.AddRule("b", "aa", "a");  // looping
 
-    EXPECT_TRUE(table.LookUp("a") != nullptr);
-    EXPECT_TRUE(table.LookUp("b") == nullptr);
+    EXPECT_NE(table.LookUp("a"), nullptr);
+    EXPECT_EQ(table.LookUp("b"), nullptr);
   }
 
   {
@@ -251,8 +245,8 @@ TEST_F(TableTest, InvalidEntryTest) {
     EXPECT_TRUE(table.IsLoopingEntry("b", "a"));
     table.AddRule("b", "aa", "a");  // looping
 
-    EXPECT_TRUE(table.LookUp("a") != nullptr);
-    EXPECT_TRUE(table.LookUp("b") == nullptr);
+    EXPECT_NE(table.LookUp("a"), nullptr);
+    EXPECT_EQ(table.LookUp("b"), nullptr);
   }
 
   {
@@ -269,10 +263,10 @@ TEST_F(TableTest, InvalidEntryTest) {
     EXPECT_TRUE(table.IsLoopingEntry("d", "a"));
     table.AddRule("d", "aa", "a");  // looping
 
-    EXPECT_TRUE(table.LookUp("a") != nullptr);
-    EXPECT_TRUE(table.LookUp("b") != nullptr);
-    EXPECT_TRUE(table.LookUp("c") != nullptr);
-    EXPECT_TRUE(table.LookUp("d") == nullptr);
+    EXPECT_NE(table.LookUp("a"), nullptr);
+    EXPECT_NE(table.LookUp("b"), nullptr);
+    EXPECT_NE(table.LookUp("c"), nullptr);
+    EXPECT_EQ(table.LookUp("d"), nullptr);
   }
 
   {
@@ -283,9 +277,9 @@ TEST_F(TableTest, InvalidEntryTest) {
     EXPECT_FALSE(table.IsLoopingEntry("www", "ww"));
     table.AddRule("www", "W", "ww");  // not looping
 
-    EXPECT_TRUE(table.LookUp("wa") != nullptr);
-    EXPECT_TRUE(table.LookUp("ww") != nullptr);
-    EXPECT_TRUE(table.LookUp("www") != nullptr);
+    EXPECT_NE(table.LookUp("wa"), nullptr);
+    EXPECT_NE(table.LookUp("ww"), nullptr);
+    EXPECT_NE(table.LookUp("www"), nullptr);
   }
 
   {
@@ -296,9 +290,9 @@ TEST_F(TableTest, InvalidEntryTest) {
     EXPECT_FALSE(table.IsLoopingEntry("ww", "w"));
     table.AddRule("ww", "X", "w");
 
-    EXPECT_TRUE(table.LookUp("wa") != nullptr);
-    EXPECT_TRUE(table.LookUp("ww") != nullptr);
-    EXPECT_TRUE(table.LookUp("www") != nullptr);
+    EXPECT_NE(table.LookUp("wa"), nullptr);
+    EXPECT_NE(table.LookUp("ww"), nullptr);
+    EXPECT_NE(table.LookUp("www"), nullptr);
   }
 
   {
@@ -306,7 +300,7 @@ TEST_F(TableTest, InvalidEntryTest) {
     EXPECT_TRUE(table.IsLoopingEntry("a", "a"));
     table.AddRule("a", "aa", "a");  // looping
 
-    EXPECT_TRUE(table.LookUp("a") == nullptr);
+    EXPECT_EQ(table.LookUp("a"), nullptr);
   }
 
   // Too long input
@@ -318,13 +312,13 @@ TEST_F(TableTest, InvalidEntryTest) {
       too_long += 'a';
     }
     table.AddRule(too_long, "test", "test");
-    EXPECT_TRUE(table.LookUp(too_long) == nullptr);
+    EXPECT_EQ(table.LookUp(too_long), nullptr);
 
     table.AddRule("a", too_long, "test");
-    EXPECT_TRUE(table.LookUp("a") == nullptr);
+    EXPECT_EQ(table.LookUp("a"), nullptr);
 
     table.AddRule("a", "test", too_long);
-    EXPECT_TRUE(table.LookUp("a") == nullptr);
+    EXPECT_EQ(table.LookUp("a"), nullptr);
   }
 
   // reasonably long
@@ -336,13 +330,13 @@ TEST_F(TableTest, InvalidEntryTest) {
       reasonably_long += 'a';
     }
     table.AddRule(reasonably_long, "test", "test");
-    EXPECT_TRUE(table.LookUp(reasonably_long) != nullptr);
+    EXPECT_NE(table.LookUp(reasonably_long), nullptr);
 
     table.AddRule("a", reasonably_long, "test");
-    EXPECT_TRUE(table.LookUp("a") != nullptr);
+    EXPECT_NE(table.LookUp("a"), nullptr);
 
     table.AddRule("a", "test", reasonably_long);
-    EXPECT_TRUE(table.LookUp("a") != nullptr);
+    EXPECT_NE(table.LookUp("a"), nullptr);
   }
 }
 
@@ -360,31 +354,31 @@ TEST_F(TableTest, CustomPunctuationsAndSymbols) {
 
   Table table;
   commands::Request request;
-  table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+  table.InitializeWithRequestAndConfig(request, config_);
 
   const Entry *entry = nullptr;
   entry = table.LookUp("mozc");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "MOZC");
 
   entry = table.LookUp(",");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "COMMA");
 
   entry = table.LookUp(".");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "PERIOD");
 
   entry = table.LookUp("/");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "SLASH");
 
   entry = table.LookUp("[");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "OPEN");
 
   entry = table.LookUp("]");
-  ASSERT_TRUE(entry != nullptr);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "CLOSE");
 }
 
@@ -423,7 +417,7 @@ TEST_F(TableTest, CaseSensitive) {
     size_t key_length = 0;
     bool fixed = false;
     entry = table.LookUpPrefix("bA", &key_length, &fixed);
-    EXPECT_TRUE(entry != nullptr);
+    EXPECT_NE(entry, nullptr);
     EXPECT_EQ(entry->result(), "[ba]");
     EXPECT_EQ(key_length, 2);
     EXPECT_TRUE(fixed);
@@ -454,7 +448,7 @@ TEST_F(TableTest, CaseSensitive) {
     size_t key_length = 0;
     bool fixed = false;
     entry = table.LookUpPrefix("bA", &key_length, &fixed);
-    EXPECT_TRUE(entry == nullptr);
+    EXPECT_EQ(entry, nullptr);
     EXPECT_EQ(key_length, 1);
     EXPECT_TRUE(fixed);
   }
@@ -464,36 +458,36 @@ TEST_F(TableTest, CaseSensitivity) {
   commands::Request request;
   {
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     EXPECT_FALSE(table.case_sensitive());
   }
   {
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     table.AddRule("", "", "");
     EXPECT_FALSE(table.case_sensitive());
   }
   {
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     table.AddRule("a", "", "");
     EXPECT_FALSE(table.case_sensitive());
   }
   {
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     table.AddRule("A", "", "");
     EXPECT_TRUE(table.case_sensitive());
   }
   {
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     table.AddRule("a{A}a", "", "");
     EXPECT_FALSE(table.case_sensitive());
   }
   {
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     table.AddRule("A{A}A", "", "");
     EXPECT_TRUE(table.case_sensitive());
   }
@@ -509,7 +503,7 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
   // config::Config::OFF
   {
     config_.set_shift_key_mode_switch(config::Config::OFF);
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
 
     table.AddRule("a", "[a]", "");
     table.AddRule("A", "[A]", "");
@@ -540,7 +534,7 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
       size_t key_length = 0;
       bool fixed = false;
       entry = table.LookUpPrefix("bA", &key_length, &fixed);
-      EXPECT_TRUE(entry == nullptr);
+      EXPECT_EQ(entry, nullptr);
       EXPECT_EQ(key_length, 1);
       EXPECT_TRUE(fixed);
     }
@@ -549,7 +543,7 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
   // config::Config::ASCII_INPUT_MODE
   {
     config_.set_shift_key_mode_switch(config::Config::ASCII_INPUT_MODE);
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
 
     table.AddRule("a", "[a]", "");
     table.AddRule("A", "[A]", "");
@@ -580,7 +574,7 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
       size_t key_length = 0;
       bool fixed = false;
       entry = table.LookUpPrefix("bA", &key_length, &fixed);
-      EXPECT_TRUE(entry == nullptr);
+      EXPECT_EQ(entry, nullptr);
       EXPECT_EQ(key_length, 1);
       EXPECT_TRUE(fixed);
     }
@@ -589,7 +583,7 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
   // config::Config::KATAKANA_INPUT_MODE
   {
     config_.set_shift_key_mode_switch(config::Config::KATAKANA_INPUT_MODE);
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
 
     table.AddRule("a", "[a]", "");
     table.AddRule("A", "[A]", "");
@@ -620,7 +614,7 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
       size_t key_length = 0;
       bool fixed = false;
       entry = table.LookUpPrefix("bA", &key_length, &fixed);
-      EXPECT_TRUE(entry == nullptr);
+      EXPECT_EQ(entry, nullptr);
       EXPECT_EQ(key_length, 1);
       EXPECT_TRUE(fixed);
     }
@@ -633,14 +627,14 @@ TEST_F(TableTest, CaseSensitiveByConfiguration) {
 // This feature was implemented as b/2910223 as per following request.
 // http://www.google.com/support/forum/p/ime/thread?tid=4ea9aed4ac8a2ba6&hl=ja
 //
-// The following test checks if a case-sensitive and a case-inensitive roman
+// The following test checks if a case-sensitive and a case-insensitive roman
 // table enables and disables this "case-sensitive mode", respectively.
 TEST_F(TableTest, AutomaticCaseSensitiveDetection) {
-  static constexpr char kCaseInsensitiveRomanTable[] = {
+  constexpr absl::string_view kCaseInsensitiveRomanTable = {
       "m\tmozc\n"    // m -> mozc
       "n\tnamazu\n"  // n -> namazu
   };
-  static constexpr char kCaseSensitiveRomanTable[] = {
+  constexpr absl::string_view kCaseSensitiveRomanTable = {
       "m\tmozc\n"  // m -> mozc
       "M\tMozc\n"  // M -> Mozc
   };
@@ -654,8 +648,8 @@ TEST_F(TableTest, AutomaticCaseSensitiveDetection) {
     EXPECT_FALSE(table.case_sensitive())
         << "case-sensitive mode should be desabled by default.";
     // Load a custom config with case-sensitive custom roman table.
-    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config,
-                                                     mock_data_manager_));
+    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config));
+
     EXPECT_TRUE(table.case_sensitive())
         << "Case sensitive roman table should enable case-sensitive mode.";
     // Explicitly disable case-sensitive mode.
@@ -668,8 +662,8 @@ TEST_F(TableTest, AutomaticCaseSensitiveDetection) {
     // Load a custom config with case-insensitive custom roman table.
     config::Config config(config::ConfigHandler::DefaultConfig());
     config.set_custom_roman_table(kCaseInsensitiveRomanTable);
-    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config,
-                                                     mock_data_manager_));
+    ASSERT_TRUE(table.InitializeWithRequestAndConfig(request, config));
+
     EXPECT_FALSE(table.case_sensitive())
         << "Case insensitive roman table should disable case-sensitive mode.";
     // Explicitly enable case-sensitive mode.
@@ -688,7 +682,7 @@ TEST_F(TableTest, MobileMode) {
     request.set_special_romanji_table(
         mozc::commands::Request::TWELVE_KEYS_TO_HIRAGANA);
     mozc::composer::Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     {
       const mozc::composer::Entry *entry = nullptr;
       size_t key_length = 0;
@@ -720,7 +714,7 @@ TEST_F(TableTest, MobileMode) {
     request.set_special_romanji_table(
         mozc::commands::Request::TWELVE_KEYS_TO_HALFWIDTHASCII);
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     const mozc::composer::Entry *entry = nullptr;
     size_t key_length = 0;
     bool fixed = false;
@@ -735,7 +729,7 @@ TEST_F(TableTest, MobileMode) {
     request.set_special_romanji_table(
         mozc::commands::Request::GODAN_TO_HIRAGANA);
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
     {
       const mozc::composer::Entry *entry = nullptr;
       size_t key_length = 0;
@@ -750,7 +744,7 @@ TEST_F(TableTest, MobileMode) {
     request.set_special_romanji_table(
         mozc::commands::Request::FLICK_TO_HIRAGANA);
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
 
     size_t key_length = 0;
     bool fixed = false;
@@ -764,7 +758,7 @@ TEST_F(TableTest, MobileMode) {
     request.set_special_romanji_table(
         mozc::commands::Request::NOTOUCH_TO_HIRAGANA);
     Table table;
-    table.InitializeWithRequestAndConfig(request, config_, mock_data_manager_);
+    table.InitializeWithRequestAndConfig(request, config_);
 
     size_t key_length = 0;
     bool fixed = false;
@@ -785,12 +779,12 @@ TEST_F(TableTest, OrderOfAddRule) {
 
     const Entry *entry;
     entry = table.LookUp("ww");
-    EXPECT_TRUE(nullptr != entry);
+    EXPECT_NE(entry, nullptr);
 
     size_t key_length;
     bool fixed;
     entry = table.LookUpPrefix("ww", &key_length, &fixed);
-    EXPECT_TRUE(nullptr != entry);
+    EXPECT_NE(entry, nullptr);
     EXPECT_EQ(key_length, 2);
     EXPECT_FALSE(fixed);
   }
@@ -803,19 +797,19 @@ TEST_F(TableTest, OrderOfAddRule) {
 
     const Entry *entry = nullptr;
     entry = table.LookUp("ww");
-    EXPECT_TRUE(nullptr != entry);
+    EXPECT_NE(entry, nullptr);
 
     size_t key_length = 0;
     bool fixed = false;
     entry = table.LookUpPrefix("ww", &key_length, &fixed);
-    EXPECT_TRUE(nullptr != entry);
+    EXPECT_NE(entry, nullptr);
     EXPECT_EQ(key_length, 2);
     EXPECT_FALSE(fixed);
   }
 }
 
 TEST_F(TableTest, AddRuleWithAttributes) {
-  const std::string kInput = "1";
+  constexpr absl::string_view kInput = "1";
   Table table;
   table.AddRuleWithAttributes(kInput, "", "a", NEW_CHUNK);
 
@@ -826,13 +820,13 @@ TEST_F(TableTest, AddRuleWithAttributes) {
   const Entry *entry = table.LookUpPrefix(kInput, &key_length, &fixed);
   EXPECT_EQ(key_length, 1);
   EXPECT_TRUE(fixed);
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->input(), kInput);
   EXPECT_EQ(entry->result(), "");
   EXPECT_EQ(entry->pending(), "a");
   EXPECT_EQ(entry->attributes(), NEW_CHUNK);
 
-  const std::string kInput2 = "22";
+  constexpr absl::string_view kInput2 = "22";
   table.AddRuleWithAttributes(kInput2, "", "b", NEW_CHUNK | NO_TRANSLITERATION);
 
   EXPECT_TRUE(table.HasNewChunkEntry(kInput2));
@@ -842,7 +836,7 @@ TEST_F(TableTest, AddRuleWithAttributes) {
   entry = table.LookUpPrefix(kInput2, &key_length, &fixed);
   EXPECT_EQ(key_length, 2);
   EXPECT_TRUE(fixed);
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->input(), kInput2);
   EXPECT_EQ(entry->result(), "");
   EXPECT_EQ(entry->pending(), "b");
@@ -850,7 +844,7 @@ TEST_F(TableTest, AddRuleWithAttributes) {
 }
 
 TEST_F(TableTest, LoadFromString) {
-  const std::string kRule =
+  constexpr absl::string_view kRule =
       "# This is a comment\n"
       "\n"                      // Empty line to be ignored.
       "a\t[A]\n"                // 2 entry rule
@@ -861,27 +855,27 @@ TEST_F(TableTest, LoadFromString) {
       "yy\t[Y]\ty\tNewChunk NoTransliteration DirectInput EndChunk\n"
       "#\t[#]\n";  // This line starts with '#' but should be a rule.
   Table table;
-  table.LoadFromString(kRule);
+  table.LoadFromString(std::string(kRule));
 
   const Entry *entry = nullptr;
   // Test for "a\t[A]\n"  -- 2 entry rule
   EXPECT_FALSE(table.HasNewChunkEntry("a"));
   entry = table.LookUp("a");
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "[A]");
   EXPECT_EQ(entry->pending(), "");
 
   // Test for "kk\t[X]\tk\n"  -- 3 entry rule
   EXPECT_FALSE(table.HasNewChunkEntry("kk"));
   entry = table.LookUp("kk");
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "[X]");
   EXPECT_EQ(entry->pending(), "k");
 
   // Test for "ww\t[W]\tw\tNewChunk\n"  -- 3 entry rule + attribute rule
   EXPECT_TRUE(table.HasNewChunkEntry("ww"));
   entry = table.LookUp("ww");
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "[W]");
   EXPECT_EQ(entry->pending(), "w");
   EXPECT_EQ(entry->attributes(), NEW_CHUNK);
@@ -890,7 +884,7 @@ TEST_F(TableTest, LoadFromString) {
   // attribute rules
   EXPECT_TRUE(table.HasNewChunkEntry("xx"));
   entry = table.LookUp("xx");
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "[X]");
   EXPECT_EQ(entry->pending(), "x");
   EXPECT_EQ(entry->attributes(), (NEW_CHUNK | NO_TRANSLITERATION));
@@ -899,7 +893,7 @@ TEST_F(TableTest, LoadFromString) {
   // -- all attributes
   EXPECT_TRUE(table.HasNewChunkEntry("yy"));
   entry = table.LookUp("yy");
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "[Y]");
   EXPECT_EQ(entry->pending(), "y");
   EXPECT_EQ(entry->attributes(),
@@ -907,7 +901,7 @@ TEST_F(TableTest, LoadFromString) {
 
   // Test for "#\t[#]\n"  -- This line starts with '#' but should be a rule.
   entry = table.LookUp("#");
-  ASSERT_TRUE(nullptr != entry);
+  ASSERT_NE(entry, nullptr);
   EXPECT_EQ(entry->result(), "[#]");
   EXPECT_EQ(entry->pending(), "");
 }
@@ -927,19 +921,19 @@ TEST_F(TableTest, SpecialKeys) {
     std::string key;
     key = table.ParseSpecialKey("x{#1}y");
     entry = table.LookUp(key);
-    ASSERT_TRUE(nullptr != entry);
+    ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry->input(), key);
     EXPECT_EQ(entry->result(), "X1Y");
 
     key = table.ParseSpecialKey("x{#2}y");
     entry = table.LookUp(key);
-    ASSERT_TRUE(nullptr != entry);
+    ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry->input(), key);
     EXPECT_EQ(entry->result(), "X2Y");
 
     key = "x{";
     entry = table.LookUp(key);
-    ASSERT_TRUE(nullptr != entry);
+    ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry->input(), key);
     EXPECT_EQ(entry->result(), "X{");
   }
@@ -996,27 +990,26 @@ TEST_F(TableTest, DeleteSpecialKey) {
 TEST_F(TableTest, TableManager) {
   TableManager table_manager;
   absl::flat_hash_set<const Table *> table_set;
-  static const commands::Request::SpecialRomanjiTable special_romanji_table[] =
-      {
-          commands::Request::DEFAULT_TABLE,
-          commands::Request::TWELVE_KEYS_TO_HIRAGANA,
-          commands::Request::TWELVE_KEYS_TO_HALFWIDTHASCII,
-          commands::Request::FLICK_TO_HIRAGANA,
-          commands::Request::FLICK_TO_HALFWIDTHASCII,
-          commands::Request::TOGGLE_FLICK_TO_HIRAGANA,
-          commands::Request::TOGGLE_FLICK_TO_HALFWIDTHASCII,
-          commands::Request::GODAN_TO_HIRAGANA,
-          commands::Request::QWERTY_MOBILE_TO_HIRAGANA,
-          commands::Request::QWERTY_MOBILE_TO_HALFWIDTHASCII,
-          commands::Request::NOTOUCH_TO_HIRAGANA,
-          commands::Request::NOTOUCH_TO_HALFWIDTHASCII,
-      };
-  static const config::Config::PreeditMethod preedit_method[] = {
+  constexpr commands::Request::SpecialRomanjiTable special_romanji_table[] = {
+      commands::Request::DEFAULT_TABLE,
+      commands::Request::TWELVE_KEYS_TO_HIRAGANA,
+      commands::Request::TWELVE_KEYS_TO_HALFWIDTHASCII,
+      commands::Request::FLICK_TO_HIRAGANA,
+      commands::Request::FLICK_TO_HALFWIDTHASCII,
+      commands::Request::TOGGLE_FLICK_TO_HIRAGANA,
+      commands::Request::TOGGLE_FLICK_TO_HALFWIDTHASCII,
+      commands::Request::GODAN_TO_HIRAGANA,
+      commands::Request::QWERTY_MOBILE_TO_HIRAGANA,
+      commands::Request::QWERTY_MOBILE_TO_HALFWIDTHASCII,
+      commands::Request::NOTOUCH_TO_HIRAGANA,
+      commands::Request::NOTOUCH_TO_HALFWIDTHASCII,
+  };
+  constexpr config::Config::PreeditMethod preedit_method[] = {
       config::Config::ROMAN, config::Config::KANA};
-  static const config::Config::PunctuationMethod punctuation_method[] = {
+  constexpr config::Config::PunctuationMethod punctuation_method[] = {
       config::Config::KUTEN_TOUTEN, config::Config::COMMA_PERIOD,
       config::Config::KUTEN_PERIOD, config::Config::COMMA_TOUTEN};
-  static const config::Config::SymbolMethod symbol_method[] = {
+  constexpr config::Config::SymbolMethod symbol_method[] = {
       config::Config::CORNER_BRACKET_MIDDLE_DOT,
       config::Config::SQUARE_BRACKET_SLASH,
       config::Config::CORNER_BRACKET_SLASH,
@@ -1032,12 +1025,10 @@ TEST_F(TableTest, TableManager) {
           config.set_preedit_method(preedit);
           config.set_punctuation_method(punctuation);
           config.set_symbol_method(symbol);
-          const Table *table =
-              table_manager.GetTable(request, config, mock_data_manager_);
-          EXPECT_TRUE(table != nullptr);
-          EXPECT_TRUE(table_manager.GetTable(request, config,
-                                             mock_data_manager_) == table);
-          EXPECT_TRUE(table_set.find(table) == table_set.end());
+          const Table *table = table_manager.GetTable(request, config);
+          EXPECT_NE(table, nullptr);
+          EXPECT_EQ(table_manager.GetTable(request, config), table);
+          EXPECT_FALSE(table_set.contains(table));
           table_set.insert(table);
         }
       }
@@ -1046,7 +1037,7 @@ TEST_F(TableTest, TableManager) {
 
   {
     // b/6788850.
-    const std::string kRule = "a\t[A]\n";  // 2 entry rule
+    constexpr absl::string_view kRule = "a\t[A]\n";  // 2 entry rule
 
     commands::Request request;
     request.set_special_romanji_table(Request::DEFAULT_TABLE);
@@ -1055,25 +1046,21 @@ TEST_F(TableTest, TableManager) {
     config.set_punctuation_method(Config::KUTEN_TOUTEN);
     config.set_symbol_method(Config::CORNER_BRACKET_MIDDLE_DOT);
     config.set_custom_roman_table(kRule);
-    const Table *table =
-        table_manager.GetTable(request, config, mock_data_manager_);
-    EXPECT_TRUE(table != nullptr);
-    EXPECT_TRUE(table_manager.GetTable(request, config, mock_data_manager_) ==
-                table);
-    EXPECT_TRUE(nullptr != table->LookUp("a"));
-    EXPECT_TRUE(nullptr == table->LookUp("kk"));
+    const Table *table = table_manager.GetTable(request, config);
+    EXPECT_NE(table, nullptr);
+    EXPECT_EQ(table_manager.GetTable(request, config), table);
+    EXPECT_NE(table->LookUp("a"), nullptr);
+    EXPECT_EQ(table->LookUp("kk"), nullptr);
 
-    const std::string kRule2 =
+    constexpr absl::string_view kRule2 =
         "a\t[A]\n"       // 2 entry rule
         "kk\t[X]\tk\n";  // 3 entry rule
     config.set_custom_roman_table(kRule2);
-    const Table *table2 =
-        table_manager.GetTable(request, config, mock_data_manager_);
-    EXPECT_TRUE(table2 != nullptr);
-    EXPECT_TRUE(table_manager.GetTable(request, config, mock_data_manager_) ==
-                table2);
-    EXPECT_TRUE(nullptr != table2->LookUp("a"));
-    EXPECT_TRUE(nullptr != table2->LookUp("kk"));
+    const Table *table2 = table_manager.GetTable(request, config);
+    EXPECT_NE(table2, nullptr);
+    EXPECT_EQ(table_manager.GetTable(request, config), table2);
+    EXPECT_NE(table2->LookUp("a"), nullptr);
+    EXPECT_NE(table2->LookUp("kk"), nullptr);
   }
 }
 

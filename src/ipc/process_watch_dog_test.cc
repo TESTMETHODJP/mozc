@@ -31,11 +31,11 @@
 
 #include <cstdlib>
 
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/logging.h"
 #include "testing/gunit.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 

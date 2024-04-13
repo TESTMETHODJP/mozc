@@ -36,11 +36,7 @@ load(
     "mozc_select",
 )
 
-package(
-    default_visibility = [
-        "//:__subpackages__",
-    ],
-)
+package(default_visibility = ["//:__subpackages__"])
 
 mozc_cc_library(
     name = "assign",
@@ -128,7 +124,6 @@ mozc_cc_test(
     srcs = [
         "japanese_test.cc",
     ],
-    requires_full_emulation = False,
     deps = [
         ":japanese",
         "//testing:gunit_main",
@@ -142,6 +137,7 @@ mozc_cc_library(
     deps = [
         "//base/strings/internal:utf8_internal",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )

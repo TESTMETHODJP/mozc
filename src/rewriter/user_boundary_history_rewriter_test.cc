@@ -31,6 +31,8 @@
 
 #include <string>
 
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/file_util.h"
 #include "base/system_util.h"
 #include "config/config_handler.h"
@@ -41,8 +43,6 @@
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/span.h"
 
 namespace mozc {
 namespace {

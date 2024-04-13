@@ -32,11 +32,11 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/str_cat.h"
 #include "base/logging.h"
 #include "base/util.h"
 #include "composer/key_parser.h"
 #include "composer/table.h"
-#include "absl/strings/str_cat.h"
 
 namespace mozc {
 namespace composer {
@@ -45,7 +45,7 @@ bool CompositionInput::Init(const Table &table,
                             const commands::KeyEvent &key_event,
                             bool is_new_input) {
   if (key_event.has_key_code()) {
-    Util::Ucs4ToUtf8(key_event.key_code(), &raw_);
+    raw_ = Util::CodepointToUtf8(key_event.key_code());
   } else if (key_event.has_key_string()) {
     raw_ = key_event.key_string();
   } else if (key_event.has_special_key()) {

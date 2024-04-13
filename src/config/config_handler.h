@@ -35,15 +35,13 @@
 #include <memory>
 #include <string>
 
-#include "protocol/config.pb.h"
 #include "absl/strings/string_view.h"
+#include "protocol/config.pb.h"
 
 namespace mozc {
 namespace config {
 
-enum {
-  CONFIG_VERSION = 1,
-};
+inline constexpr int kConfigVersion = 1;
 
 // This is pure static class.  All public static methods are thread-safe.
 class ConfigHandler {

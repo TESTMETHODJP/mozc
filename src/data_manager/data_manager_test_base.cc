@@ -35,9 +35,13 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
+#include "absl/random/random.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "base/file_stream.h"
-#include "base/file_util.h"
 #include "base/logging.h"
 #include "base/util.h"
 #include "converter/connector.h"
@@ -47,12 +51,7 @@
 #include "data_manager/data_manager_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "prediction/suggestion_filter.h"
-#include "testing/gmock.h"
 #include "testing/gunit.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/random/random.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -64,8 +63,7 @@ DataManagerTestBase::DataManagerTestBase(
     IsBoundaryFunc is_boundary, const std::string &connection_txt_file,
     const int expected_resolution,
     const std::vector<std::string> &dictionary_files,
-    const std::vector<std::string> &suggestion_filter_files,
-    const std::vector<std::pair<std::string, std::string>> &typing_model_files)
+    const std::vector<std::string> &suggestion_filter_files)
     : data_manager_(data_manager),
       lsize_(lsize),
       rsize_(rsize),
@@ -73,8 +71,7 @@ DataManagerTestBase::DataManagerTestBase(
       connection_txt_file_(connection_txt_file),
       expected_resolution_(expected_resolution),
       dictionary_files_(dictionary_files),
-      suggestion_filter_files_(suggestion_filter_files),
-      typing_model_files_(typing_model_files) {}
+      suggestion_filter_files_(suggestion_filter_files) {}
 
 void DataManagerTestBase::SegmenterTest_SameAsInternal() {
   // This test verifies that a segmenter created by MockDataManager provides
@@ -270,15 +267,6 @@ void DataManagerTestBase::CounterSuffixTest_ValidateTest() {
   }
 }
 
-void DataManagerTestBase::TypingModelTest() {
-  // Check if typing models are included in the data set.
-  for (const auto &key_and_fname : typing_model_files_) {
-    std::string content;
-    ASSERT_OK(FileUtil::GetContents(key_and_fname.second, &content));
-    EXPECT_EQ(data_manager_->GetTypingModel(key_and_fname.first), content);
-  }
-}
-
 void DataManagerTestBase::RunAllTests() {
   ConnectorTest_RandomValueCheck();
   SegmenterTest_LNodeTest();
@@ -288,7 +276,6 @@ void DataManagerTestBase::RunAllTests() {
   SegmenterTest_SameAsInternal();
   SuggestionFilterTest_IsBadSuggestion();
   CounterSuffixTest_ValidateTest();
-  TypingModelTest();
 }
 
 }  // namespace mozc

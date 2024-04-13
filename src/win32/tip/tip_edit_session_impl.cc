@@ -45,8 +45,8 @@
 #include "base/win32/com.h"
 #include "base/win32/hresultor.h"
 #include "base/win32/wide_char.h"
-#include "protocol/commands.pb.h"
 #include "client/client_interface.h"
+#include "protocol/commands.pb.h"
 #include "win32/base/conversion_mode_util.h"
 #include "win32/base/input_state.h"
 #include "win32/base/string_util.h"
@@ -117,7 +117,6 @@ wil::com_ptr_nothrow<ITfComposition> CreateComposition(
   if (!composition_context) {
     return nullptr;
   }
-  TfActiveSelEnd sel_end = TF_AE_NONE;
   auto insert_selection = ComQuery<ITfInsertAtSelection>(context);
   if (!insert_selection) {
     return nullptr;

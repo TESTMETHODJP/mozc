@@ -47,17 +47,19 @@
 #include <string>
 #include <vector>
 
+#include "absl/flags/flag.h"
+#include "absl/status/status.h"
+#include "absl/strings/escaping.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
 #include "base/number_util.h"
-#include "base/status.h"
-#include "base/util.h"
+#include "base/vlog.h"
 #include "data_manager/dataset_writer.h"
-#include "absl/flags/flag.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_split.h"
 
 ABSL_FLAG(std::string, magic, "", "Hex-encoded magic number to be embedded");
 ABSL_FLAG(std::string, output, "", "Output file");
@@ -66,7 +68,7 @@ int main(int argc, char **argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
 
   std::string magic;
-  CHECK(mozc::Util::Unescape(absl::GetFlag(FLAGS_magic), &magic))
+  CHECK(absl::CUnescape(absl::GetFlag(FLAGS_magic), &magic))
       << "magic number is not a proper hex-escaped string: "
       << absl::GetFlag(FLAGS_magic);
 
@@ -101,8 +103,9 @@ int main(int argc, char **argv) {
   {
     mozc::DataSetWriter writer(magic);
     for (const auto &input : inputs) {
-      VLOG(1) << "Writing " << input.name << ", alignment = " << input.alignment
-              << ", file = " << input.filename;
+      MOZC_VLOG(1) << "Writing " << input.name
+                   << ", alignment = " << input.alignment
+                   << ", file = " << input.filename;
       writer.AddFile(input.name, input.alignment, input.filename);
     }
     mozc::OutputFileStream output(tmpfile,

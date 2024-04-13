@@ -33,13 +33,13 @@
 #include <cstring>
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/synchronization/mutex.h"
 #include "base/const.h"
 #include "base/environ.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/singleton.h"
-#include "absl/status/status.h"
-#include "absl/synchronization/mutex.h"
 
 #ifdef __ANDROID__
 #include "base/android_util.h"
@@ -66,9 +66,9 @@
 
 #include <memory>  // for unique_ptr
 
+#include "absl/strings/str_cat.h"
 #include "base/win32/wide_char.h"
 #include "base/win32/win_util.h"
-#include "absl/strings/str_cat.h"
 #else  // _WIN32
 #include <pwd.h>
 #include <sys/mman.h>
@@ -298,7 +298,7 @@ std::string UserProfileDirectoryImpl::GetUserProfileDirectory() const {
     return FileUtil::JoinPath(pw.pw_dir, ".mozc");
   }
 
-  const std::string old_dir = FileUtil::JoinPath(home, ".mozc");
+  std::string old_dir = FileUtil::JoinPath(home, ".mozc");
   if (FileUtil::DirectoryExists(old_dir).ok()) {
     return old_dir;
   }
@@ -735,77 +735,10 @@ bool SystemUtil::EnsureVitalImmutableDataIsAvailable() {
   }
   return true;
 }
-#endif  // _WIN32
 
-namespace {
-volatile mozc::SystemUtil::IsWindowsX64Mode g_is_windows_x64_mode =
-    mozc::SystemUtil::IS_WINDOWS_X64_DEFAULT_MODE;
-}  // namespace
-
-bool SystemUtil::IsWindowsX64() {
-  switch (g_is_windows_x64_mode) {
-    case IS_WINDOWS_X64_EMULATE_32BIT_MACHINE:
-      return false;
-    case IS_WINDOWS_X64_EMULATE_64BIT_MACHINE:
-      return true;
-    case IS_WINDOWS_X64_DEFAULT_MODE:
-      // handled below.
-      break;
-    default:
-      // Should never reach here.
-      DLOG(FATAL) << "Unexpected mode specified.  mode = "
-                  << g_is_windows_x64_mode;
-      // handled below.
-      break;
-  }
-
-#ifdef _WIN32
-  SYSTEM_INFO system_info = {};
-  // This function never fails.
-  ::GetNativeSystemInfo(&system_info);
-  return (system_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64);
-#else   // _WIN32
-  return false;
-#endif  // _WIN32
-}
-
-void SystemUtil::SetIsWindowsX64ModeForTest(IsWindowsX64Mode mode) {
-  g_is_windows_x64_mode = mode;
-  switch (g_is_windows_x64_mode) {
-    case IS_WINDOWS_X64_EMULATE_32BIT_MACHINE:
-    case IS_WINDOWS_X64_EMULATE_64BIT_MACHINE:
-    case IS_WINDOWS_X64_DEFAULT_MODE:
-      // Known mode. OK.
-      break;
-    default:
-      DLOG(FATAL) << "Unexpected mode specified.  mode = "
-                  << g_is_windows_x64_mode;
-      break;
-  }
-}
-
-#ifdef _WIN32
 const wchar_t *SystemUtil::GetSystemDir() {
   DCHECK(Singleton<SystemDirectoryCache>::get()->succeeded());
   return Singleton<SystemDirectoryCache>::get()->system_dir();
-}
-
-std::string SystemUtil::GetMSCTFAsmCacheReadyEventName() {
-  const std::string &session_id = GetSessionIdString();
-  if (session_id.empty()) {
-    DLOG(ERROR) << "Failed to retrieve session id";
-    return "";
-  }
-
-  const std::string &desktop_name = GetInputDesktopName();
-
-  if (desktop_name.empty()) {
-    DLOG(ERROR) << "Failed to retrieve desktop name";
-    return "";
-  }
-
-  // Compose "Local\MSCTF.AsmCacheReady.<desktop name><session #>".
-  return ("Local\\MSCTF.AsmCacheReady." + desktop_name + session_id);
 }
 #endif  // _WIN32
 

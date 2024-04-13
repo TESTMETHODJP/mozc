@@ -29,61 +29,44 @@
 
 #include "engine/engine.h"
 
-#include <cstdint>
 #include <memory>
-#include <optional>
-#include <string>
 #include <utility>
 
-#include "base/logging.h"
-#include "converter/connector.h"
+#include "absl/base/optimization.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "base/vlog.h"
 #include "converter/converter.h"
 #include "converter/immutable_converter.h"
-#include "converter/segmenter.h"
 #include "data_manager/data_manager_interface.h"
-#include "dictionary/dictionary_impl.h"
-#include "dictionary/pos_group.h"
-#include "dictionary/pos_matcher.h"
-#include "dictionary/suffix_dictionary.h"
-#include "dictionary/suppression_dictionary.h"
-#include "dictionary/system/system_dictionary.h"
-#include "dictionary/system/value_dictionary.h"
-#include "dictionary/user_dictionary.h"
-#include "dictionary/user_pos.h"
+#include "engine/data_loader.h"
+#include "engine/modules.h"
+#include "engine/spellchecker_interface.h"
 #include "engine/user_data_manager_interface.h"
 #include "prediction/dictionary_predictor.h"
 #include "prediction/predictor.h"
 #include "prediction/predictor_interface.h"
-#include "prediction/rescorer_interface.h"
-#include "prediction/suggestion_filter.h"
 #include "prediction/user_history_predictor.h"
+#include "protocol/engine_builder.pb.h"
 #include "rewriter/rewriter.h"
 #include "rewriter/rewriter_interface.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
 
-using ::mozc::dictionary::DictionaryImpl;
-using ::mozc::dictionary::PosGroup;
-using ::mozc::dictionary::SuffixDictionary;
-using ::mozc::dictionary::SuppressionDictionary;
-using ::mozc::dictionary::SystemDictionary;
-using ::mozc::dictionary::UserDictionary;
-using ::mozc::dictionary::UserPos;
-using ::mozc::dictionary::ValueDictionary;
 using ::mozc::prediction::PredictorInterface;
 
-class UserDataManagerImpl final : public UserDataManagerInterface {
+class UserDataManager final : public UserDataManagerInterface {
  public:
-  UserDataManagerImpl(PredictorInterface *predictor,
-                      RewriterInterface *rewriter)
+  UserDataManager(PredictorInterface *predictor, RewriterInterface *rewriter)
       : predictor_(predictor), rewriter_(rewriter) {}
 
-  UserDataManagerImpl(const UserDataManagerImpl &) = delete;
-  UserDataManagerImpl &operator=(const UserDataManagerImpl &) = delete;
+  UserDataManager(const UserDataManager &) = delete;
+  UserDataManager &operator=(const UserDataManager &) = delete;
 
   bool Sync() override;
   bool Reload() override;
@@ -99,140 +82,111 @@ class UserDataManagerImpl final : public UserDataManagerInterface {
   RewriterInterface *rewriter_;
 };
 
-bool UserDataManagerImpl::Sync() {
+bool UserDataManager::Sync() {
   // TODO(noriyukit): In the current implementation, if rewriter_->Sync() fails,
   // predictor_->Sync() is never called. Check if we should call
   // predictor_->Sync() or not.
   return rewriter_->Sync() && predictor_->Sync();
 }
 
-bool UserDataManagerImpl::Reload() {
+bool UserDataManager::Reload() {
   // TODO(noriyukit): The same TODO as Sync().
   return rewriter_->Reload() && predictor_->Reload();
 }
 
-bool UserDataManagerImpl::ClearUserHistory() {
+bool UserDataManager::ClearUserHistory() {
   rewriter_->Clear();
   return true;
 }
 
-bool UserDataManagerImpl::ClearUserPrediction() {
+bool UserDataManager::ClearUserPrediction() {
   predictor_->ClearAllHistory();
   return true;
 }
 
-bool UserDataManagerImpl::ClearUnusedUserPrediction() {
+bool UserDataManager::ClearUnusedUserPrediction() {
   predictor_->ClearUnusedHistory();
   return true;
 }
 
-bool UserDataManagerImpl::ClearUserPredictionEntry(
-    const absl::string_view key, const absl::string_view value) {
+bool UserDataManager::ClearUserPredictionEntry(const absl::string_view key,
+                                               const absl::string_view value) {
   return predictor_->ClearHistoryEntry(key, value);
 }
 
-bool UserDataManagerImpl::Wait() { return predictor_->Wait(); }
+bool UserDataManager::Wait() { return predictor_->Wait(); }
 
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateDesktopEngine(
     std::unique_ptr<const DataManagerInterface> data_manager) {
-  auto engine = std::make_unique<Engine>();
-  constexpr bool is_mobile = false;
-  auto status = engine->Init(std::move(data_manager), is_mobile);
-  if (!status.ok()) {
-    return status;
+  constexpr bool kIsMobile = false;
+
+  auto modules = std::make_unique<engine::Modules>();
+  absl::Status modules_status = modules->Init(std::move(data_manager));
+  if (!modules_status.ok()) {
+    return modules_status;
   }
-  return engine;
+
+  return CreateEngine(std::move(modules), kIsMobile);
 }
 
 absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateMobileEngine(
     std::unique_ptr<const DataManagerInterface> data_manager) {
-  auto engine = std::make_unique<Engine>();
-  constexpr bool is_mobile = true;
-  auto status = engine->Init(std::move(data_manager), is_mobile);
-  if (!status.ok()) {
-    return status;
+  constexpr bool kIsMobile = true;
+
+  auto modules = std::make_unique<engine::Modules>();
+  absl::Status modules_status = modules->Init(std::move(data_manager));
+  if (!modules_status.ok()) {
+    return modules_status;
+  }
+
+  return CreateEngine(std::move(modules), kIsMobile);
+}
+
+absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
+    std::unique_ptr<engine::Modules> modules, bool is_mobile) {
+  // Since Engine() is a private function, std::make_unique does not work.
+  auto engine = absl::WrapUnique(new Engine());
+  absl::Status engine_status = engine->Init(std::move(modules), is_mobile);
+  if (!engine_status.ok()) {
+    return engine_status;
   }
   return engine;
 }
 
-// Since the composite predictor class differs on desktop and mobile, Init()
-// takes a function pointer to create an instance of predictor class.
-absl::Status Engine::Init(
-    std::unique_ptr<const DataManagerInterface> data_manager, bool is_mobile) {
-#define RETURN_IF_NULL(ptr)                                                 \
-  do {                                                                      \
-    if (!(ptr))                                                             \
-      return absl::ResourceExhaustedError("engigine.cc: " #ptr " is null"); \
+std::unique_ptr<Engine> Engine::CreateEngine() {
+  return absl::WrapUnique(new Engine());
+}
+
+Engine::Engine()
+    : loader_(std::make_unique<DataLoader>()),
+      modules_(std::make_unique<engine::Modules>()) {}
+
+absl::Status Engine::ReloadModules(std::unique_ptr<engine::Modules> modules,
+                                   bool is_mobile) {
+  ReloadAndWait();
+  return Init(std::move(modules), is_mobile);
+}
+
+absl::Status Engine::Init(std::unique_ptr<engine::Modules> modules,
+                          bool is_mobile) {
+#define RETURN_IF_NULL(ptr)                                               \
+  do {                                                                    \
+    if (!(ptr))                                                           \
+      return absl::ResourceExhaustedError("engine.cc: " #ptr " is null"); \
   } while (false)
 
-  RETURN_IF_NULL(data_manager);
+  RETURN_IF_NULL(modules);
 
-  suppression_dictionary_ = std::make_unique<SuppressionDictionary>();
-  RETURN_IF_NULL(suppression_dictionary_);
+  // Keeps the previous spellchecker if exists.
+  const engine::SpellcheckerInterface *spellchecker =
+      modules_->GetSpellchecker();
 
-  pos_matcher_ = std::make_unique<dictionary::PosMatcher>(
-      data_manager->GetPosMatcherData());
-  RETURN_IF_NULL(pos_matcher_);
+  modules_ = std::move(modules);
+  modules_->SetSpellchecker(spellchecker);
 
-  std::unique_ptr<UserPos> user_pos =
-      UserPos::CreateFromDataManager(*data_manager);
-  RETURN_IF_NULL(user_pos);
-
-  user_dictionary_ = std::make_unique<UserDictionary>(
-      std::move(user_pos), *pos_matcher_, suppression_dictionary_.get());
-  RETURN_IF_NULL(user_dictionary_);
-
-  const char *dictionary_data = nullptr;
-  int dictionary_size = 0;
-  data_manager->GetSystemDictionaryData(&dictionary_data, &dictionary_size);
-
-  absl::StatusOr<std::unique_ptr<SystemDictionary>> sysdic =
-      SystemDictionary::Builder(dictionary_data, dictionary_size).Build();
-  if (!sysdic.ok()) {
-    return std::move(sysdic).status();
-  }
-  auto value_dic = std::make_unique<ValueDictionary>(*pos_matcher_,
-                                                     &(*sysdic)->value_trie());
-  dictionary_ = std::make_unique<DictionaryImpl>(
-      *std::move(sysdic), std::move(value_dic), user_dictionary_.get(),
-      suppression_dictionary_.get(), pos_matcher_.get());
-  RETURN_IF_NULL(dictionary_);
-
-  absl::string_view suffix_key_array_data, suffix_value_array_data;
-  const uint32_t *token_array = nullptr;
-  data_manager->GetSuffixDictionaryData(&suffix_key_array_data,
-                                        &suffix_value_array_data, &token_array);
-  suffix_dictionary_ = std::make_unique<SuffixDictionary>(
-      suffix_key_array_data, suffix_value_array_data, token_array);
-  RETURN_IF_NULL(suffix_dictionary_);
-
-  auto status_or_connector = Connector::CreateFromDataManager(*data_manager);
-  if (!status_or_connector.ok()) {
-    return std::move(status_or_connector).status();
-  }
-  connector_ = *std::move(status_or_connector);
-
-  segmenter_ = Segmenter::CreateFromDataManager(*data_manager);
-  RETURN_IF_NULL(segmenter_);
-
-  pos_group_ = std::make_unique<PosGroup>(data_manager->GetPosGroupData());
-  RETURN_IF_NULL(pos_group_);
-
-  {
-    absl::StatusOr<SuggestionFilter> status_or_suggestion_filter =
-        SuggestionFilter::Create(data_manager->GetSuggestionFilterData());
-    if (!status_or_suggestion_filter.ok()) {
-      return std::move(status_or_suggestion_filter).status();
-    }
-    suggestion_filter_ = *std::move(status_or_suggestion_filter);
-  }
-
-  immutable_converter_ = std::make_unique<ImmutableConverterImpl>(
-      dictionary_.get(), suffix_dictionary_.get(),
-      suppression_dictionary_.get(), connector_, segmenter_.get(),
-      pos_matcher_.get(), pos_group_.get(), suggestion_filter_);
+  immutable_converter_ = std::make_unique<ImmutableConverter>(*modules_);
   RETURN_IF_NULL(immutable_converter_);
 
   // Since predictor and rewriter require a pointer to a converter instance,
@@ -241,27 +195,22 @@ absl::Status Engine::Init(
   // TODO(noriyukit): This circular dependency is a bad design as careful
   // handling is necessary to avoid infinite loop. Find more beautiful design
   // and fix it!
-  converter_ = std::make_unique<ConverterImpl>();
+  converter_ = std::make_unique<Converter>();
   RETURN_IF_NULL(converter_);
 
   std::unique_ptr<PredictorInterface> predictor;
   {
-    const void *user_arg = nullptr;
     // Create a predictor with three sub-predictors, dictionary predictor, user
     // history predictor, and extra predictor.
     auto dictionary_predictor =
         std::make_unique<prediction::DictionaryPredictor>(
-            *data_manager, converter_.get(), immutable_converter_.get(),
-            dictionary_.get(), suffix_dictionary_.get(), connector_,
-            segmenter_.get(), *pos_matcher_, suggestion_filter_,
-            rescorer_.get(), user_arg);
+            *modules_, converter_.get(), immutable_converter_.get());
     RETURN_IF_NULL(dictionary_predictor);
 
     const bool enable_content_word_learning = is_mobile;
     auto user_history_predictor =
         std::make_unique<prediction::UserHistoryPredictor>(
-            dictionary_.get(), pos_matcher_.get(),
-            suppression_dictionary_.get(), enable_content_word_learning);
+            *modules_, enable_content_word_learning);
     RETURN_IF_NULL(user_history_predictor);
 
     if (is_mobile) {
@@ -277,45 +226,123 @@ absl::Status Engine::Init(
   }
   predictor_ = predictor.get();  // Keep the reference
 
-  auto rewriter =
-      std::make_unique<RewriterImpl>(converter_.get(), data_manager.get(),
-                                     pos_group_.get(), dictionary_.get());
+  auto rewriter = std::make_unique<Rewriter>(*modules_, *converter_);
   RETURN_IF_NULL(rewriter);
   rewriter_ = rewriter.get();  // Keep the reference
 
-  converter_->Init(pos_matcher_.get(), suppression_dictionary_.get(),
-                   std::move(predictor), std::move(rewriter),
+  converter_->Init(*modules_, std::move(predictor), std::move(rewriter),
                    immutable_converter_.get());
 
-  user_data_manager_ =
-      std::make_unique<UserDataManagerImpl>(predictor_, rewriter_);
+  user_data_manager_ = std::make_unique<UserDataManager>(predictor_, rewriter_);
 
-  data_manager_ = std::move(data_manager);
-
+  initialized_ = true;
   return absl::Status();
 
 #undef RETURN_IF_NULL
 }
 
 bool Engine::Reload() {
-  if (!user_dictionary_) {
+  if (!modules_->GetUserDictionary()) {
     return true;
   }
-  VLOG(1) << "Reloading user dictionary";
-  bool result_dictionary = user_dictionary_->Reload();
-  VLOG(1) << "Reloading UserDataManager";
+  MOZC_VLOG(1) << "Reloading user dictionary";
+  bool result_dictionary = modules_->GetUserDictionary()->Reload();
+  MOZC_VLOG(1) << "Reloading UserDataManager";
   bool result_user_data = GetUserDataManager()->Reload();
   return result_dictionary && result_user_data;
+}
+
+bool Engine::Sync() {
+  if (!modules_->GetUserDictionary()) {
+    return true;
+  }
+  return modules_->GetUserDictionary()->Sync();
+}
+
+bool Engine::Wait() {
+  if (modules_->GetUserDictionary()) {
+    modules_->GetUserDictionary()->WaitForReloader();
+  }
+  return GetUserDataManager()->Wait();
 }
 
 bool Engine::ReloadAndWait() {
   if (!Reload()) {
     return false;
   }
-  if (user_dictionary_) {
-    user_dictionary_->WaitForReloader();
+  return Wait();
+}
+
+bool Engine::MaybeReloadEngine(EngineReloadResponse *response) {
+  if (response == nullptr || !loader_) {
+    LOG(ERROR) << "response or loader_ is null";
+    return false;
   }
-  return GetUserDataManager()->Wait();
+
+  // Sends a build request to the loader_ and checks if a new data is available.
+  // In the while loop, tries to reload the new data. If the new data is broken,
+  // tries it again as a next round of this while loop.
+  while (true) {
+    loader_->MaybeBuildNewData();
+
+    if (!loader_->IsBuildResponseReady()) {
+      // No need to handle the new request.
+      return false;
+    }
+
+    LOG(INFO) << "New data is ready (install_location="
+              << response->request().install_location() << ")";
+
+    std::unique_ptr<DataLoader::Response> loader_response =
+        loader_->MaybeMoveDataLoaderResponse();
+    if (!loader_response) {
+      LOG(ERROR) << "loader_response is null";
+      return false;
+    }
+    *response = loader_response->response;
+
+    if (!loader_response->modules ||
+        response->status() != EngineReloadResponse::RELOAD_READY) {
+      // The loader_response does not contain a valid result.
+
+      // This request id causes a critical error.
+      LOG(ERROR) << "Failure in loading response: " << *response;
+
+      // Unregisters the invalid ID and continues to rebuild a new data loader.
+      loader_->ReportLoadFailure(loader_response->id);
+      continue;
+    }
+
+    if (user_data_manager_) {
+      user_data_manager_->Wait();
+    }
+
+    // Reloads DataManager.
+    const bool is_mobile =
+        response->request().engine_type() == EngineReloadRequest::MOBILE;
+    absl::Status reload_status =
+        ReloadModules(std::move(loader_response->modules), is_mobile);
+    if (!reload_status.ok()) {
+      LOG(ERROR) << reload_status;
+
+      // Unregisters the invalid ID and continues to rebuild a new data loader.
+      loader_->ReportLoadFailure(loader_response->id);
+      continue;
+    }
+
+    loader_->ReportLoadSuccess(loader_response->id);
+    response->set_status(EngineReloadResponse::RELOADED);
+    return true;
+  }
+  ABSL_UNREACHABLE();
+}
+
+bool Engine::SendEngineReloadRequest(const EngineReloadRequest &request) {
+  if (!loader_) {
+    return false;
+  }
+  loader_->RegisterRequest(request);
+  return true;
 }
 
 }  // namespace mozc

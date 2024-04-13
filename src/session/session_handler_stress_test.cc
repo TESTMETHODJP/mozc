@@ -28,6 +28,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -35,24 +36,22 @@
 #include <utility>
 #include <vector>
 
+#include "absl/flags/flag.h"
 #include "engine/engine_factory.h"
 #include "protocol/commands.pb.h"
+#include "request/request_test_util.h"
 #include "session/random_keyevents_generator.h"
-#include "session/request_test_util.h"
 #include "session/session_handler_tool.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/flags/flag.h"
 
 ABSL_FLAG(std::optional<uint32_t>, random_seed, std::nullopt,
           "Random seed value. This value will be interpreted as uint32_t.");
 ABSL_FLAG(bool, set_mobile_request, false,
           "If true, set commands::Request to the mobine one.");
 
-namespace mozc {
+namespace mozc::session {
 namespace {
-
-using ::mozc::session::SessionHandlerTool;
 
 constexpr size_t kTotalEventSize = 2500;
 
@@ -68,8 +67,7 @@ class SessionHandlerStressTest
       const uint32_t random_seed =
           absl::GetFlag(FLAGS_random_seed).value() + GetParam();
       LOG(INFO) << "Random seed: " << random_seed;
-      generator_ =
-          session::RandomKeyEventsGenerator(std::seed_seq{random_seed});
+      generator_ = RandomKeyEventsGenerator(std::seed_seq{random_seed});
     }
   }
 
@@ -77,13 +75,13 @@ class SessionHandlerStressTest
     if (absl::GetFlag(FLAGS_set_mobile_request)) {
       commands::Output output;
       commands::Request request;
-      commands::RequestForUnitTest::FillMobileRequest(&request);
+      request_test_util::FillMobileRequest(&request);
       client_.SetRequest(request, &output);
     }
   }
 
   SessionHandlerTool client_;
-  session::RandomKeyEventsGenerator generator_;
+  RandomKeyEventsGenerator generator_;
 };
 
 TEST_P(SessionHandlerStressTest, BasicStressTest) {
@@ -116,4 +114,4 @@ INSTANTIATE_TEST_SUITE_P(Shards, SessionHandlerStressTest,
                              std::make_integer_sequence<int, kShardCount>{})));
 
 }  // namespace
-}  // namespace mozc
+}  // namespace mozc::session

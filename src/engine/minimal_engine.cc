@@ -34,16 +34,18 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/strings/assign.h"
 #include "composer/composer.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager.h"
+#include "data_manager/data_manager_interface.h"
 #include "dictionary/suppression_dictionary.h"
 #include "engine/user_data_manager_interface.h"
 #include "prediction/predictor_interface.h"
 #include "request/conversion_request.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -93,8 +95,7 @@ bool AddAsIsCandidate(const ConversionRequest &request, Segments *segments) {
   if (!request.has_composer()) {
     return false;
   }
-  std::string key;
-  request.composer().GetQueryForConversion(&key);
+  const std::string key = request.composer().GetQueryForConversion();
   return AddAsIsCandidate(key, segments);
 }
 
@@ -102,13 +103,13 @@ class MinimalConverter : public ConverterInterface {
  public:
   MinimalConverter() = default;
 
-  bool StartConversionForRequest(const ConversionRequest &request,
-                                 Segments *segments) const override {
+  bool StartConversion(const ConversionRequest &request,
+                       Segments *segments) const override {
     return AddAsIsCandidate(request, segments);
   }
 
-  bool StartConversion(Segments *segments,
-                       const absl::string_view key) const override {
+  bool StartConversionWithKey(Segments *segments,
+                              const absl::string_view key) const override {
     return AddAsIsCandidate(key, segments);
   }
 
@@ -117,43 +118,43 @@ class MinimalConverter : public ConverterInterface {
     return false;
   }
 
-  bool StartPredictionForRequest(const ConversionRequest &request,
-                                 Segments *segments) const override {
+  bool StartPrediction(const ConversionRequest &request,
+                       Segments *segments) const override {
     return AddAsIsCandidate(request, segments);
   }
 
-  bool StartPrediction(Segments *segments,
-                       const absl::string_view key) const override {
+  bool StartPredictionWithKey(Segments *segments,
+                              const absl::string_view key) const override {
     return AddAsIsCandidate(key, segments);
   }
 
-  bool StartSuggestionForRequest(const ConversionRequest &request,
-                                 Segments *segments) const override {
+  bool StartSuggestion(const ConversionRequest &request,
+                       Segments *segments) const override {
     return AddAsIsCandidate(request, segments);
   }
 
-  bool StartSuggestion(Segments *segments,
-                       const absl::string_view key) const override {
+  bool StartSuggestionWithKey(Segments *segments,
+                              const absl::string_view key) const override {
     return AddAsIsCandidate(key, segments);
   }
 
-  bool StartPartialPredictionForRequest(const ConversionRequest &request,
-                                        Segments *segments) const override {
+  bool StartPartialPrediction(const ConversionRequest &request,
+                              Segments *segments) const override {
     return false;
   }
 
-  bool StartPartialPrediction(Segments *segments,
-                              const absl::string_view key) const override {
+  bool StartPartialPredictionWithKey(
+      Segments *segments, const absl::string_view key) const override {
     return false;
   }
 
-  bool StartPartialSuggestionForRequest(const ConversionRequest &request,
-                                        Segments *segments) const override {
+  bool StartPartialSuggestion(const ConversionRequest &request,
+                              Segments *segments) const override {
     return false;
   }
 
-  bool StartPartialSuggestion(Segments *segments,
-                              const absl::string_view key) const override {
+  bool StartPartialSuggestionWithKey(
+      Segments *segments, const absl::string_view key) const override {
     return false;
   }
 
@@ -236,8 +237,8 @@ ConverterInterface *MinimalEngine::GetConverter() const {
   return converter_.get();
 }
 
-PredictorInterface *MinimalEngine::GetPredictor() const {
-  return predictor_.get();
+absl::string_view MinimalEngine::GetPredictorName() const {
+  return predictor_ ? predictor_->GetPredictorName() : absl::string_view();
 }
 
 dictionary::SuppressionDictionary *MinimalEngine::GetSuppressionDictionary() {

@@ -30,11 +30,12 @@
 #include "renderer/qt/qt_window_manager.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
+#include "absl/strings/str_cat.h"
 #include "base/logging.h"
 #include "protocol/candidates.pb.h"
-#include "absl/strings/str_cat.h"
 #include "renderer/renderer_style_handler.h"
 #include "renderer/window_util.h"
 
@@ -339,13 +340,69 @@ void FillCandidates(const commands::Candidates &candidates,
   const int width = kColumn0Width + max_width1 + max_width2 + kColumn3Width;
   table->resize(width, total_height);
 }
+
+class VirtualRect {
+ public:
+  static VirtualRect FromNativeRect(const Rect &native_rect) {
+    for (const QScreen *screen : QGuiApplication::screens()) {
+      const Rect rect = TranslateToVirtual(screen, native_rect);
+      const QRect screen_rect = screen->geometry();
+
+      // Use top left to locate a screen
+      if (screen_rect.contains(rect.Left(), rect.Top())) {
+        return VirtualRect(rect, mozc::renderer::GetRect(screen->geometry()));
+      }
+    }
+
+    // fall back to primary screen
+    // TODO: Return the nearest monitor rect instead.
+    // See GetMonitorRect
+    const QScreen *screen = QGuiApplication::primaryScreen();
+    const Rect rect = TranslateToVirtual(screen, native_rect);
+    return VirtualRect(rect, mozc::renderer::GetRect(screen->geometry()));
+  }
+
+  Rect GetRect() const { return rect_; }
+
+  Rect GetMonitorRect() const { return monitor_rect_; }
+
+ private:
+  VirtualRect(const Rect &rect, const Rect &monitor_rect)
+      : rect_(rect), monitor_rect_(monitor_rect) {}
+
+  static Rect TranslateToVirtual(const QScreen *screen,
+                                 const Rect &native_rect) {
+    const double device_pixel_ratio = screen->devicePixelRatio();
+    // screen_left, screen_top have the same value in both virtual and native
+    // coordinate
+    const int screen_left = screen->geometry().x();
+    const int screen_top = screen->geometry().y();
+    const int dx = native_rect.Left() - screen_left;
+    const int dy = native_rect.Top() - screen_top;
+    const int vx =
+        static_cast<int>(std::floor(dx / device_pixel_ratio)) + screen_left;
+    const int vy =
+        static_cast<int>(std::floor(dy / device_pixel_ratio)) + screen_top;
+
+    return Rect(vx, vy, native_rect.Width() / device_pixel_ratio,
+                native_rect.Height() / device_pixel_ratio);
+  }
+
+  Rect rect_;
+  Rect monitor_rect_;
+};
 }  // namespace
 
 Point QtWindowManager::GetWindowPosition(
     const commands::RendererCommand &command, const Size &win_size) {
-  const Rect preedit_rect = GetRect(command.preedit_rectangle());
+  const Rect native_preedit_rect = GetRect(command.preedit_rectangle());
+  // Qt6 applications use virtual coordinates. Since IBus uses the device-pixel
+  // native coordinate system, we need to translate a received rect to virtual.
+  const VirtualRect virtual_rect =
+      VirtualRect::FromNativeRect(native_preedit_rect);
+  const Rect preedit_rect = virtual_rect.GetRect();
   const Point win_pos = Point(preedit_rect.Left(), preedit_rect.Bottom());
-  const Rect monitor_rect = GetMonitorRect(win_pos.x, win_pos.y);
+  const Rect monitor_rect = virtual_rect.GetMonitorRect();
   const Point offset_to_column1(kColumn0Width, 0);
 
   const Rect adjusted_win_geometry =
@@ -417,7 +474,15 @@ bool QtWindowManager::ShouldShowInfolistWindow(
 
 Rect QtWindowManager::GetMonitorRect(int x, int y) {
   QPoint point{x, y};
-  return GetRect(QGuiApplication::screenAt(point)->geometry());
+  const QScreen *screen = QGuiApplication::screenAt(point);
+  if (screen == nullptr) {
+    // (x, y) does not belong to any screen. Fall back to the primary screen.
+    // TODO: Return the nearest monitor rect instead.
+    // c.f. GetWorkingAreaFromPointImpl in win32_renderer_util.cc.
+    return GetRect(QGuiApplication::primaryScreen()->geometry());
+  }
+
+  return GetRect(screen->geometry());
 }
 
 void QtWindowManager::UpdateInfolistWindow(

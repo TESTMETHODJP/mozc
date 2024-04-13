@@ -35,10 +35,10 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "ipc/ipc.h"
 #include "session/session_handler_interface.h"
 #include "session/session_usage_observer.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 

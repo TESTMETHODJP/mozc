@@ -38,15 +38,15 @@
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager_interface.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "rewriter/rewriter_interface.h"
-#include "testing/gunit_prod.h"  // for FRIEND_TEST()
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/string_view.h"
+#include "testing/friend_test.h"
 
 namespace mozc {
 

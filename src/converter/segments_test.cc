@@ -29,20 +29,31 @@
 
 #include "converter/segments.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "base/number_util.h"
-#include "base/system_util.h"
-#include "base/util.h"
-#include "config/config_handler.h"
-#include "testing/gunit.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "base/number_util.h"
+#include "testing/gmock.h"
+#include "testing/gunit.h"
 
 namespace mozc {
+
+using ::testing::ElementsAre;
+
+template <typename T>
+static std::vector<std::string> ToKeys(const T &segments) {
+  std::vector<std::string> keys;
+  for (const Segment& segment : segments) {
+    keys.push_back(segment.key());
+  }
+  return keys;
+}
 
 TEST(SegmentsTest, BasicTest) {
   Segments segments;
@@ -93,16 +104,19 @@ TEST(SegmentsTest, BasicTest) {
   segments.erase_segment(1);
   EXPECT_EQ(segments.mutable_segment(0), seg[0]);
   EXPECT_EQ(segments.mutable_segment(1), seg[2]);
+  EXPECT_EQ(segments.pool_.released_.size(), 1);
 
   segments.erase_segments(1, 2);
   EXPECT_EQ(segments.mutable_segment(0), seg[0]);
   EXPECT_EQ(segments.mutable_segment(1), seg[4]);
+  EXPECT_EQ(segments.pool_.released_.size(), 3);
 
   EXPECT_EQ(segments.segments_size(), 2);
 
   segments.erase_segments(0, 1);
   EXPECT_EQ(segments.segments_size(), 1);
   EXPECT_EQ(segments.mutable_segment(0), seg[4]);
+  EXPECT_EQ(segments.pool_.released_.size(), 4);
 
   // insert
   seg[1] = segments.insert_segment(1);
@@ -345,15 +359,6 @@ TEST(SegmentsTest, RevertEntryTest) {
     const Segments::RevertEntry &e = segments.revert_entry(i);
     EXPECT_EQ(e.key, std::string("test2") + std::to_string(i));
     EXPECT_EQ(e.id, kSize - i);
-  }
-
-  {
-    const Segments::RevertEntry &src = segments.revert_entry(0);
-    Segments::RevertEntry dest = src;
-    EXPECT_EQ(dest.revert_entry_type, src.revert_entry_type);
-    EXPECT_EQ(dest.id, src.id);
-    EXPECT_EQ(dest.timestamp, src.timestamp);
-    EXPECT_EQ(dest.key, src.key);
   }
 
   segments.clear_revert_entries();
@@ -612,5 +617,125 @@ TEST(SegmentTest, MetaCandidateTest) {
   // clear
   segment.clear_meta_candidates();
   EXPECT_EQ(segment.meta_candidates_size(), 0);
+}
+
+TEST(SegmentTest, Iterator) {
+  // Create a test `Segments`.
+  constexpr int kHistorySize = 2;
+  constexpr int kConversionSize = 3;
+  Segments segments;
+  std::vector<Segment *> segment_list;
+  for (int i = 0; i < kHistorySize; ++i) {
+    Segment *segment = segments.push_back_segment();
+    segment->set_segment_type(Segment::HISTORY);
+    segment_list.push_back(segment);
+  }
+  for (int i = 0; i < kConversionSize; ++i) {
+    Segment *segment = segments.push_back_segment();
+    segment->set_segment_type(Segment::FIXED_VALUE);
+    segment_list.push_back(segment);
+  }
+
+  // Test the iterator for `Segments`.
+  int i = 0;
+  for (const Segment &segment : segments) {
+    EXPECT_EQ(&segment, segment_list[i++]);
+  }
+  EXPECT_EQ(i, kHistorySize + kConversionSize);
+
+  // Test the iterator for `Segments::history_segments()`.
+  i = 0;
+  for (const Segment &segment : segments.history_segments()) {
+    EXPECT_EQ(&segment, segment_list[i++]);
+  }
+  EXPECT_EQ(i, kHistorySize);
+  EXPECT_EQ(segments.history_segments_size(), kHistorySize);
+  EXPECT_EQ(segments.history_segments().size(), kHistorySize);
+
+  // Test the iterator for `Segments::conversion_segments()`.
+  for (const Segment &segment : segments.conversion_segments()) {
+    EXPECT_EQ(&segment, segment_list[i++]);
+  }
+  EXPECT_EQ(i, kHistorySize + kConversionSize);
+  EXPECT_EQ(segments.conversion_segments_size(), kConversionSize);
+  EXPECT_EQ(segments.conversion_segments().size(), kConversionSize);
+}
+
+TEST(SegmentTest, IteratorConstness) {
+  // Create a test `Segments`.
+  Segments segments;
+  Segment *segment = segments.push_back_segment();
+  segment->set_segment_type(Segment::FIXED_VALUE);
+
+  // Dereferencing the iterator of non-const `Segments` should be non-const.
+  static_assert(
+      !std::is_const_v<std::remove_reference_t<decltype(*segments.begin())>>);
+
+  // Dereferencing the iterator of const `Segments` should be const.
+  const Segments &segments_const_ref = segments;
+  auto it_const = segments_const_ref.begin();
+  static_assert(std::is_const_v<std::remove_reference_t<decltype(*it_const)>>);
+  auto &value_const_ref = *it_const;
+  static_assert(
+      std::is_const_v<std::remove_reference_t<decltype(value_const_ref)>>);
+
+  // Check `conversion_segments()` is const too when it's from `const Segments`.
+  auto it_const_conversion_segments =
+      segments_const_ref.conversion_segments().begin();
+  static_assert(
+      std::is_const_v<
+          std::remove_reference_t<decltype(*it_const_conversion_segments)>>);
+  auto &value_const_conversion_segments = *it_const_conversion_segments;
+  static_assert(
+      std::is_const_v<
+          std::remove_reference_t<decltype(value_const_conversion_segments)>>);
+
+  // As per the STL requirements, `iterator` should be type convertible to
+  // `const_iterator`.
+  it_const = segments.begin();
+  auto &value_const_ref2 = *it_const;
+  static_assert(
+      std::is_const_v<std::remove_reference_t<decltype(value_const_ref2)>>);
+}
+
+TEST(SegmentTest, IteratorRange) {
+  // Create a test `Segments`.
+  Segments segments;
+  for (int i = 0; i < 5; ++i) {
+    Segment *segment = segments.push_back_segment();
+    segment->set_segment_type(Segment::FIXED_VALUE);
+    segment->set_key(std::to_string(i));
+  }
+
+  EXPECT_THAT(ToKeys(segments), ElementsAre("0", "1", "2", "3", "4"));
+  EXPECT_THAT(ToKeys(segments.all()), ElementsAre("0", "1", "2", "3", "4"));
+
+  // Test simple cases.
+  EXPECT_THAT(ToKeys(segments.all().drop(2)), ElementsAre("2", "3", "4"));
+  EXPECT_THAT(ToKeys(segments.all().drop(4)), ElementsAre("4"));
+  EXPECT_THAT(ToKeys(segments.all().take(2)), ElementsAre("0", "1"));
+  EXPECT_THAT(ToKeys(segments.all().take(4)), ElementsAre("0", "1", "2", "3"));
+  EXPECT_THAT(ToKeys(segments.all().subrange(2, 2)), ElementsAre("2", "3"));
+
+  // Test when `count` is 0.
+  EXPECT_THAT(ToKeys(segments.all().drop(0)),
+              ElementsAre("0", "1", "2", "3", "4"));
+  EXPECT_THAT(ToKeys(segments.all().take(0)), ElementsAre());
+  EXPECT_THAT(ToKeys(segments.all().subrange(0, 0)), ElementsAre());
+  EXPECT_THAT(ToKeys(segments.all().subrange(1, 0)), ElementsAre());
+
+  // Test when `count` is equal to `size()`.
+  EXPECT_THAT(ToKeys(segments.all().drop(5)), ElementsAre());
+  EXPECT_THAT(ToKeys(segments.all().take(5)),
+              ElementsAre("0", "1", "2", "3", "4"));
+  EXPECT_THAT(ToKeys(segments.all().subrange(3, 2)), ElementsAre("3", "4"));
+
+  // Test when `count` exceeds `size()`.
+  EXPECT_THAT(ToKeys(segments.all().drop(6)), ElementsAre());
+  EXPECT_THAT(ToKeys(segments.all().take(6)),
+              ElementsAre("0", "1", "2", "3", "4"));
+  EXPECT_THAT(ToKeys(segments.all().subrange(4, 2)), ElementsAre("4"));
+  EXPECT_THAT(ToKeys(segments.all().subrange(5, 2)), ElementsAre());
+  EXPECT_THAT(ToKeys(segments.all().subrange(6, 2)), ElementsAre());
 }
 }  // namespace mozc

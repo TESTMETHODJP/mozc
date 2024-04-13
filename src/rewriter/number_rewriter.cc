@@ -37,11 +37,15 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/number_util.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "config/character_form_manager.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager_interface.h"
@@ -50,9 +54,7 @@
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
 #include "rewriter/number_compound_util.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/strings/string_view.h"
+#include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 namespace {
@@ -74,9 +76,8 @@ struct RewriteCandidateInfo {
 };
 
 bool IsNumberStyleLearningEnabled(const ConversionRequest &request) {
-  return request.request()
-      .decoder_experiment_params()
-      .enable_number_style_learning();
+  // Enabled in mobile (software keyboard & hardware keyboard)
+  return request.request().kana_modifier_insensitive_conversion();
 }
 
 // Returns rewrite type for the given segment and base candidate information.
@@ -108,9 +109,8 @@ RewriteType GetRewriteTypeAndBase(const SerializedStringArray &suffix_array,
     return KANJI_FIRST;
   }
 
-  std::string half_width_new_content_value;
-  japanese_util::FullWidthToHalfWidth(c.content_key,
-                                      &half_width_new_content_value);
+  std::string half_width_new_content_value =
+      japanese_util::FullWidthToHalfWidth(c.content_key);
   // Try to get normalized kanji_number and arabic_number.
   // If it failed, do nothing.
   // Retain suffix for later use.
@@ -150,6 +150,7 @@ void GetRewriteCandidateInfos(
     std::vector<RewriteCandidateInfo> *rewrite_candidate_info) {
   DCHECK(rewrite_candidate_info);
   RewriteCandidateInfo info;
+  constexpr int kMaxLenForPhoneticNumber = 6;  // "100000" (じゅうまん)
 
   // Use the higher ranked candidate for deciding the insertion position.
   absl::flat_hash_set<std::string> seen;
@@ -159,6 +160,16 @@ void GetRewriteCandidateInfos(
     if (type == NO_REWRITE) {
       continue;
     }
+
+    // Skip expanding number variation for large number for phonetic number
+    // candidates. Generating "100000000" for the key "いちおく" would be noisy.
+    const bool is_base_phonetic =
+        (Util::GetFirstScriptType(info.candidate.key) != Util::NUMBER);
+    if (is_base_phonetic &&
+        Util::CharsLen(info.candidate.value) > kMaxLenForPhoneticNumber) {
+      continue;
+    }
+
     if (seen.insert(info.candidate.value).second) {
       info.type = type;
       info.position = i;
@@ -463,21 +474,21 @@ bool NumberRewriter::Rewrite(const ConversionRequest &request,
                              Segments *segments) const {
   DCHECK(segments);
   if (!request.config().use_number_conversion()) {
-    VLOG(2) << "no use_number_conversion";
+    MOZC_VLOG(2) << "no use_number_conversion";
     return false;
   }
 
   bool modified = false;
 
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    modified |= RewriteOneSegment(request, i, segments);
+  for (Segment &segment : segments->conversion_segments()) {
+    modified |= RewriteOneSegment(request, &segment, segments);
   }
 
   return modified;
 }
 
 bool NumberRewriter::RewriteOneSegment(const ConversionRequest &request,
-                                       size_t index, Segments *segments) const {
+                                       Segment *seg, Segments *segments) const {
   DCHECK(segments);
   // Radix conversion is done only for conversion mode.
   // Showing radix candidates is annoying for a user.
@@ -485,8 +496,6 @@ bool NumberRewriter::RewriteOneSegment(const ConversionRequest &request,
       (segments->conversion_segments_size() == 1 &&
        request.request_type() == ConversionRequest::CONVERSION);
   const bool should_rarank = ShouldRerankCandidates(request, *segments);
-
-  Segment *seg = segments->mutable_conversion_segment(index);
 
   bool modified = false;
   std::vector<RewriteCandidateInfo> rewrite_candidate_infos;
@@ -500,9 +509,8 @@ bool NumberRewriter::RewriteOneSegment(const ConversionRequest &request,
       break;
     }
 
-    std::string arabic_content_value;
-    japanese_util::FullWidthToHalfWidth(info.candidate.content_value,
-                                        &arabic_content_value);
+    std::string arabic_content_value =
+        japanese_util::FullWidthToHalfWidth(info.candidate.content_value);
     if (Util::GetScriptType(arabic_content_value) != Util::NUMBER) {
       if (Util::GetFirstScriptType(arabic_content_value) == Util::NUMBER) {
         // Rewrite for number suffix
@@ -557,25 +565,25 @@ std::vector<Segment::Candidate> NumberRewriter::GenerateCandidatesToInsert(
 bool NumberRewriter::ShouldRerankCandidates(const ConversionRequest &request,
                                             const Segments &segments) const {
   if (!IsNumberStyleLearningEnabled(request)) {
-    VLOG(2) << "number style learning is not enabled.";
+    MOZC_VLOG(2) << "number style learning is not enabled.";
     return false;
   }
   if (request.config().incognito_mode()) {
-    VLOG(2) << "incognito mode";
+    MOZC_VLOG(2) << "incognito mode";
     return false;
   }
   if (request.config().history_learning_level() == config::Config::NO_HISTORY) {
-    VLOG(2) << "history learning level is NO_HISTORY";
+    MOZC_VLOG(2) << "history learning level is NO_HISTORY";
     return false;
   }
   if (!request.config().use_history_suggest() &&
       request.request_type() == ConversionRequest::SUGGESTION) {
-    VLOG(2) << "no history suggest";
+    MOZC_VLOG(2) << "no history suggest";
     return false;
   }
   if (segments.conversion_segments_size() != 1) {
     // Rewriting "2|階" to "弐|階" using the history would be noisy.
-    VLOG(2) << "do not apply to the multiple segments.";
+    MOZC_VLOG(2) << "do not apply to the multiple segments.";
     return false;
   }
   return true;
@@ -613,24 +621,22 @@ void NumberRewriter::RerankCandidates(
 void NumberRewriter::Finish(const ConversionRequest &request,
                             Segments *segments) {
   if (!IsNumberStyleLearningEnabled(request)) {
-    VLOG(2) << "number style learning is not enabled.";
+    MOZC_VLOG(2) << "number style learning is not enabled.";
     return;
   }
 
   if (request.config().incognito_mode()) {
-    VLOG(2) << "incognito_mode";
+    MOZC_VLOG(2) << "incognito_mode";
     return;
   }
 
   if (request.config().history_learning_level() !=
       config::Config::DEFAULT_HISTORY) {
-    VLOG(2) << "history_learning_level is not DEFAULT_HISTORY";
+    MOZC_VLOG(2) << "history_learning_level is not DEFAULT_HISTORY";
     return;
   }
 
-  for (size_t i = segments->history_segments_size();
-       i < segments->segments_size(); ++i) {
-    const Segment &segment = segments->segment(i);
+  for (const Segment &segment : segments->conversion_segments()) {
     if (segment.candidates_size() <= 0 ||
         segment.segment_type() != Segment::FIXED_VALUE ||
         segment.candidate(0).attributes &

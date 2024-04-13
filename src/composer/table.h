@@ -32,24 +32,20 @@
 #ifndef MOZC_COMPOSER_TABLE_H_
 #define MOZC_COMPOSER_TABLE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <istream>
-#include <map>
 #include <memory>
-#include <set>
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "base/container/trie.h"
-#include "composer/internal/special_key.h"
-#include "composer/internal/typing_model.h"
-#include "data_manager/data_manager_interface.h"
-#include "protocol/commands.pb.h"
-#include "protocol/config.pb.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "base/container/trie.h"
+#include "composer/internal/special_key.h"
+#include "protocol/commands.pb.h"
+#include "protocol/config.pb.h"
 
 namespace mozc {
 namespace composer {
@@ -94,11 +90,9 @@ class Table final {
   Table();
   Table(const Table &) = delete;
   Table &operator=(const Table &) = delete;
-  ~Table();
 
   bool InitializeWithRequestAndConfig(const commands::Request &request,
-                                      const config::Config &config,
-                                      const DataManagerInterface &data_manager);
+                                      const config::Config &config);
 
   // Return true if adding the input-pending pair makes a loop of
   // conversion rules.
@@ -129,8 +123,6 @@ class Table final {
   bool case_sensitive() const;
   void set_case_sensitive(bool case_sensitive);
 
-  const TypingModel *typing_model() const;
-
   // Parses special key strings escaped with the pair of "{" and "}"
   // and returns the parsed string.
   std::string ParseSpecialKey(const absl::string_view input) const {
@@ -139,11 +131,6 @@ class Table final {
 
   // Return the default table.
   static const Table &GetDefaultTable();
-
-  void SetTypingModelForTesting(
-      std::unique_ptr<const TypingModel> typing_model) {
-    typing_model_ = std::move(typing_model);
-  }
 
  private:
   friend class TypingCorrectorTest;
@@ -154,7 +141,7 @@ class Table final {
 
   using EntryTrie = Trie<const Entry *>;
   EntryTrie entries_;
-  using EntrySet = absl::flat_hash_set<const Entry *>;
+  using EntrySet = absl::flat_hash_set<std::unique_ptr<Entry>>;
   EntrySet entry_set_;
 
   internal::SpecialKeyMap special_key_map_;
@@ -162,9 +149,6 @@ class Table final {
   // If false, input alphabet characters are normalized to lower
   // characters.  The default value is false.
   bool case_sensitive_ = false;
-
-  // Typing model. nullptr if no corresponding model is available.
-  std::unique_ptr<const TypingModel> typing_model_;
 };
 
 class TableManager {
@@ -174,8 +158,7 @@ class TableManager {
   // Return Table for the request and the config
   // TableManager has ownership of the return value;
   const Table *GetTable(const commands::Request &request,
-                        const config::Config &config,
-                        const DataManagerInterface &data_manager);
+                        const config::Config &config);
 
   void ClearCaches();
 

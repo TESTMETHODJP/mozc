@@ -44,14 +44,20 @@ using ::testing::IsEmpty;
 using ::testing::Not;
 
 TEST(MozcTestTest, GetSourcePath) {
-  std::string path = GetSourcePath({"testing", "mozctest_test.cc"});
+  std::string path =
+      GetSourcePath({MOZC_SRC_COMPONENTS("testing"), "mozctest_test.cc"});
   std::ifstream ifs(path);
-  EXPECT_TRUE(ifs.good());
+  EXPECT_TRUE(ifs.good()) << path;
 }
 
 TEST(MozcTestTest, MakeTempDirectoryOrDie) {
   TempDirectory temp_dir = MakeTempDirectoryOrDie();
   EXPECT_THAT(temp_dir.path(), Not(IsEmpty()));
+}
+
+TEST(MozcTestTest, MakeTempFileOrDie) {
+  TempFile temp_file = MakeTempFileOrDie();
+  EXPECT_THAT(temp_file.path(), Not(IsEmpty()));
 }
 
 class TestWithTempUserProfileTest : public TestWithTempUserProfile {};

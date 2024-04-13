@@ -35,24 +35,25 @@
 #include <string>
 #include <utility>
 
+#include "absl/flags/declare.h"
+#include "absl/flags/flag.h"
 #include "base/logging.h"
 #include "composer/key_parser.h"
 #include "composer/table.h"
 #include "config/config_handler.h"
 #include "data_manager/testing/mock_data_manager.h"
+#include "engine/engine.h"
 #include "engine/mock_data_engine_factory.h"
 #include "engine/user_data_manager_interface.h"
 #include "protocol/candidates.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
+#include "request/request_test_util.h"
 #include "session/internal/ime_context.h"
-#include "session/request_test_util.h"
 #include "session/session.h"
 #include "session/session_handler.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/flags/declare.h"
-#include "absl/flags/flag.h"
 
 ABSL_DECLARE_FLAG(bool, use_history_rewriter);
 
@@ -156,10 +157,10 @@ class SessionRegressionTest : public testing::TestWithTempUserProfile {
   }
 
   void ResetSession() {
-    session_.reset(static_cast<session::Session *>(handler_->NewSession()));
+    session_ = handler_->NewSession();
     commands::Request request;
     table_ = std::make_unique<composer::Table>();
-    table_->InitializeWithRequestAndConfig(request, config_, data_manager_);
+    table_->InitializeWithRequestAndConfig(request, config_);
     session_->SetTable(table_.get());
   }
 
@@ -353,11 +354,11 @@ TEST_F(SessionRegressionTest, PredictionAfterUndo) {
 // and suggestion.
 // Currently the restriction is removed. This test checks that the logic
 // works well or not.
-TEST_F(SessionRegressionTest, ConsistencyBetweenPredictionAndSuggesion) {
+TEST_F(SessionRegressionTest, ConsistencyBetweenPredictionAndSuggestion) {
   constexpr char kKey[] = "aio";
 
   commands::Request request;
-  commands::RequestForUnitTest::FillMobileRequest(&request);
+  request_test_util::FillMobileRequest(&request);
   session_->SetRequest(&request);
 
   InitSessionToPrecomposition(session_.get());
@@ -530,7 +531,7 @@ TEST_F(SessionRegressionTest, CommitT13nSuggestion) {
   // This is the test for http://b/6934881.
   // Pending char chunk remains after committing transliteration.
   commands::Request request;
-  commands::RequestForUnitTest::FillMobileRequest(&request);
+  request_test_util::FillMobileRequest(&request);
   session_->SetRequest(&request);
 
   InitSessionToPrecomposition(session_.get());
@@ -551,7 +552,7 @@ TEST_F(SessionRegressionTest, CommitT13nSuggestion) {
 
 TEST_F(SessionRegressionTest, DeleteCandidateFromHistory) {
   commands::Request request;
-  commands::RequestForUnitTest::FillMobileRequest(&request);
+  request_test_util::FillMobileRequest(&request);
   session_->SetRequest(&request);
 
   InitSessionToPrecomposition(session_.get());

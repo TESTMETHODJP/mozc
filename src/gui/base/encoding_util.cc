@@ -33,8 +33,8 @@
 #include <cstdint>
 #include <string>
 
-#include "base/util.h"
 #include "absl/strings/string_view.h"
+#include "base/util.h"
 
 namespace mozc {
 namespace {
@@ -108,9 +108,9 @@ bool SjisToUtf8Internal(absl::string_view input, std::string *output) {
 
     if (expect_first_byte) {
       if (IsInFirstByteRange1(byte)) {
-        Util::Ucs4ToUtf8Append(byte, output);
+        Util::CodepointToUtf8Append(byte, output);
       } else if (IsInFirstByteRange3(byte)) {
-        Util::Ucs4ToUtf8Append(byte + 0xFEC0, output);
+        Util::CodepointToUtf8Append(byte + 0xFEC0, output);
       } else if (IsInFirstByteRange2(byte) || IsInFirstByteRange4(byte)) {
         first_byte = byte;
         expect_first_byte = false;
@@ -131,7 +131,7 @@ bool SjisToUtf8Internal(absl::string_view input, std::string *output) {
     if (ucs2 == 0) {
       return false;
     }
-    Util::Ucs4ToUtf8Append(ucs2, output);
+    Util::CodepointToUtf8Append(ucs2, output);
     expect_first_byte = true;
   }
   return expect_first_byte;
@@ -139,11 +139,12 @@ bool SjisToUtf8Internal(absl::string_view input, std::string *output) {
 
 }  // namespace
 
-void EncodingUtil::SjisToUtf8(const std::string &input, std::string *output) {
-  output->clear();
-  if (!SjisToUtf8Internal(input, output)) {
-    output->clear();
+std::string EncodingUtil::SjisToUtf8(absl::string_view input) {
+  std::string output;
+  if (!SjisToUtf8Internal(input, &output)) {
+    return {};
   }
+  return output;
 }
 
 }  // namespace mozc

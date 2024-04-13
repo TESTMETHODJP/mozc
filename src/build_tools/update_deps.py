@@ -81,15 +81,15 @@ class ArchiveInfo:
 
 
 QT6 = ArchiveInfo(
-    url='https://download.qt.io/archive/qt/6.5/6.5.2/submodules/qtbase-everywhere-src-6.5.2.tar.xz',
-    size=48410716,
-    sha256='3db4c729b4d80a9d8fda8dd77128406353baff4755ca619177eda4cddae71269',
+    url='https://download.qt.io/archive/qt/6.7/6.7.0/submodules/qtbase-everywhere-src-6.7.0.tar.xz',
+    size=49314276,
+    sha256='11b2e29e2e52fb0e3b453ea13bbe51a10fdff36e1c192d8868c5a40233b8b254',
 )
 
 WIX = ArchiveInfo(
-    url='https://wixtoolset.org/downloads/v3.14.0.6526/wix314-binaries.zip',
-    size=41223699,
-    sha256='4c89898df3bcab13e12f7ca54399c35ad273475ad2cb6284611d00ae2d063c2c',
+    url='https://github.com/wixtoolset/wix3/releases/download/wix314rtm/wix314-binaries.zip',
+    size=41282726,
+    sha256='13f067f38969faf163d93a804b48ea0576790a202c8f10291f2000f0e356e934',
 )
 
 NINJA_MAC = ArchiveInfo(

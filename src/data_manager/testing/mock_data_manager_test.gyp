@@ -42,9 +42,9 @@
         'mock_data_manager_test.cc',
       ],
       'dependencies': [
-        '../../testing/testing.gyp:gtest_main',
-        '../../testing/testing.gyp:mozctest',
-        '../data_manager_test.gyp:data_manager_test_base',
+        '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
+        '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
+        '<(mozc_oss_src_dir)/data_manager/data_manager_test.gyp:data_manager_test_base',
         'install_test_connection_txt',
         'mock_data_manager.gyp:mock_data_manager',
         'mock_data_manager.gyp:gen_mock_segmenter_inl_header#host',
@@ -54,7 +54,7 @@
       },
       'copies': [
         {
-          'destination': '<(mozc_data_dir)/data/test/dictionary',
+          'destination': '<(mozc_oss_data_dir)/data/test/dictionary',
           'files': [
               '<(mozc_oss_src_dir)/data/test/dictionary/dictionary.txt',
               '<(mozc_oss_src_dir)/data/test/dictionary/suggestion_filter.txt',
@@ -67,7 +67,7 @@
       'type': 'none',
       'copies': [
         {
-          'destination': '<(mozc_data_dir)/data/test/dictionary',
+          'destination': '<(mozc_oss_data_dir)/data/test/dictionary',
           'files': [
             '<(mozc_oss_src_dir)/data/test/dictionary/connection_single_column.txt',
           ],

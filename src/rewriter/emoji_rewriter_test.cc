@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/container/btree_map.h"
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "base/logging.h"
 #include "base/util.h"
@@ -50,8 +52,6 @@
 #include "testing/mozctest.h"
 #include "usage_stats/usage_stats.h"
 #include "usage_stats/usage_stats_testing_util.h"
-#include "absl/container/btree_map.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -75,8 +75,7 @@ void SetSegment(const absl::string_view key, const absl::string_view value,
 // Counts the number of enumerated emoji candidates in the segments.
 int CountEmojiCandidates(const Segments &segments) {
   int emoji_size = 0;
-  for (size_t i = 0; i < segments.segments_size(); ++i) {
-    const Segment &segment = segments.segment(i);
+  for (const Segment &segment : segments) {
     for (size_t j = 0; j < segment.candidates_size(); ++j) {
       if (EmojiRewriter::IsEmojiCandidate(segment.candidate(j))) {
         ++emoji_size;

@@ -35,13 +35,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "base/hash.h"
 #include "base/logging.h"
 #include "testing/gmock.h"
-#include "testing/googletest.h"
 #include "testing/gunit.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace storage {

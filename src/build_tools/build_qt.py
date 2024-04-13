@@ -37,8 +37,7 @@ with dropping unnecessary features to minimize the installer size.
 
 By default, this script assumes that Qt archives are stored as
 
-  src/third_party_cache/qtbase-everywhere-opensource-src-5.15.10.tar.xz
-  src/third_party_cache/qtbase-everywhere-src-6.5.2.tar.xz
+  src/third_party_cache/qtbase-everywhere-src-6.6.3.tar.xz
 
 and Qt src files that are necessary to build Mozc will be checked out into
 
@@ -70,7 +69,7 @@ ABS_QT_SRC_DIR = ABS_MOZC_SRC_DIR.joinpath('third_party', 'qt_src')
 ABS_QT_DEST_DIR = ABS_MOZC_SRC_DIR.joinpath('third_party', 'qt')
 # The archive filename should be consistent with update_deps.py.
 ABS_QT6_ARCHIVE_PATH = ABS_MOZC_SRC_DIR.joinpath(
-    'third_party_cache', 'qtbase-everywhere-src-6.5.2.tar.xz')
+    'third_party_cache', 'qtbase-everywhere-src-6.7.0.tar.xz')
 ABS_DEFAULT_NINJA_DIR = ABS_MOZC_SRC_DIR.joinpath('third_party', 'ninja')
 
 
@@ -262,15 +261,53 @@ def make_configure_options(args: argparse.Namespace) -> list[str]:
     raise ValueError(f'Only Qt6 is supported but specified {qt_version}.')
 
   qt_configure_options = ['-opensource',
+                          '-c++std', 'c++20',
                           '-silent',
                           '-no-cups',
                           '-no-dbus',
+                          '-no-feature-androiddeployqt',
+                          '-no-feature-animation',
+                          '-no-feature-calendarwidget',
+                          '-no-feature-completer',
+                          '-no-feature-concatenatetablesproxymodel',
                           '-no-feature-concurrent',
+                          '-no-feature-dial',
+                          '-no-feature-effects',
+                          '-no-feature-fontcombobox',
+                          '-no-feature-fontdialog',
+                          '-no-feature-identityproxymodel',
+                          '-no-feature-image_heuristic_mask',
                           '-no-feature-imageformatplugin',
+                          '-no-feature-islamiccivilcalendar',
+                          '-no-feature-itemmodeltester',
+                          '-no-feature-jalalicalendar',
+                          '-no-feature-macdeployqt',
+                          '-no-feature-mdiarea',
+                          '-no-feature-mimetype',
+                          '-no-feature-movie',
                           '-no-feature-network',
+                          '-no-feature-poll-exit-on-error',
+                          '-no-feature-qmake',
+                          '-no-feature-sha3-fast',
+                          '-no-feature-sharedmemory',
+                          '-no-feature-socks5',
+                          '-no-feature-splashscreen',
                           '-no-feature-sql',
                           '-no-feature-sqlmodel',
+                          '-no-feature-sspi',
+                          '-no-feature-stringlistmodel',
+                          '-no-feature-tabletevent',
                           '-no-feature-testlib',
+                          '-no-feature-textbrowser',
+                          '-no-feature-textmarkdownreader',
+                          '-no-feature-textmarkdownwriter',
+                          '-no-feature-textodfwriter',
+                          '-no-feature-timezone',
+                          '-no-feature-topleveldomain',
+                          '-no-feature-undoview',
+                          '-no-feature-whatsthis',
+                          '-no-feature-windeployqt',
+                          '-no-feature-wizard',
                           '-no-feature-xml',
                           '-no-icu',
                           '-no-opengl',
@@ -292,9 +329,14 @@ def make_configure_options(args: argparse.Namespace) -> list[str]:
         '-qt-libpng',
         '-qt-pcre',
     ]
+
+    # Set the target CPUs for macOS
+    # Host: arm64  -> Targets: --macos_cpus or ["x86_64", "arm64"]
+    # Host: x86_64 -> Targets: --macos_cpus or ["x86_64"]
+    host_arch = os.uname().machine
+    macos_cpus = ['x86_64', 'arm64'] if host_arch == 'arm64' else ['x86_64']
     if args.macos_cpus:
       macos_cpus = args.macos_cpus.split(',')
-      host_arch = os.uname().machine
       if host_arch == 'x86_64' and macos_cpus == ['arm64']:
         # Haven't figured out how to make this work...
         raise ValueError('--macos_cpus=arm64 on Intel64 mac is not supported.')
@@ -303,12 +345,13 @@ def make_configure_options(args: argparse.Namespace) -> list[str]:
       if 'x86_64' in macos_cpus and macos_cpus[0] != 'x86_64':
         macos_cpus.remove('x86_64')
         macos_cpus = ['x86_64'] + macos_cpus
-      cmake_options += [
-          '-DCMAKE_OSX_ARCHITECTURES:STRING=' + ';'.join(macos_cpus),
-      ]
+    cmake_options += [
+        '-DCMAKE_OSX_ARCHITECTURES:STRING=' + ';'.join(macos_cpus),
+    ]
+
   elif is_windows():
-    qt_configure_options += ['-c++std', 'c++20',
-                             '-force-debug-info',
+    qt_configure_options += ['-force-debug-info',
+                             '-intelcet',
                              '-ltcg',  # Note: ignored in debug build
                              '-no-freetype',
                              '-no-harfbuzz',
@@ -322,6 +365,9 @@ def make_configure_options(args: argparse.Namespace) -> list[str]:
     qt_configure_options += ['-debug']
   elif args.release:
     qt_configure_options += ['-release']
+
+  if args.release:
+    qt_configure_options += ['-optimize-size']
 
   qt_src_dir = pathlib.Path(args.qt_src_dir).resolve()
   qt_dest_dir = pathlib.Path(args.qt_dest_dir).resolve()

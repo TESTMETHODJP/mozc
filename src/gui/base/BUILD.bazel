@@ -31,6 +31,7 @@ load(
     "//:build_defs.bzl",
     "MOZC_TAGS",
     "mozc_cc_library",
+    "mozc_cc_test",
     "mozc_select",
 )
 load(
@@ -56,6 +57,19 @@ mozc_cc_library(
         "//base:util",
         "@com_google_absl//absl/strings",
     ],
+)
+
+mozc_cc_test(
+    name = "encoding_util_test",
+    srcs = ["encoding_util_test.cc"],
+    deps = [
+        ":encoding_util",
+        "//base:logging",
+        "//testing:gunit_main",
+        "@com_google_absl//absl/strings:string_view",
+    ] + mozc_select(
+        windows = ["//base/win32:wide_char"],
+    ),
 )
 
 mozc_qt_moc(
@@ -136,6 +150,10 @@ mozc_cc_qt_library(
         "msime_user_dictionary_importer.h",
     ],
     deps = [
+        ":encoding_util",
+        "//base:logging",
+        "//base:util",
+        "//base:vlog",
         "//dictionary:user_dictionary_importer",
     ],
 )
@@ -177,13 +195,13 @@ mozc_cc_qt_library(
         "//base:version",
         "//ipc",
         "//ipc:window_info_cc_proto",
-        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
     ] + mozc_select(
         windows = [
             ":win_util",
             "//base:system_util",
             "//base/win32:wide_char",
-            "//third_party/wil",
+            "@com_microsoft_wil//:wil",
         ],
     ),
 )

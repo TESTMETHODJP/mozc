@@ -36,9 +36,12 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager_interface.h"
@@ -48,8 +51,6 @@
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 #include "rewriter/rewriter_util.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 // SymbolRewriter:
 // 1. Update data/symbol/symbol.tsv
@@ -104,8 +105,8 @@ std::string SymbolRewriter::GetDescription(
 // static function
 bool SymbolRewriter::IsSymbol(const absl::string_view key) {
   for (ConstChar32Iterator iter(key); !iter.Done(); iter.Next()) {
-    const char32_t ucs4 = iter.Get();
-    if (ucs4 >= 0x3041 && ucs4 <= 0x309F) {  // hiragana
+    const char32_t codepoint = iter.Get();
+    if (codepoint >= 0x3041 && codepoint <= 0x309F) {  // hiragana
       return false;
     }
   }
@@ -223,6 +224,7 @@ void SymbolRewriter::InsertCandidates(
         candidate->value == "w" || candidate->value == "www") {
       candidate->attributes |= Segment::Candidate::NO_VARIANTS_EXPANSION;
     }
+    candidate->category = Segment::Candidate::SYMBOL;
 
     candidate->description = GetDescription(
         candidate->value, iter.description(), iter.additional_description());
@@ -269,9 +271,10 @@ void SymbolRewriter::AddDescForCurrentCandidates(
     const SerializedDictionary::IterRange &range, Segment *segment) {
   for (size_t i = 0; i < segment->candidates_size(); ++i) {
     Segment::Candidate *candidate = segment->mutable_candidate(i);
-    std::string full_width_value, half_width_value;
-    japanese_util::HalfWidthToFullWidth(candidate->value, &full_width_value);
-    japanese_util::FullWidthToHalfWidth(candidate->value, &half_width_value);
+    std::string full_width_value =
+        japanese_util::HalfWidthToFullWidth(candidate->value);
+    std::string half_width_value =
+        japanese_util::FullWidthToHalfWidth(candidate->value);
 
     for (auto iter = range.first; iter != range.second; ++iter) {
       if (candidate->value == iter.value() ||
@@ -289,8 +292,8 @@ void SymbolRewriter::AddDescForCurrentCandidates(
 bool SymbolRewriter::RewriteEachCandidate(const ConversionRequest &request,
                                           Segments *segments) const {
   bool modified = false;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    const std::string &key = segments->conversion_segment(i).key();
+  for (Segment &segment : segments->conversion_segments()) {
+    const std::string &key = segment.key();
     const SerializedDictionary::IterRange range = dictionary_->equal_range(key);
     if (range.first == range.second) {
       continue;
@@ -300,7 +303,7 @@ bool SymbolRewriter::RewriteEachCandidate(const ConversionRequest &request,
     const bool context_sensitive = !IsSymbol(key);
 
     InsertCandidates(GetOffset(request, key), range, context_sensitive,
-                     segments->mutable_conversion_segment(i));
+                     &segment);
 
     modified = true;
   }
@@ -315,8 +318,8 @@ bool SymbolRewriter::RewriteEntireCandidate(const ConversionRequest &request,
   }
 
   std::string key;
-  for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    key += segments->conversion_segment(i).key();
+  for (const Segment &segment : segments->conversion_segments()) {
+    key += segment.key();
   }
 
   const SerializedDictionary::IterRange range = dictionary_->equal_range(key);
@@ -371,7 +374,7 @@ int SymbolRewriter::capability(const ConversionRequest &request) const {
 bool SymbolRewriter::Rewrite(const ConversionRequest &request,
                              Segments *segments) const {
   if (!request.config().use_symbol_conversion()) {
-    VLOG(2) << "no use_symbol_conversion";
+    MOZC_VLOG(2) << "no use_symbol_conversion";
     return false;
   }
 

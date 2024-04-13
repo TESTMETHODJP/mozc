@@ -37,12 +37,13 @@ File format:
   Each line in the input file has 7 columns separated by TAB characters,
   and this generator requires the 2nd-7th columns.
   We expect that each column has
-  2nd) an emoji character, in binary format
-  3rd) readings separated by commans
-  4th) description for the Unicode 6.0 emoji
-  5th) primary description in Japanese
-  6th) descriptions from carriers
-  7th) unicode version
+  # 1) unicode code point
+  # 2) actual data (in utf-8)
+  # 3) space separated readings
+  # 4) unicode name
+  # 5) Japanese name
+  # 6) space separated descriptions (for emoji suggestion)
+  # 7) unicode emoji version
 
   Detailed format is described in the default input file
   "mozc/src/data/emoji/emoji_data.tsv".
@@ -63,7 +64,7 @@ from build_tools import serialized_string_array_builder
 _FULLWIDTH_RE = re.compile(u'[！-～]')   # U+FF01 - U+FF5E
 _VERSION_ALL = [
     'E0.6', 'E0.7', 'E1.0', 'E2.0', 'E3.0', 'E4.0', 'E5.0', 'E11.0', 'E12.0',
-    'E12.1', 'E13.0', 'E13.1', 'E14.0', 'E15.0'
+    'E12.1', 'E13.0', 'E13.1', 'E14.0', 'E15.0', 'E15.1'
 ]
 # Dict for converting version string into enum index.
 VERSION_TO_INDEX = {v: i for i, v in enumerate(_VERSION_ALL)}
@@ -125,9 +126,10 @@ def OutputData(emoji_data_list, token_dict,
   sorted_token_dict = sorted(token_dict.items())
 
   strings = {}
+  strings[''] = 0
   for reading, _ in sorted_token_dict:
     strings[reading] = 0
-  for (emoji, utf8_description, unicode_version) in emoji_data_list:
+  for emoji, utf8_description, _ in emoji_data_list:
     strings[emoji] = 0
     strings[utf8_description] = 0
 

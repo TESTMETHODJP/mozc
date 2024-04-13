@@ -36,12 +36,11 @@ load(
     "mozc_cc_library",
     "mozc_cc_test",
 )
+load("//bazel:stubs.bzl", "lexan")
 load(
     "//bazel/win32:build_defs.bzl",
-    "copts_wtl",
     "features_gdi",
 )
-load("//bazel:stubs.bzl", "lexan")
 
 mozc_cc_binary(
     name = "mozc_tip",
@@ -141,6 +140,7 @@ mozc_cc_library(
         ":tip_ui_handler",
         "//base:const",
         "//base:file_util",
+        "//base:log_file",
         "//base:logging",
         "//base:process",
         "//base:system_util",
@@ -150,6 +150,7 @@ mozc_cc_library(
         "//base/win32:hresult",
         "//base/win32:hresultor",
         "//protocol:commands_cc_proto",
+        "//win32/base:msctf_dll",
         "//win32/base:win32_window_util",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -168,9 +169,8 @@ mozc_cc_library(
         ":tip_dll_module",
         ":tip_text_service",
         ":tip_ui_element_delegate",
-        "//base:logging",
         "//base/win32:com",
-        "//base/win32:com_implements",
+        "@com_google_absl//absl/base:core_headers",
         "@com_microsoft_wil//:wil",
     ],
 )
@@ -239,7 +239,6 @@ mozc_cc_library(
     name = "tip_lang_bar_menu",
     srcs = ["tip_lang_bar_menu.cc"],
     hdrs = ["tip_lang_bar_menu.h"],
-    copts = copts_wtl(),
     features = features_gdi(),
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
@@ -249,7 +248,7 @@ mozc_cc_library(
         ":tip_resource",
         "//base/win32:com",
         "//base/win32:com_implements",
-        "//third_party/wtl",
+        "//bazel/win32:user32",
         "//win32/base:text_icon",
         "//win32/base:tsf_profile",
         "@com_google_absl//absl/base",
@@ -273,6 +272,7 @@ mozc_cc_library(
         "//base/win32:com",
         "//base/win32:hresultor",
         "//protocol:commands_cc_proto",
+        "//win32/base:msctf_dll",
         "@com_microsoft_wil//:wil",
     ],
 )
@@ -425,6 +425,7 @@ mozc_cc_library(
         "//protocol:candidates_cc_proto",
         "//protocol:commands_cc_proto",
         "//protocol:renderer_cc_proto",
+        "@com_google_absl//absl/log",
         "@com_microsoft_wil//:wil",
     ],
 )
@@ -513,7 +514,6 @@ mozc_cc_library(
     hdrs = [
         "tip_ui_handler_conventional.h",
     ],
-    copts = copts_wtl(),
     features = features_gdi(),
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
@@ -658,6 +658,7 @@ mozc_cc_test(
     deps = [
         ":tip_surrounding_text",
         "//base:util",
+        "//base/win32:wide_char",
         "//testing:gunit_main",
     ],
 )

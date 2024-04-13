@@ -33,10 +33,10 @@
 #include <string>
 #include <utility>
 
-#include "converter/segments.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "converter/segments.h"
 
 namespace mozc {
 namespace {
@@ -166,11 +166,8 @@ int IvsVariantsRewriter::capability(const ConversionRequest &request) const {
 bool IvsVariantsRewriter::Rewrite(const ConversionRequest &request,
                                   Segments *segments) const {
   bool modified = false;
-  for (size_t i = segments->history_segments_size();
-       i < segments->segments_size(); ++i) {
-    Segment *seg = segments->mutable_segment(i);
-    DCHECK(seg);
-    modified |= ExpandIvsVariantsWithSegment(seg);
+  for (Segment &segment : segments->conversion_segments()) {
+    modified |= ExpandIvsVariantsWithSegment(&segment);
   }
 
   return modified;

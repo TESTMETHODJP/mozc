@@ -30,11 +30,11 @@
 #include <cstdint>
 #include <string>
 
+#include "absl/flags/flag.h"
+#include "absl/time/time.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
 #include "ipc/named_event.h"
-#include "absl/flags/flag.h"
-#include "absl/time/time.h"
 
 ABSL_FLAG(bool, listener, true, "listener mode");
 ABSL_FLAG(bool, notifier, false, "notifier mode");

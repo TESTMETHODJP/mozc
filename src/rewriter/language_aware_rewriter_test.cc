@@ -31,6 +31,7 @@
 
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "composer/composer.h"
 #include "composer/table.h"
 #include "converter/segments.h"
@@ -45,7 +46,6 @@
 #include "testing/mozctest.h"
 #include "usage_stats/usage_stats.h"
 #include "usage_stats/usage_stats_testing_util.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {
@@ -90,12 +90,11 @@ class LanguageAwareRewriterTest : public testing::TestWithTempUserProfile {
 
     composer::Table table;
     config::Config default_config;
-    table.InitializeWithRequestAndConfig(client_request, default_config,
-                                         data_manager_);
+    table.InitializeWithRequestAndConfig(client_request, default_config);
 
     composer::Composer composer(&table, &client_request, &default_config);
     InsertASCIISequence(key, &composer);
-    composer.GetStringForPreedit(composition);
+    *composition = composer.GetStringForPreedit();
 
     // Perform the rewrite command.
     if (segments->conversion_segments_size() == 0) {
@@ -332,13 +331,11 @@ TEST_F(LanguageAwareRewriterTest, LanguageAwareInputUsageStats) {
 
     composer::Table table;
     config::Config default_config;
-    table.InitializeWithRequestAndConfig(client_request, default_config,
-                                         data_manager_);
+    table.InitializeWithRequestAndConfig(client_request, default_config);
 
-    std::string composition;
     composer::Composer composer(&table, &client_request, &default_config);
     InsertASCIISequence("python", &composer);
-    composer.GetStringForPreedit(&composition);
+    const std::string composition = composer.GetStringForPreedit();
     EXPECT_EQ(composition, kPyTeyoN);
 
     // Perform the rewrite command.
@@ -418,7 +415,7 @@ TEST_F(LanguageAwareRewriterTest, IsDisabledInTwelveKeyLayout) {
     config.set_preedit_method(param.preedit_method);
 
     composer::Table table;
-    table.InitializeWithRequestAndConfig(request, config, data_manager_);
+    table.InitializeWithRequestAndConfig(request, config);
 
     composer::Composer composer(&table, &request, &config);
     InsertASCIISequence("query", &composer);

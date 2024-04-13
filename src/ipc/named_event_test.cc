@@ -35,12 +35,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/thread.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 namespace {

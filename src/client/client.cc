@@ -39,24 +39,26 @@
 #include <string>
 #include <vector>
 
+#include "absl/base/attributes.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "base/const.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/process.h"
 #include "base/singleton.h"
 #include "base/system_util.h"
 #include "base/version.h"
+#include "base/vlog.h"
+#include "client/client_interface.h"
 #include "config/config_handler.h"
 #include "ipc/ipc.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "session/key_info_util.h"
-#include "absl/base/attributes.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/time.h"
-#include "client/client_interface.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -233,7 +235,6 @@ void Client::DumpHistorySnapshot(const absl::string_view filename,
   OutputFileStream output(snapshot_file, std::ios::app);
 
   output << "---- Start history snapshot for " << label << std::endl;
-  output << "Created at " << Logging::GetLogMessageHeader() << std::endl;
   output << "Version " << Version::GetMozcVersion() << std::endl;
   for (size_t i = 0; i < history_inputs_.size(); ++i) {
     output << absl::StrCat(history_inputs_[i]);
@@ -248,7 +249,7 @@ void Client::PlaybackHistory() {
   }
 
   commands::Output output;
-  VLOG(1) << "Playback history: size=" << history_inputs_.size();
+  MOZC_VLOG(1) << "Playback history: size=" << history_inputs_.size();
   for (size_t i = 0; i < history_inputs_.size(); ++i) {
     history_inputs_[i].set_id(id_);
     if (!Call(history_inputs_[i], &output)) {
@@ -633,7 +634,7 @@ bool Client::CallAndCheckVersion(const commands::Input &input,
 }
 
 bool Client::Call(const commands::Input &input, commands::Output *output) {
-  VLOG(2) << "commands::Input: " << std::endl << MOZC_LOG_PROTOBUF(input);
+  MOZC_VLOG(2) << "commands::Input: " << std::endl << input;
 
   // don't repeat Call() if the status is either
   // SERVER_FATAL, SERVER_TIMEOUT, or SERVER_BROKEN_MESSAGE
@@ -690,12 +691,8 @@ bool Client::Call(const commands::Input &input, commands::Output *output) {
     return false;
   }
 
-  // Drop DebugString() as it raises segmentation fault.
-  // http://b/2126375
-  // TODO(taku): Investigate the error in detail.
   if (!client->Call(request, &response_, timeout_)) {
-    LOG(ERROR) << "Call failure";
-    //               << input.DebugString();
+    LOG(ERROR) << "Call failure" << input.DebugString();
     if (client->GetLastIPCError() == IPC_TIMEOUT_ERROR) {
       server_status_ = SERVER_TIMEOUT;
     } else {
@@ -706,8 +703,8 @@ bool Client::Call(const commands::Input &input, commands::Output *output) {
   }
 
   if (!output->ParseFromString(response_)) {
-    LOG(ERROR) << "Parse failure of the result of the request:";
-    //               << input.DebugString();
+    LOG(ERROR) << "Parse failure of the result of the request:"
+               << input.DebugString();
     server_status_ = SERVER_BROKEN_MESSAGE;
     return false;
   }
@@ -718,7 +715,7 @@ bool Client::Call(const commands::Input &input, commands::Output *output) {
          server_status_ == SERVER_UNKNOWN /* during StartServer() */)
       << " " << server_status_;
 
-  VLOG(2) << "commands::Output: " << std::endl << MOZC_LOG_PROTOBUF(*output);
+  MOZC_VLOG(2) << "commands::Output: " << std::endl << *output;
 
   return true;
 }

@@ -43,6 +43,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/algorithm/container.h"
+#include "absl/flags/flag.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
 #include "base/japanese_util.h"
@@ -50,17 +56,11 @@
 #include "base/singleton.h"
 #include "base/stopwatch.h"
 #include "base/util.h"
+#include "client/client.h"
 #include "config/config_handler.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "session/random_keyevents_generator.h"
-#include "absl/algorithm/container.h"
-#include "absl/flags/flag.h"
-#include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
-#include "absl/time/time.h"
-#include "absl/types/span.h"
-#include "client/client.h"
 
 ABSL_FLAG(std::string, server_path, "", "specify server path");
 ABSL_FLAG(std::string, log_path, "", "specify log output file path");
@@ -86,14 +86,13 @@ class TestSentenceGenerator {
     const size_t size = std::min<size_t>(200, sentences.size());
 
     for (size_t i = 0; i < size; ++i) {
-      std::string output;
-      japanese_util::HiraganaToRomanji(sentences[i], &output);
+      std::string output = japanese_util::HiraganaToRomanji(sentences[i]);
       std::vector<commands::KeyEvent> tmp;
       for (ConstChar32Iterator iter(output); !iter.Done(); iter.Next()) {
-        const char32_t ucs4 = iter.Get();
-        if (ucs4 >= 'a' && ucs4 <= 'z') {
+        const char32_t codepoint = iter.Get();
+        if (codepoint >= 'a' && codepoint <= 'z') {
           commands::KeyEvent key;
-          key.set_key_code(static_cast<int>(ucs4));
+          key.set_key_code(static_cast<int>(codepoint));
           tmp.push_back(key);
         }
       }

@@ -34,19 +34,20 @@
 #include <string>
 #include <utility>
 
-#include "base/logging.h"
+#include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/log/log.h"
+#include "absl/synchronization/mutex.h"
+#include "base/util.h"
 #include "config/config_handler.h"
 #include "data_manager/data_manager.h"
 #include "engine/engine.h"
-#include "engine/engine_builder.h"
+#include "engine/engine_interface.h"
 #include "engine/minimal_engine.h"
 #include "protocol/commands.pb.h"
 #include "protocol/user_dictionary_storage.pb.h"
-#include "session/session.h"
 #include "session/session_handler.h"
 #include "session/session_handler_interface.h"
-#include "absl/flags/flag.h"
-#include "absl/synchronization/mutex.h"
 
 namespace mozc {
 namespace ios {
@@ -70,7 +71,7 @@ std::unique_ptr<EngineInterface> CreateMobileEngine(
   auto engine = Engine::CreateMobileEngine(*std::move(data_manager));
   if (!engine.ok()) {
     LOG(ERROR) << "Failed to create an engine: " << engine.status()
-               << ". Faillback to MinimalEngine";
+               << ". Fallback to MinimalEngine";
     return std::make_unique<MinimalEngine>();
   }
   return *std::move(engine);
@@ -79,8 +80,7 @@ std::unique_ptr<EngineInterface> CreateMobileEngine(
 std::unique_ptr<SessionHandlerInterface> CreateSessionHandler(
     const std::string &data_file_path) {
   std::unique_ptr<EngineInterface> engine = CreateMobileEngine(data_file_path);
-  return std::make_unique<SessionHandler>(std::move(engine),
-                                          std::make_unique<EngineBuilder>());
+  return std::make_unique<SessionHandler>(std::move(engine));
   // TODO(noriyukit): Add SessionUsageObserver by AddObserver().
 }
 
@@ -154,13 +154,6 @@ IosEngine::InputConfigTuple IosEngine::GetInputConfigTupleFromLayoutName(
   return {{Request::TOGGLE_FLICK_TO_HIRAGANA_INTUITIVE, commands::HIRAGANA},
           {Request::TWELVE_KEYS_TO_HALFWIDTHASCII, commands::HALF_ASCII},
           {Request::QWERTY_MOBILE_TO_HALFWIDTHASCII, commands::HALF_ASCII}};
-}
-
-void IosEngine::InitMozc() {
-  // Output logs to stderr so that they are displayed in XCode's console.
-  // This must be set before Logging::InitLogStream().
-  absl::SetFlag(&FLAGS_logtostderr, true);
-  Logging::InitLogStream("MOZC_IOS_ENGINE");
 }
 
 IosEngine::IosEngine(const std::string &data_file_path)
@@ -260,7 +253,7 @@ bool IosEngine::SendKey(const std::string &character,
   input->set_id(session_id_);
   input->set_type(commands::Input::SEND_KEY);
   commands::KeyEvent *key_event = input->mutable_key();
-  key_event->set_key_code(Util::Utf8ToUcs4(character));
+  key_event->set_key_code(Util::Utf8ToCodepoint(character));
   key_event->set_mode(current_input_config_->composition_mode);
   constexpr uint32_t kNoModifiers = 0;
   key_event->set_modifiers(kNoModifiers);
@@ -326,8 +319,7 @@ bool IosEngine::SwitchInputMode(InputMode mode) {
       target_config = &current_config_tuple_.digit_config;
       break;
     default:
-      LOG(DFATAL) << "Should never reach here";
-      return false;
+      ABSL_UNREACHABLE();
   }
   if (current_input_config_ == target_config) {
     return true;
@@ -361,15 +353,13 @@ bool IosEngine::ImportUserDictionary(const std::string &tsv_content,
       return false;
     }
     if (!LoadUserDictionaryIfExists(session.user_dict_session_id(), command)) {
-      LOG(ERROR) << "Failed to load user dictionary: "
-                 << command->Utf8DebugString();
+      LOG(ERROR) << "Failed to load user dictionary: " << command;
       return false;
     }
     if (!DeleteUserDictionaryIfExists(session.user_dict_session_id(),
                                       kIosSystemDictionaryName, command)) {
       LOG(ERROR) << "Failed to delete a user dictionary ["
-                 << kIosSystemDictionaryName
-                 << "]: " << command->Utf8DebugString();
+                 << kIosSystemDictionaryName << "]: " << command;
       return false;
     }
     // Import data only when tsv_content is nonempty.
@@ -378,13 +368,11 @@ bool IosEngine::ImportUserDictionary(const std::string &tsv_content,
                                        kIosSystemDictionaryName, tsv_content,
                                        command)) {
       LOG(ERROR) << "Failed to import data to a new user dictionary ["
-                 << kIosSystemDictionaryName
-                 << "]: " << command->Utf8DebugString();
+                 << kIosSystemDictionaryName << "]: " << command;
       return false;
     }
     if (!SaveUserDictionary(session.user_dict_session_id(), command)) {
-      LOG(ERROR) << "Failed to save user dictionary to storage: "
-                 << command->Utf8DebugString();
+      LOG(ERROR) << "Failed to save user dictionary to storage: " << command;
       return false;
     }
   }
@@ -431,8 +419,7 @@ IosEngine::ScopedUserDictionarySession::ScopedUserDictionarySession(
   auto *user_dict_cmd = input->mutable_user_dictionary_command();
   user_dict_cmd->set_type(UserDictionaryCommand::CREATE_SESSION);
   if (!engine->EvalCommandLockGuarded(&command)) {
-    LOG(ERROR) << "Failed to create a user dictionary session: "
-               << command.Utf8DebugString();
+    LOG(ERROR) << "Failed to create a user dictionary session: " << command;
     return;
   }
   user_dict_session_id_ =
@@ -454,7 +441,7 @@ IosEngine::ScopedUserDictionarySession::~ScopedUserDictionarySession() {
   if (!engine_->EvalCommandLockGuarded(&command)) {
     LOG(ERROR) << "Failed to delete user dictionary session "
                << user_dict_session_id_
-               << ".  This session may leak: " << command.Utf8DebugString();
+               << ".  This session may leak: " << command;
   }
 }
 

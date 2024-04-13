@@ -35,6 +35,9 @@
 #include <string>
 #include <vector>
 
+#include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "converter/connector.h"
 #include "converter/immutable_converter_interface.h"
 #include "converter/lattice.h"
@@ -46,26 +49,19 @@
 #include "dictionary/pos_group.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/suppression_dictionary.h"
+#include "engine/modules.h"
 #include "prediction/suggestion_filter.h"
 #include "request/conversion_request.h"
-#include "testing/gunit_prod.h"  //  for FRIEND_TEST()
-#include "absl/base/attributes.h"
+#include "testing/friend_test.h"
 
 namespace mozc {
 
-class ImmutableConverterImpl : public ImmutableConverterInterface {
+class ImmutableConverter : public ImmutableConverterInterface {
  public:
-  ImmutableConverterImpl(
-      const dictionary::DictionaryInterface *dictionary,
-      const dictionary::DictionaryInterface *suffix_dictionary,
-      const dictionary::SuppressionDictionary *suppression_dictionary,
-      const Connector &connector, const Segmenter *segmenter,
-      const dictionary::PosMatcher *pos_matcher,
-      const dictionary::PosGroup *pos_group,
-      const SuggestionFilter &suggestion_filter);
-  ImmutableConverterImpl(const ImmutableConverterImpl &) = delete;
-  ImmutableConverterImpl &operator=(const ImmutableConverterImpl &) = delete;
-  ~ImmutableConverterImpl() override = default;
+  explicit ImmutableConverter(const engine::Modules &modules);
+  ImmutableConverter(const ImmutableConverter &) = delete;
+  ImmutableConverter &operator=(const ImmutableConverter &) = delete;
+  ~ImmutableConverter() override = default;
 
   ABSL_MUST_USE_RESULT bool ConvertForRequest(
       const ConversionRequest &request, Segments *segments) const override;
@@ -74,6 +70,7 @@ class ImmutableConverterImpl : public ImmutableConverterInterface {
   FRIEND_TEST(ImmutableConverterTest, AddPredictiveNodes);
   FRIEND_TEST(ImmutableConverterTest, DummyCandidatesCost);
   FRIEND_TEST(ImmutableConverterTest, DummyCandidatesInnerSegmentBoundary);
+  FRIEND_TEST(ImmutableConverterTest, MakeLatticeKatakana);
   FRIEND_TEST(ImmutableConverterTest, NotConnectedTest);
   FRIEND_TEST(ImmutableConverterTest, PredictiveNodesOnlyForConversionKey);
   FRIEND_TEST(NBestGeneratorTest, InnerSegmentBoundary);
@@ -85,15 +82,20 @@ class ImmutableConverterImpl : public ImmutableConverterInterface {
     MULTI_SEGMENTS,      // Normal conversion ("私の|名前は|中野です")
     SINGLE_SEGMENT,      // Realtime conversion ("私の名前は中野です")
     ONLY_FIRST_SEGMENT,  // Insert only first segment ("私の")
+    // Insert only first segment for n-best path
+    // ここでは着物を脱ぐ
+    // ここで履物を脱ぐ
+    // → ここでは, ここで
+    FIRST_INNER_SEGMENT,
   };
 
   void ExpandCandidates(const ConversionRequest &request,
                         const std::string &original_key, NBestGenerator *nbest,
                         Segment *segment, size_t expand_size) const;
   void InsertDummyCandidates(Segment *segment, size_t expand_size) const;
-  Node *Lookup(int begin_pos, int end_pos, const ConversionRequest &request,
-               bool is_reverse, bool is_prediction, Lattice *lattice) const;
-  Node *AddCharacterTypeBasedNodes(const char *begin, const char *end,
+  Node *Lookup(int begin_pos, const ConversionRequest &request, bool is_reverse,
+               bool is_prediction, Lattice *lattice) const;
+  Node *AddCharacterTypeBasedNodes(absl::string_view key_substr,
                                    Lattice *lattice, Node *nodes) const;
 
   void Resegment(const Segments &segments, const std::string &history_key,
@@ -137,34 +139,39 @@ class ImmutableConverterImpl : public ImmutableConverterInterface {
   void InsertFirstSegmentToCandidates(const ConversionRequest &request,
                                       Segments *segments,
                                       const Lattice &lattice,
-                                      const std::vector<uint16_t> &group,
+                                      absl::Span<const uint16_t> group,
                                       size_t max_candidates_size,
                                       bool allow_exact) const;
 
   void InsertCandidates(const ConversionRequest &request, Segments *segments,
                         const Lattice &lattice,
-                        const std::vector<uint16_t> &group,
+                        absl::Span<const uint16_t> group,
                         size_t max_candidates_size,
                         InsertCandidatesType type) const;
+
+  void InsertCandidatesForRealtime(const ConversionRequest &request,
+                                   const Lattice &lattice,
+                                   absl::Span<const uint16_t> group,
+                                   Segments *segments) const;
 
   // Helper function for InsertCandidates().
   // Returns true if |node| is valid node for segment end.
   bool IsSegmentEndNode(const ConversionRequest &request,
                         const Segments &segments, const Node *node,
-                        const std::vector<uint16_t> &group,
+                        absl::Span<const uint16_t> group,
                         bool is_single_segment) const;
 
   // Helper function for InsertCandidates().
   // Returns the segment for inserting candidates.
   Segment *GetInsertTargetSegment(const Lattice &lattice,
-                                  const std::vector<uint16_t> &group,
+                                  absl::Span<const uint16_t> group,
                                   InsertCandidatesType type, size_t begin_pos,
                                   const Node *node, Segments *segments) const;
 
   bool MakeSegments(const ConversionRequest &request, const Lattice &lattice,
-                    const std::vector<uint16_t> &group,
-                    Segments *segments) const;
+                    absl::Span<const uint16_t> group, Segments *segments) const;
 
+  // |group| will be used to specify the segmentation.
   void MakeGroup(const Segments &segments, std::vector<uint16_t> *group) const;
 
   inline int GetCost(const Node *lnode, const Node *rnode) const {
@@ -175,6 +182,16 @@ class ImmutableConverterImpl : public ImmutableConverterInterface {
     }
     return connector_.GetTransitionCost(lnode->rid, rnode->lid) + rnode->wcost;
   }
+
+  void InsertCandidatesForConversion(const ConversionRequest &request,
+                                     const Lattice &lattice,
+                                     absl::Span<const uint16_t> group,
+                                     Segments *segments) const;
+
+  void InsertCandidatesForPrediction(const ConversionRequest &request,
+                                     const Lattice &lattice,
+                                     absl::Span<const uint16_t> group,
+                                     Segments *segments) const;
 
   const dictionary::DictionaryInterface *dictionary_;
   const dictionary::DictionaryInterface *suffix_dictionary_;

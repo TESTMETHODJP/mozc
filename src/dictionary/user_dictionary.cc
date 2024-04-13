@@ -39,14 +39,24 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/thread_annotations.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "base/file_util.h"
 #include "base/hash.h"
-#include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/strings/assign.h"
+#include "base/strings/japanese.h"
+#include "base/strings/unicode.h"
 #include "base/thread.h"
-#include "base/util.h"
+#include "base/vlog.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_token.h"
 #include "dictionary/pos_matcher.h"
@@ -59,14 +69,6 @@
 #include "protocol/user_dictionary_storage.pb.h"
 #include "request/conversion_request.h"
 #include "usage_stats/usage_stats.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/container/flat_hash_set.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/ascii.h"
-#include "absl/strings/match.h"
-#include "absl/strings/string_view.h"
-#include "absl/synchronization/mutex.h"
 
 namespace mozc {
 namespace dictionary {
@@ -160,8 +162,7 @@ class UserDictionary::TokensIndex {
       if (!dic.enabled() || dic.entries_size() == 0) {
         continue;
       }
-
-      const bool is_shortcuts =
+      const bool is_android_shortcuts =
           (dic.name() == "__auto_imported_android_shortcuts_dictionary");
 
       for (const UserDictionaryStorage::UserDictionaryEntry &entry :
@@ -170,27 +171,44 @@ class UserDictionary::TokensIndex {
           continue;
         }
 
-        std::string tmp, reading;
-        UserDictionaryUtil::NormalizeReading(entry.key(), &tmp);
-
         // We cannot call NormalizeVoiceSoundMark inside NormalizeReading,
         // because the normalization is user-visible.
         // http://b/2480844
-        japanese_util::NormalizeVoicedSoundMark(tmp, &reading);
+        std::string reading = japanese::NormalizeVoicedSoundMark(
+            UserDictionaryUtil::NormalizeReading(entry.key()));
 
         DCHECK(user_dictionary::UserDictionary_PosType_IsValid(entry.pos()));
         static_assert(user_dictionary::UserDictionary_PosType_PosType_MAX <=
                       std::numeric_limits<char>::max());
-        const uint64_t fp = Fingerprint(reading + "\t" + entry.value() + "\t" +
-                                        static_cast<char>(entry.pos()));
+        const char pos_type_as_char[] = {static_cast<char>(entry.pos())};
+        const uint64_t fp =
+            Fingerprint(absl::StrCat(reading, "\t", entry.value(), "\t",
+                                     absl::string_view(pos_type_as_char, 1)));
         if (!seen.insert(fp).second) {
-          VLOG(1) << "Found dup item";
+          MOZC_VLOG(1) << "Found dup item";
           continue;
         }
 
-        // "抑制単語"
         if (entry.pos() == user_dictionary::UserDictionary::SUPPRESSION_WORD) {
-          suppression_dictionary_->AddEntry(reading, entry.value());
+          // "抑制単語"
+          suppression_dictionary_->AddEntry(std::move(reading), entry.value());
+        } else if (entry.pos() == user_dictionary::UserDictionary::NO_POS) {
+          // In theory NO_POS works without this implementation, as it is
+          // covered in the UserPos::GetTokens function. However, that function
+          // is depending on the user_pos_*.data in the dictionary and there
+          // will not be corresponding POS tag. To avoid invalid behavior, this
+          // special treatment is added here.
+          // "品詞なし"
+          const absl::string_view comment =
+              absl::StripAsciiWhitespace(entry.comment());
+          UserPos::Token token{.key = reading,
+                               .value = entry.value(),
+                               .id = 0,
+                               .attributes = UserPos::Token::SHORTCUT,
+                               .comment = std::string(comment)};
+          // NO_POS has '名詞サ変' id as in user_pos.def
+          user_pos_->GetPosIds("名詞サ変", &token.id);
+          user_pos_tokens_.push_back(std::move(token));
         } else {
           tokens.clear();
           user_pos_->GetTokens(
@@ -200,14 +218,10 @@ class UserDictionary::TokensIndex {
               absl::StripAsciiWhitespace(entry.comment());
           for (auto &token : tokens) {
             strings::Assign(token.comment, comment);
-            if (is_shortcuts &&
+            if (is_android_shortcuts &&
                 token.has_attribute(UserPos::Token::SUGGESTION_ONLY)) {
-              // Words fed by Android shortcut are registered as SUGGESTION_ONLY
-              // POS in order to minimize the side-effect of extremely short
-              // reading. However, user expect that they should appear in the
-              // normal conversion. Here we replace the attribute from
-              // SUGGESTION_ONLY to SHORTCUT, which has more adaptive cost based
-              // on the length of the key.
+              // TODO(b/295964970): This special implementation is planned to be
+              // removed after validating the safety of NO_POS implementation.
               token.remove_attribute(UserPos::Token::SUGGESTION_ONLY);
               token.add_attribute(UserPos::Token::SHORTCUT);
             }
@@ -222,7 +236,7 @@ class UserDictionary::TokensIndex {
     std::sort(user_pos_tokens_.begin(), user_pos_tokens_.end(),
               OrderByKeyThenById());
 
-    VLOG(1) << user_pos_tokens_.size() << " user dic entries loaded";
+    MOZC_VLOG(1) << user_pos_tokens_.size() << " user dic entries loaded";
 
     usage_stats::UsageStats::SetInteger(
         "UserRegisteredWord", static_cast<int>(user_pos_tokens_.size()));
@@ -350,7 +364,7 @@ void UserDictionary::LookupPredictive(
   absl::ReaderMutexLock l(&mutex_);
 
   if (key.empty()) {
-    VLOG(2) << "string of length zero is passed.";
+    MOZC_VLOG(2) << "string of length zero is passed.";
     return;
   }
   if (tokens_->empty()) {
@@ -401,8 +415,7 @@ void UserDictionary::LookupPrefix(absl::string_view key,
   }
 
   // Find the starting point for iteration over dictionary contents.
-  const absl::string_view first_char =
-      key.substr(0, Util::OneCharLen(key.data()));
+  const absl::string_view first_char = Utf8AsChars(key).front();
   Token token;
   for (auto it = std::lower_bound(tokens_->begin(), tokens_->end(), first_char,
                                   OrderByKey());
@@ -572,9 +585,7 @@ bool UserDictionary::Load(
 }
 
 std::vector<std::string> UserDictionary::GetPosList() const {
-  std::vector<std::string> pos_list;
-  user_pos_->GetPosList(&pos_list);
-  return pos_list;
+  return user_pos_->GetPosList();
 }
 
 void UserDictionary::SetUserDictionaryName(const absl::string_view filename) {
@@ -617,8 +628,8 @@ void UserDictionary::PopulateTokenFromUserPosToken(
   // TODO(taku): Better to apply this cost for all user defined words?
   if (user_pos_token.has_attribute(UserPos::Token::SHORTCUT) &&
       (request_type == PREFIX || request_type == EXACT)) {
-    const int key_length = Util::CharsLen(token->key);
-    token->cost += std::max<int>(0, 4 - key_length) * 2000;
+    const int key_length = strings::AtLeastCharsLen(token->key, 4);
+    token->cost += (4 - key_length) * 2000;
   }
 }
 

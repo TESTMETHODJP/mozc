@@ -30,7 +30,19 @@
 #ifndef MOZC_ENGINE_ENGINE_MOCK_H_
 #define MOZC_ENGINE_ENGINE_MOCK_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "converter/converter_interface.h"
+#include "data_manager/data_manager_interface.h"
+#include "dictionary/suppression_dictionary.h"
 #include "engine/engine_interface.h"
+#include "engine/modules.h"
+#include "engine/spellchecker_interface.h"
+#include "engine/user_data_manager_interface.h"
 #include "testing/gmock.h"
 
 namespace mozc {
@@ -38,17 +50,22 @@ namespace mozc {
 class MockEngine : public EngineInterface {
  public:
   MOCK_METHOD(ConverterInterface *, GetConverter, (), (const, override));
-  MOCK_METHOD(prediction::PredictorInterface *, GetPredictor, (),
-              (const, override));
+  MOCK_METHOD(absl::string_view, GetPredictorName, (), (const, override));
   MOCK_METHOD(dictionary::SuppressionDictionary *, GetSuppressionDictionary, (),
               (override));
   MOCK_METHOD(bool, Reload, (), (override));
+  MOCK_METHOD(bool, Sync, (), (override));
+  MOCK_METHOD(bool, Wait, (), (override));
   MOCK_METHOD(bool, ReloadAndWait, (), (override));
+  MOCK_METHOD(absl::Status, ReloadModules,
+              (std::unique_ptr<engine::Modules>, bool), (override));
   MOCK_METHOD(UserDataManagerInterface *, GetUserDataManager, (), (override));
   MOCK_METHOD(absl::string_view, GetDataVersion, (), (const, override));
   MOCK_METHOD(const DataManagerInterface *, GetDataManager, (),
               (const, override));
   MOCK_METHOD(std::vector<std::string>, GetPosList, (), (const, override));
+  MOCK_METHOD(void, SetSpellchecker, (const engine::SpellcheckerInterface *),
+              (override));
 };
 
 }  // namespace mozc

@@ -36,6 +36,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/time/time.h"
 #include "composer/composer.h"
 #include "config/config_handler.h"
 #include "protocol/commands.pb.h"
@@ -43,7 +44,6 @@
 #include "session/internal/key_event_transformer.h"
 #include "session/internal/keymap.h"
 #include "session/session_converter_interface.h"
-#include "absl/time/time.h"
 
 namespace mozc {
 namespace session {

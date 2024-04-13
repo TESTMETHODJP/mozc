@@ -39,17 +39,16 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/config.h"
+#include "absl/container/btree_map.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/bits.h"
 #include "base/container/serialized_string_array.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/number_util.h"
-#include "base/status.h"
-#include "absl/base/config.h"
-#include "absl/container/btree_map.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {

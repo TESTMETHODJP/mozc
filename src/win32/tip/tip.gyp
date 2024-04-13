@@ -93,21 +93,22 @@
             'tip_ui_handler_conventional.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/base/absl.gyp:absl_base',
-            '<(mozc_src_dir)/base/base.gyp:base',
-            '<(mozc_src_dir)/base/base.gyp:crash_report_handler',
-            '<(mozc_src_dir)/base/base.gyp:update_util',
-            '<(mozc_src_dir)/base/win32/base_win32.gyp:com_implements',
+            '<(mozc_oss_src_dir)/base/absl.gyp:absl_base',
+            '<(mozc_oss_src_dir)/base/base.gyp:base',
+            '<(mozc_oss_src_dir)/base/base.gyp:crash_report_handler',
+            '<(mozc_oss_src_dir)/base/base.gyp:update_util',
+            '<(mozc_oss_src_dir)/base/win32/base_win32.gyp:com_implements',
             '<(mozc_oss_src_dir)/client/client.gyp:client',
-            '<(mozc_src_dir)/config/config.gyp:config_handler',
-            '<(mozc_src_dir)/config/config.gyp:stats_config_util',
-            '<(mozc_src_dir)/protobuf/protobuf.gyp:protobuf',
-            '<(mozc_src_dir)/protocol/protocol.gyp:commands_proto',
-            '<(mozc_src_dir)/protocol/protocol.gyp:renderer_proto',
+            '<(mozc_oss_src_dir)/config/config.gyp:config_handler',
+            '<(mozc_oss_src_dir)/config/config.gyp:stats_config_util',
+            '<(mozc_oss_src_dir)/protobuf/protobuf.gyp:protobuf',
+            '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
+            '<(mozc_oss_src_dir)/protocol/protocol.gyp:renderer_proto',
             '<(mozc_oss_src_dir)/renderer/renderer.gyp:win32_renderer_client',
             '../base/win32_base.gyp:ime_base',
             '../base/win32_base.gyp:ime_impl_base',
             '../base/win32_base.gyp:imframework_util',
+            '../base/win32_base.gyp:msctf_dll_import_lib',
             '../base/win32_base.gyp:text_icon',
           ],
         },
@@ -122,7 +123,7 @@
             'tip_surrounding_text_test.cc',
           ],
           'dependencies': [
-            '<(mozc_src_dir)/testing/testing.gyp:gtest_main',
+            '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
             'tip_core',
           ],
         },
@@ -151,11 +152,6 @@
             'gen_mozc_tip_resource_header',
             'tip_core',
           ],
-          'msvs_settings': {
-            'VCLinkerTool': {
-              'BaseAddress': '0x06000000',
-            },
-          },
         },
         {
           'target_name': 'mozc_tip64',
@@ -171,9 +167,6 @@
             'tip_core',
           ],
           'msvs_settings': {
-            'VCLinkerTool': {
-              'BaseAddress': '0x06000000',
-            },
             'VCManifestTool': {
               'EmbedManifest': 'true',
             },

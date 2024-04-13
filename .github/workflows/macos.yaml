@@ -11,11 +11,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VENV_ROOT: ${{ github.workspace }}/src/python-venv
+
 jobs:
   build_arm64:
-    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-11-Readme.md
-    runs-on: macos-11
-    timeout-minutes: 90
+    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-14-Readme.md
+    runs-on: macos-14
+    timeout-minutes: 60
 
     steps:
       - name: checkout
@@ -23,19 +26,14 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          cache: 'pip'
-          python-version: '3.9'
-
-      - name: Install pip dependencies
-        working-directory: ./src
+      - name: Setup Python
         run: |
+          python3 -m venv ${PYTHON_VENV_ROOT}
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 -m pip install requests
 
       - name: Try to restore update_deps cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: src/third_party_cache
           key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
@@ -44,14 +42,14 @@ jobs:
         working-directory: ./src
         # This command uses src/third_party_cache as the download cache.
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/update_deps.py
 
       - name: Build Qt
         working-directory: ./src
-        # We haven't succeeded to cross build Qt6 for arm64 on intel mac.
-        # Build a Universal macOS Binary for Qt6 as a workaround.
         run: |
-          python3 build_tools/build_qt.py --release --confirm_license --macos_cpus=x86_64,arm64
+          source ${PYTHON_VENV_ROOT}/bin/activate
+          python3 build_tools/build_qt.py --release --confirm_license --macos_cpus=arm64
           echo "MOZC_QT_PATH=${PWD}/third_party/qt" >> $GITHUB_ENV
 
       - name: bazel build
@@ -60,16 +58,16 @@ jobs:
           bazel build --config oss_macos package --macos_cpus=arm64
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Mozc_arm64.pkg
           path: src/bazel-bin/mac/Mozc.pkg
           if-no-files-found: warn
 
   build_intel64:
-    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-11-Readme.md
-    runs-on: macos-11
-    timeout-minutes: 90
+    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-14-Readme.md
+    runs-on: macos-14
+    timeout-minutes: 60
 
     steps:
       - name: checkout
@@ -77,19 +75,14 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          cache: 'pip'
-          python-version: '3.9'
-
-      - name: Install pip dependencies
-        working-directory: ./src
+      - name: Setup Python
         run: |
+          python3 -m venv ${PYTHON_VENV_ROOT}
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 -m pip install requests
 
       - name: Try to restore update_deps cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: src/third_party_cache
           key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
@@ -98,11 +91,13 @@ jobs:
         working-directory: ./src
         # This command uses src/third_party_cache as the download cache.
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/update_deps.py
 
       - name: Build Qt
         working-directory: ./src
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/build_qt.py --release --confirm_license --macos_cpus=x86_64
           echo "MOZC_QT_PATH=${PWD}/third_party/qt" >> $GITHUB_ENV
 
@@ -112,15 +107,15 @@ jobs:
           bazel build --config oss_macos package --macos_cpus=x86_64
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Mozc_intel64.pkg
           path: src/bazel-bin/mac/Mozc.pkg
           if-no-files-found: warn
 
   build_universal_binary:
-    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-11-Readme.md
-    runs-on: macos-11
+    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-14-Readme.md
+    runs-on: macos-14
     timeout-minutes: 90
 
     steps:
@@ -129,19 +124,14 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          cache: 'pip'
-          python-version: '3.9'
-
-      - name: Install pip dependencies
-        working-directory: ./src
+      - name: Setup Python
         run: |
+          python3 -m venv ${PYTHON_VENV_ROOT}
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 -m pip install requests
 
       - name: Try to restore update_deps cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: src/third_party_cache
           key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
@@ -150,11 +140,13 @@ jobs:
         working-directory: ./src
         # This command uses src/third_party_cache as the download cache.
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/update_deps.py
 
       - name: Build Qt
         working-directory: ./src
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/build_qt.py --release --confirm_license --macos_cpus=x86_64,arm64
           echo "MOZC_QT_PATH=${PWD}/third_party/qt" >> $GITHUB_ENV
 
@@ -164,16 +156,16 @@ jobs:
           bazel build --config oss_macos package --macos_cpus=x86_64,arm64
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Mozc_universal_binary.pkg
           path: src/bazel-bin/mac/Mozc.pkg
           if-no-files-found: warn
 
   test:
-    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-11-Readme.md
-    runs-on: macos-11
-    timeout-minutes: 90
+    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-14-Readme.md
+    runs-on: macos-14
+    timeout-minutes: 60
 
     steps:
       - name: checkout
@@ -181,19 +173,14 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          cache: 'pip'
-          python-version: '3.9'
-
-      - name: Install pip dependencies
-        working-directory: ./src
+      - name: Setup Python
         run: |
+          python3 -m venv ${PYTHON_VENV_ROOT}
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 -m pip install requests
 
       - name: Try to restore update_deps cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: src/third_party_cache
           key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
@@ -202,11 +189,13 @@ jobs:
         working-directory: ./src
         # This command uses src/third_party_cache as the download cache.
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/update_deps.py
 
       - name: Build Qt
         working-directory: ./src
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/build_qt.py --release --confirm_license
           echo "MOZC_QT_PATH=${PWD}/third_party/qt" >> $GITHUB_ENV
 
@@ -219,26 +208,22 @@ jobs:
   # in other jobs. Another approach would be to use "needs:".
   # https://docs.github.com/en/actions/using-jobs/using-jobs-in-a-workflow
   cache_deps:
-    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-11-Readme.md
-    runs-on: macos-11
+    # https://github.com/actions/virtual-environments/blob/main/images/macos/macos-14-Readme.md
+    runs-on: macos-14
     timeout-minutes: 15
 
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install pip dependencies
-        working-directory: ./src
+      - name: Setup Python
         run: |
+          python3 -m venv ${PYTHON_VENV_ROOT}
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 -m pip install requests
 
       - name: Try to restore update_deps cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: src/third_party_cache
           key: update_deps-${{ runner.os }}-${{ hashFiles('src/build_tools/update_deps.py') }}
@@ -247,4 +232,5 @@ jobs:
         working-directory: ./src
         # This command uses src/third_party_cache as the download cache.
         run: |
+          source ${PYTHON_VENV_ROOT}/bin/activate
           python3 build_tools/update_deps.py --cache_only

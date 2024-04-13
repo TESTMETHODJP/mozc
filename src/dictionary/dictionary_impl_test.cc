@@ -35,6 +35,7 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "base/system_util.h"
 #include "base/util.h"
 #include "config/config_handler.h"
@@ -51,7 +52,6 @@
 #include "request/conversion_request.h"
 #include "testing/googletest.h"
 #include "testing/gunit.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace dictionary {

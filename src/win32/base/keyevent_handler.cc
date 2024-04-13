@@ -34,14 +34,16 @@
 #include <windows.h>
 
 #include <set>
+#include <string>
 
 #include "base/japanese_util.h"
 #include "base/logging.h"
 #include "base/util.h"
+#include "base/win32/wide_char.h"
+#include "client/client_interface.h"
 #include "config/config_handler.h"
 #include "protocol/commands.pb.h"
 #include "session/key_info_util.h"
-#include "client/client_interface.h"
 #include "win32/base/conversion_mode_util.h"
 #include "win32/base/input_state.h"
 #include "win32/base/keyboard.h"
@@ -407,8 +409,7 @@ bool ConvertToKeyEventMain(const VirtualKey &virtual_key, BYTE scan_code,
   // Support VK_PACKET.
   if (virtual_key.virtual_key() == VK_PACKET) {
     const char32_t character = virtual_key.unicode_char();
-    std::string utf8_characters;
-    Util::Ucs4ToUtf8(character, &utf8_characters);
+    const std::string utf8_characters = Util::CodepointToUtf8(character);
     if (utf8_characters.empty()) {
       return false;
     }
@@ -506,12 +507,12 @@ bool ConvertToKeyEventMain(const VirtualKey &virtual_key, BYTE scan_code,
     // TODO(yukawa): Move the following character conversion logic into
     //   mozc::Util as HalfWidthKatakanaToHiragana.
     const wchar_t whalf_katakana[] = {static_cast<wchar_t>(kana_code), L'\0'};
-    std::string half_katakana, full_katakana, full_hiragana;
-    mozc::Util::WideToUtf8(whalf_katakana, &half_katakana);
-    mozc::japanese_util::HalfWidthKatakanaToFullWidthKatakana(
-        half_katakana.c_str(), &full_katakana);
-    mozc::japanese_util::KatakanaToHiragana(full_katakana.c_str(),
-                                            &full_hiragana);
+    const std::string half_katakana = WideToUtf8(whalf_katakana);
+    std::string full_katakana =
+        mozc::japanese_util::HalfWidthKatakanaToFullWidthKatakana(
+            half_katakana.c_str());
+    std::string full_hiragana =
+        mozc::japanese_util::KatakanaToHiragana(full_katakana.c_str());
     key->set_key_string(full_hiragana);
     has_valid_key_string = true;
   }

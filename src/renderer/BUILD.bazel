@@ -40,11 +40,9 @@ load(
     "BRANDING",
     "MACOS_BUNDLE_ID_PREFIX",
 )
-load("//bazel/win32:build_defs.bzl", "copts_wtl", "features_gdi")
+load("//bazel/win32:build_defs.bzl", "features_gdi")
 
-package(default_visibility = [
-    "//:__subpackages__",
-])
+package(default_visibility = ["//:__subpackages__"])
 
 mozc_cc_library(
     name = "renderer_client",
@@ -59,10 +57,12 @@ mozc_cc_library(
         "//base:system_util",
         "//base:thread",
         "//base:version",
+        "//base:vlog",
         "//ipc",
         "//ipc:named_event",
         "//protocol:renderer_cc_proto",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
     ] + mozc_select(
@@ -79,7 +79,6 @@ mozc_cc_test(
     name = "renderer_client_test",
     size = "medium",
     srcs = ["renderer_client_test.cc"],
-    requires_full_emulation = False,
     tags = ["noandroid"],
     deps = [
         ":renderer_client",
@@ -107,6 +106,7 @@ mozc_cc_library(
         "//base:const",
         "//base:logging",
         "//base:system_util",
+        "//base:vlog",
         "//client:client_interface",
         "//config:config_handler",
         "//ipc",
@@ -125,7 +125,6 @@ mozc_cc_test(
     name = "renderer_server_test",
     size = "medium",
     srcs = ["renderer_server_test.cc"],
-    requires_full_emulation = False,
     tags = ["noandroid"],
     deps = [
         ":renderer_client",
@@ -161,7 +160,6 @@ mozc_cc_test(
         "table_layout_interface.h",
         "table_layout_test.cc",
     ],
-    requires_full_emulation = False,
     tags = ["noandroid"],
     deps = [
         ":table_layout",
@@ -201,7 +199,6 @@ mozc_cc_test(
     name = "window_util_test",
     size = "small",
     srcs = ["window_util_test.cc"],
-    requires_full_emulation = False,
     tags = ["noandroid"],
     deps = [
         ":window_util",
@@ -214,13 +211,16 @@ mozc_cc_library(
     name = "renderer_style_handler",
     srcs = ["renderer_style_handler.cc"],
     hdrs = ["renderer_style_handler.h"],
-    copts = copts_wtl(),  # for Windows
     features = features_gdi(),  # for Windows
     deps = [
         "//base:singleton",
         "//protocol:renderer_cc_proto",
     ] + mozc_select(
-        windows = ["//third_party/wtl"],
+        windows = [
+            "//bazel/win32:gdi32",
+            "//bazel/win32:user32",
+            "@com_microsoft_wil//:wil",
+        ],
     ),
 )
 
@@ -228,7 +228,6 @@ mozc_cc_test(
     name = "renderer_style_handler_test",
     size = "small",
     srcs = ["renderer_style_handler_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":renderer_style_handler",
         "//protocol:renderer_cc_proto",

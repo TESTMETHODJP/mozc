@@ -34,23 +34,20 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "composer/internal/composition.h"
 #include "composer/internal/composition_input.h"
 #include "composer/internal/transliterators.h"
-#include "composer/internal/typing_corrector.h"
 #include "composer/table.h"
-#include "composer/type_corrected_query.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "spelling/spellchecker_service_interface.h"
-#include "testing/gunit_prod.h"  // for FRIEND_TEST()
+#include "testing/friend_test.h"
 #include "transliteration/transliteration.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace composer {
@@ -92,8 +89,6 @@ class Composer final {
 
   void SetRequest(const commands::Request *request);
   void SetConfig(const config::Config *config);
-  void SetSpellCheckerService(
-      const spelling::SpellCheckerServiceInterface *spellchecker_service);
 
   void SetInputMode(transliteration::TransliterationType mode);
   void SetTemporaryInputMode(transliteration::TransliterationType mode);
@@ -118,33 +113,24 @@ class Composer final {
                   std::string *right) const;
 
   // Returns a preedit string with user's preferences.
-  void GetStringForPreedit(std::string *output) const;
+  std::string GetStringForPreedit() const;
 
   // Returns a submit string with user's preferences.  The difference
   // from the preedit string is the handling of the last 'n'.
-  void GetStringForSubmission(std::string *output) const;
+  std::string GetStringForSubmission() const;
 
   // Returns a conversion query normalized ascii characters in half width
-  void GetQueryForConversion(std::string *output) const;
+  std::string GetQueryForConversion() const;
 
   // Returns a prediction query trimmed the tail alphabet characters.
-  void GetQueryForPrediction(std::string *output) const;
+  std::string GetQueryForPrediction() const;
 
   // Returns a expanded prediction query.
   void GetQueriesForPrediction(std::string *base,
                                std::set<std::string> *expanded) const;
 
-  // Returns type-corrected composition strings with SpellCheckerService.
-  // `context` is the hiragana sequence typed just before the current
-  // composition. Returns an empty vector when correction is not required.
-  // Returns std::nullopt when the underlying composition spellchecker is not
-  // available/enabled.
-  std::optional<std::vector<TypeCorrectedQuery>> GetTypeCorrectedQueries(
-      absl::string_view context = "") const;
-
-  // Returns a type-corrected prediction queries.
-  void GetTypeCorrectedQueriesForPrediction(
-      std::vector<TypeCorrectedQuery> *queries) const;
+  // Returns a string to be used for type correction.
+  std::string GetStringForTypeCorrection() const;
 
   size_t GetLength() const;
   size_t GetCursor() const;
@@ -180,6 +166,15 @@ class Composer final {
   // This is useful to test the behavior of alphabet keyboard.
   void SetPreeditTextForTestOnly(absl::string_view input);
 
+  // Set compositions from handwriting recognition results.
+  // The composition may contain Kana-Kanji mixed string. (ex. "かん字")
+  // Handwriting engine can generate multiple candidates.
+  void SetCompositionsForHandwriting(
+      absl::Span<const commands::SessionCommand::CompositionEvent *const>
+          compositions);
+  const std::vector<commands::SessionCommand::CompositionEvent> &
+  GetHandwritingCompositions() const;
+
   bool InsertCharacterKeyAndPreedit(absl::string_view key,
                                     absl::string_view preedit);
   bool InsertCharacterKeyEvent(const commands::KeyEvent &key);
@@ -196,21 +191,19 @@ class Composer final {
 
   // Returns raw input from a user.
   // The main purpose is Transliteration.
-  void GetRawString(std::string *raw_string) const;
+  std::string GetRawString() const;
 
   // Returns substring of raw input.  The position and size is based on the
   // composed string.  For example, when [さ|sa][し|shi][み|mi] is the
   // composition, GetRawSubString(0, 2) returns "sashi".
-  void GetRawSubString(size_t position, size_t size,
-                       std::string *raw_sub_string) const;
+  std::string GetRawSubString(size_t position, size_t size) const;
 
   // Generate transliterations.
   void GetTransliterations(transliteration::Transliterations *t13ns) const;
 
   // Generate substrings of specified transliteration.
-  void GetSubTransliteration(transliteration::TransliterationType type,
-                             size_t position, size_t size,
-                             std::string *transliteration) const;
+  std::string GetSubTransliteration(transliteration::TransliterationType type,
+                                    size_t position, size_t size) const;
 
   // Generate substrings of transliterations.
   void GetSubTransliterations(
@@ -224,7 +217,7 @@ class Composer final {
   // status and user's settings.
   void AutoSwitchMode();
 
-  // Return true if the composition is adviced to be committed immediately.
+  // Return true if the composition is advised to be committed immediately.
   bool ShouldCommit() const;
 
   // Returns true if characters at the head of the preedit should be committed
@@ -260,16 +253,12 @@ class Composer final {
   int timeout_threshold_msec() const;
   void set_timeout_threshold_msec(int threshold_msec);
 
-  const spelling::SpellCheckerServiceInterface *spellchecker_service() const {
-    return spellchecker_service_;
-  }
-
  private:
   FRIEND_TEST(ComposerTest, ApplyTemporaryInputMode);
 
   bool ProcessCompositionInput(CompositionInput input);
 
-  // Change input mode temporarily accoding to the current context and
+  // Change input mode temporarily according to the current context and
   // the given input character.
   // This function have a bug when key has characters input with Preedit.
   // Expected behavior: InsertPreedit("A") + InsertKey("a") -> "Aあ"
@@ -277,9 +266,8 @@ class Composer final {
   void ApplyTemporaryInputMode(absl::string_view input, bool caps_locked);
 
   // Generate transliterated substrings.
-  void GetTransliteratedText(Transliterators::Transliterator t12r,
-                             size_t position, size_t size,
-                             std::string *result) const;
+  std::string GetTransliteratedText(Transliterators::Transliterator t12r,
+                                    size_t position, size_t size) const;
 
   size_t position_;
   transliteration::TransliterationType input_mode_;
@@ -291,8 +279,6 @@ class Composer final {
 
   size_t shifted_sequence_count_;
   Composition composition_;
-
-  TypingCorrector typing_corrector_;
 
   // The original text for the composition.  The value is usually
   // empty, and used for reverse conversion.
@@ -319,10 +305,11 @@ class Composer final {
   // be true.  When "b" or "c" is typed, the value should be false.
   bool is_new_input_;
 
-  // Spellchecker service. used for composition spellchecking.
-  // Composer doesn't have the ownership of spellchecker_service_,
-  // SessionHandler owns this this instance. (usually a singleton object).
-  const spelling::SpellCheckerServiceInterface *spellchecker_service_ = nullptr;
+  // Example:
+  //   {{"かん字", 0.99}, {"かlv字", 0.01}}
+  // Please refer to commands.proto
+  std::vector<commands::SessionCommand::CompositionEvent>
+      compositions_for_handwriting_;
 };
 
 }  // namespace composer

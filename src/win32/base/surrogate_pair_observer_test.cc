@@ -29,7 +29,6 @@
 
 #include "win32/base/surrogate_pair_observer.h"
 
-#include "testing/googletest.h"
 #include "testing/gunit.h"
 #include "win32/base/keyboard.h"
 
@@ -49,7 +48,7 @@ TEST(ImeSurrogatePairObserverTest, UCS2Test) {
         observer.OnTestKeyEvent(vk_a, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kHiraganaA);
+    EXPECT_EQ(action.codepoint, kHiraganaA);
   }
 
   // key down
@@ -58,7 +57,7 @@ TEST(ImeSurrogatePairObserverTest, UCS2Test) {
         observer.OnKeyEvent(vk_a, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kHiraganaA);
+    EXPECT_EQ(action.codepoint, kHiraganaA);
   }
 }
 
@@ -66,7 +65,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTest) {
   // "𠮟"
   const wchar_t kHighSurrogate = static_cast<wchar_t>(0xD842);
   const wchar_t kLowSurrogate = static_cast<wchar_t>(0xDF9F);
-  const char32_t kUcs4 = 0x20B9F;
+  const char32_t kCodepoint = 0x20B9F;
 
   const VirtualKey vk_high = VirtualKey::FromCombinedVirtualKey(
       (static_cast<DWORD>(kHighSurrogate) << 16) | VK_PACKET);
@@ -81,7 +80,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTest) {
         observer.OnTestKeyEvent(vk_high, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // key down (high surrogate)
@@ -90,7 +89,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTest) {
         observer.OnKeyEvent(vk_high, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // test key down (low surrogate)
@@ -99,7 +98,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTest) {
         observer.OnTestKeyEvent(vk_low, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kUcs4);
+    EXPECT_EQ(action.codepoint, kCodepoint);
   }
 
   // key down (low surrogate)
@@ -108,7 +107,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTest) {
         observer.OnKeyEvent(vk_low, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kUcs4);
+    EXPECT_EQ(action.codepoint, kCodepoint);
   }
 }
 
@@ -116,7 +115,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
   // "𠮟"
   const wchar_t kHighSurrogate = static_cast<wchar_t>(0xD842);
   const wchar_t kLowSurrogate = static_cast<wchar_t>(0xDF9F);
-  const char32_t kUcs4 = 0x20B9F;
+  const char32_t kCodepoint = 0x20B9F;
 
   const VirtualKey vk_high = VirtualKey::FromCombinedVirtualKey(
       (static_cast<DWORD>(kHighSurrogate) << 16) | VK_PACKET);
@@ -131,7 +130,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnTestKeyEvent(vk_high, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // key down (high surrogate)
@@ -140,7 +139,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnKeyEvent(vk_high, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // test key up (high surrogate)
@@ -149,7 +148,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnTestKeyEvent(vk_high, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // key up (high surrogate)
@@ -158,7 +157,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnKeyEvent(vk_high, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // test key down (low surrogate)
@@ -167,7 +166,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnTestKeyEvent(vk_low, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kUcs4);
+    EXPECT_EQ(action.codepoint, kCodepoint);
   }
 
   // key down (low surrogate)
@@ -176,7 +175,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnKeyEvent(vk_low, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kUcs4);
+    EXPECT_EQ(action.codepoint, kCodepoint);
   }
 
   // test key up (low surrogate)
@@ -185,7 +184,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnTestKeyEvent(vk_low, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kUcs4);
+    EXPECT_EQ(action.codepoint, kCodepoint);
   }
 
   // key up (low surrogate)
@@ -194,7 +193,7 @@ TEST(ImeSurrogatePairObserverTest, BasicSurrogatePairTestWithKeyUp) {
         observer.OnKeyEvent(vk_low, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kUcs4);
+    EXPECT_EQ(action.codepoint, kCodepoint);
   }
 }
 
@@ -202,7 +201,6 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
   // "𠮟"
   const wchar_t kHighSurrogate = static_cast<wchar_t>(0xD842);
   const wchar_t kLowSurrogate = static_cast<wchar_t>(0xDF9F);
-  const char32_t kUcs4 = 0x20B9F;
 
   const VirtualKey vk_high = VirtualKey::FromCombinedVirtualKey(
       (static_cast<DWORD>(kHighSurrogate) << 16) | VK_PACKET);
@@ -221,7 +219,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnTestKeyEvent(vk_high, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // key down (high surrogate)
@@ -230,7 +228,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnKeyEvent(vk_high, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // test key up (high surrogate)
@@ -239,7 +237,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnTestKeyEvent(vk_high, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // key up (high surrogate)
@@ -248,7 +246,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnKeyEvent(vk_high, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // test key down "あ"
@@ -257,7 +255,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnTestKeyEvent(vk_a, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kHiraganaA);
+    EXPECT_EQ(action.codepoint, kHiraganaA);
   }
 
   // key down "あ"
@@ -266,7 +264,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnKeyEvent(vk_a, true);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::DO_DEFAULT_ACTION_WITH_RETURNED_UCS4);
-    EXPECT_EQ(action.ucs4, kHiraganaA);
+    EXPECT_EQ(action.codepoint, kHiraganaA);
   }
 
   // test key up (low surrogate)
@@ -275,7 +273,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnTestKeyEvent(vk_low, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 
   // key up (low surrogate)
@@ -284,7 +282,7 @@ TEST(ImeSurrogatePairObserverTest, IrregularOrderSurrogatePairTest) {
         observer.OnKeyEvent(vk_low, false);
     EXPECT_EQ(action.type,
               SurrogatePairObserver::CONSUME_KEY_BUT_NEVER_SEND_TO_SERVER);
-    EXPECT_EQ(action.ucs4, 0);
+    EXPECT_EQ(action.codepoint, 0);
   }
 }
 

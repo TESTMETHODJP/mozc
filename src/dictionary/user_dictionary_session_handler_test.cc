@@ -34,6 +34,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "base/file_util.h"
 #include "base/protobuf/protobuf.h"
 #include "base/protobuf/repeated_field.h"
@@ -43,7 +44,6 @@
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
 #include "testing/testing_util.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace {

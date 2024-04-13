@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
@@ -47,7 +48,6 @@
 #include "session/internal/candidate_list.h"
 #include "session/session_converter_interface.h"
 #include "transliteration/transliteration.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace session {
@@ -105,9 +105,10 @@ class SessionConverter : public SessionConverterInterface {
   bool SwitchKanaType(const composer::Composer &composer) override;
 
   // Sends a suggestion request to the converter.
-  bool Suggest(const composer::Composer &composer) override;
+  bool Suggest(const composer::Composer &composer,
+               const commands::Context &context) override;
   bool SuggestWithPreferences(
-      const composer::Composer &composer,
+      const composer::Composer &composer, const commands::Context &context,
       const ConversionPreferences &preferences) override;
 
   // Sends a prediction request to the converter.
@@ -175,7 +176,7 @@ class SessionConverter : public SessionConverterInterface {
                           const commands::Context &context,
                           size_t *consumed_key_size) override;
 
-  // Does allmost the same thing as CommitFirstSegment.
+  // Does almost the same thing as CommitFirstSegment.
   // The only difference is to fix the segments from the head to the focused.
   void CommitHeadToFocusedSegments(const composer::Composer &composer,
                                    const commands::Context &context,
@@ -364,17 +365,24 @@ class SessionConverter : public SessionConverterInterface {
   config::Config CreateIncognitoConfig();
 
   const ConverterInterface *converter_;
-  std::unique_ptr<Segments> segments_;
+  // Conversion stats used by converter_.
+  Segments segments_;
 
-  std::unique_ptr<Segments> incognito_segments_;
+  // Segments for Text Conversion API to fill incognito_candidate_words
+  // Note:
+  // Text Conversion API is available in Android Gboard.
+  // It provides the converted candidates from the composition texts.
+  Segments incognito_segments_;
   size_t segment_index_;
 
   // Previous suggestions to be merged with the current predictions.
   Segment previous_suggestions_;
 
-  std::unique_ptr<commands::Result> result_;
+  // A part of Output protobuf to be returned to the client side.
+  commands::Result result_;
 
-  std::unique_ptr<CandidateList> candidate_list_;
+  // Component of the candidate list converted from segments_to result_.
+  CandidateList candidate_list_;
 
   const commands::Request *request_;
   const config::Config *config_;

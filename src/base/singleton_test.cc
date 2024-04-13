@@ -32,10 +32,10 @@
 #include <atomic>
 #include <string>
 
-#include "base/thread.h"
-#include "testing/gunit.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "base/thread.h"
+#include "testing/gunit.h"
 
 namespace mozc {
 namespace {

@@ -102,7 +102,7 @@
         'file_stream.cc',
         'file_util.cc',
         'init_mozc.cc',
-        'logging.cc',
+        'log_file.cc',
         'mmap.cc',
         'random.cc',
         'strings/unicode.cc',
@@ -110,6 +110,7 @@
         'system_util.cc',
         'text_normalizer.cc',
         'util.cc',
+        'vlog.cc',
       ],
       'dependencies': [
         'clock',
@@ -117,6 +118,7 @@
         'gen_character_set#host',
         'hash',
         'singleton',
+        'absl.gyp:absl_log',
         'absl.gyp:absl_random',
         'absl.gyp:absl_status',
         'absl.gyp:absl_strings',
@@ -138,7 +140,6 @@
               'VCLinkerTool': {
                 'AdditionalDependencies': [
                   'aux_ulib.lib',  # used in 'win_util.cc'
-                  'KtmW32.lib',  # used in 'file_util.cc'
                   'pathcch.lib',  # used in 'file/recursive.cc'
                 ],
               },
@@ -330,16 +331,16 @@
         {
           'action_name': 'gen_version_def',
           'inputs': [
-            '../mozc_version.txt',
-            '../build_tools/replace_version.py',
+            '<(mozc_src_dir)/mozc_version.txt',
+            '<(mozc_oss_src_dir)/build_tools/replace_version.py',
             'version_def_template.h',
           ],
           'outputs': [
             '<(gen_out_dir)/version_def.h',
           ],
           'action': [
-            '<(python)', '../build_tools/replace_version.py',
-            '--version_file', '../mozc_version.txt',
+            '<(python)', '<(mozc_oss_src_dir)/build_tools/replace_version.py',
+            '--version_file', '<(mozc_src_dir)/mozc_version.txt',
             '--input', 'version_def_template.h',
             '--output', '<(gen_out_dir)/version_def.h',
             '--branding', '<(branding)',
@@ -523,7 +524,7 @@
               '<(mac_breakpad_dir)/symupload',
             ],
             'action': [
-              '<(python)', '../build_tools/build_breakpad.py',
+              '<(python)', '<(mozc_oss_src_dir)/build_tools/build_breakpad.py',
               '--bpdir', '<(bpdir)',
               '--outdir', '<(mac_breakpad_dir)',
               '--sdk', 'macosx<(mac_sdk)',

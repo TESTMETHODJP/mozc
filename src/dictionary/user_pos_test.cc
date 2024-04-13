@@ -29,18 +29,19 @@
 
 #include "dictionary/user_pos.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "base/logging.h"
 #include "base/util.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/user_pos_interface.h"
 #include "testing/gunit.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace dictionary {
@@ -61,11 +62,25 @@ class UserPosTest : public ::testing::Test {
   const testing::MockDataManager mock_data_manager_;
 };
 
-TEST_F(UserPosTest, UserPosBasicTest) {
-  std::vector<std::string> pos_list;
-  user_pos_->GetPosList(&pos_list);
-  EXPECT_FALSE(pos_list.empty());
+TEST_F(UserPosTest, GetPosListDefaultIndex) {
+  const std::vector<std::string> pos_list = user_pos_->GetPosList();
+  EXPECT_EQ(pos_list[user_pos_->GetPosListDefaultIndex()], "名詞");
+}
 
+TEST_F(UserPosTest, UserPosBasicTest) {
+  const std::vector<std::string> pos_list = user_pos_->GetPosList();
+  EXPECT_FALSE(pos_list.empty());
+  // test contains
+  EXPECT_TRUE(std::find(pos_list.begin(), pos_list.end(), "名詞サ変") !=
+              pos_list.end());
+  EXPECT_TRUE(std::find(pos_list.begin(), pos_list.end(), "サジェストのみ") !=
+              pos_list.end());
+  EXPECT_TRUE(std::find(pos_list.begin(), pos_list.end(), "短縮よみ") !=
+              pos_list.end());
+  EXPECT_TRUE(std::find(pos_list.begin(), pos_list.end(), "抑制単語") !=
+              pos_list.end());
+  EXPECT_TRUE(std::find(pos_list.begin(), pos_list.end(), "品詞なし") !=
+              pos_list.end());
   uint16_t id = 0;
   for (size_t i = 0; i < pos_list.size(); ++i) {
     EXPECT_TRUE(user_pos_->IsValidPos(pos_list[i]));
@@ -75,8 +90,7 @@ TEST_F(UserPosTest, UserPosBasicTest) {
 }
 
 TEST_F(UserPosTest, UserPosGetTokensTest) {
-  std::vector<std::string> pos_list;
-  user_pos_->GetPosList(&pos_list);
+  const std::vector<std::string> pos_list = user_pos_->GetPosList();
 
   std::vector<UserPos::Token> tokens;
   EXPECT_FALSE(user_pos_->GetTokens("", "test", pos_list[0], &tokens));
@@ -103,6 +117,10 @@ TEST_F(UserPosTest, UserPosGetTokensWithAttributesTest) {
   EXPECT_EQ(tokens.size(), 1);
   EXPECT_TRUE(tokens[0].has_attribute(UserPos::Token::ISOLATED_WORD));
 
+  EXPECT_TRUE(user_pos_->GetTokens("test", "test", "品詞なし", &tokens));
+  EXPECT_EQ(tokens.size(), 1);
+  EXPECT_TRUE(tokens[0].has_attribute(UserPos::Token::SHORTCUT));
+
   EXPECT_TRUE(
       user_pos_->GetTokens("test", "test", "サジェストのみ", "en", &tokens));
   EXPECT_EQ(tokens.size(), 1);
@@ -113,11 +131,15 @@ TEST_F(UserPosTest, UserPosGetTokensWithAttributesTest) {
   EXPECT_EQ(tokens.size(), 1);
   EXPECT_TRUE(tokens[0].has_attribute(UserPos::Token::ISOLATED_WORD));
   EXPECT_TRUE(tokens[0].has_attribute(UserPos::Token::NON_JA_LOCALE));
+
+  EXPECT_TRUE(user_pos_->GetTokens("test", "test", "品詞なし", "en", &tokens));
+  EXPECT_EQ(tokens.size(), 1);
+  EXPECT_TRUE(tokens[0].has_attribute(UserPos::Token::SHORTCUT));
+  EXPECT_TRUE(tokens[0].has_attribute(UserPos::Token::NON_JA_LOCALE));
 }
 
 TEST_F(UserPosTest, UserPosGetTokensWithLocaleTest) {
-  std::vector<std::string> pos_list;
-  user_pos_->GetPosList(&pos_list);
+  const std::vector<std::string> pos_list = user_pos_->GetPosList();
 
   std::vector<UserPos::Token> tokens, tokens_ja, tokens_en;
   EXPECT_TRUE(user_pos_->GetTokens("あか", "赤", "形容詞", "", &tokens));

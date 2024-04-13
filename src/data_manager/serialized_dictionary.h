@@ -30,6 +30,7 @@
 #ifndef MOZC_DATA_MANAGER_SERIALIZED_DICTIONARY_H_
 #define MOZC_DATA_MANAGER_SERIALIZED_DICTIONARY_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <istream>
 #include <iterator>
@@ -39,8 +40,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/container/serialized_string_array.h"
 #include "absl/strings/string_view.h"
+#include "base/container/serialized_string_array.h"
+#include "base/logging.h"
 
 namespace mozc {
 
@@ -122,9 +124,14 @@ class SerializedDictionary {
 
   static constexpr size_t kTokenByteLength = 24;
 
-  class iterator : public std::iterator<std::random_access_iterator_tag,
-                                        absl::string_view> {
+  class iterator {
    public:
+    using iterator_category = std::random_access_iterator_tag;
+    using value_type = absl::string_view;
+    using difference_type = std::ptrdiff_t;
+    using pointer = absl::string_view *;
+    using reference = absl::string_view &;
+
     iterator() : token_ptr_(nullptr), string_array_(nullptr) {}
     iterator(const char *token_ptr, const SerializedStringArray *string_array)
         : token_ptr_(token_ptr), string_array_(string_array) {}

@@ -29,13 +29,11 @@
 
 #include "renderer/win32/win32_image_util.h"
 
-// clang-format off
 #include <atlbase.h>
 #include <atltypes.h>
-#include <atlapp.h>
-#include <atlgdi.h>
-#include <atlmisc.h>
-// clang-format on
+#include <wil/resource.h>
+
+#include <cstdlib>
 
 #undef StrCat
 
@@ -45,17 +43,18 @@
 #include <string>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/protobuf/text_format.h"
 #include "base/win32/wide_char.h"
 #include "base/win32/win_font_test_helper.h"
+#include "data/test/renderer/win32/test_spec.pb.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/strings/str_cat.h"
-#include "data/test/renderer/win32/test_spec.pb.h"
 
 using ::std::max;
 using ::std::min;
@@ -76,8 +75,6 @@ using ::mozc::renderer::win32::internal::SubdivisionalPixel;
 using ::mozc::renderer::win32::internal::TextLabel;
 using ::mozc::win32::Utf8ToWide;
 using ::mozc::win32::WideToUtf8;
-
-using ::WTL::CBitmap;
 
 using BalloonImageInfo = BalloonImage::BalloonImageInfo;
 using SubdivisionalPixelIterator =
@@ -115,8 +112,8 @@ class BalloonImageTest : public ::testing::Test,
     CPoint tail_offset;
     CSize size;
     std::vector<ARGBColor> buffer;
-    CBitmap dib = TestableBalloonImage::CreateInternal(info, &tail_offset,
-                                                       &size, &buffer);
+    wil::unique_hbitmap dib(TestableBalloonImage::CreateInternal(
+        info, &tail_offset, &size, &buffer));
 
     TestSpec spec = TestSpec();
     BalloonInfoToTextProto(info, &spec);
@@ -246,8 +243,7 @@ class BalloonImageTest : public ::testing::Test,
       case BalloonImageInfo::kRight:
         return TestSpec::RIGHT;
       default:
-        CHECK(false) << "Unexpected direction=" << direction;
-        return TestSpec::UNSPECIFIED;  // must not reach here.
+        LOG(FATAL) << "Unexpected direction: " << direction;
     }
   }
 
@@ -255,9 +251,7 @@ class BalloonImageTest : public ::testing::Test,
       TestSpec::TailDirection direction) {
     switch (direction) {
       case TestSpec::UNSPECIFIED:
-        CHECK(false) << "TailDirection must be set";
-        // must not reach here.
-        return BalloonImageInfo::TailDirection::kTop;
+        LOG(FATAL) << "TailDirection must be set.";
       case TestSpec::TOP:
         return BalloonImageInfo::TailDirection::kTop;
       case TestSpec::BOTTOM:
@@ -267,20 +261,16 @@ class BalloonImageTest : public ::testing::Test,
       case TestSpec::RIGHT:
         return BalloonImageInfo::TailDirection::kRight;
       default:
-        CHECK(false) << "Unexpected direction=" << direction;
-        // must not reach here.
-        return BalloonImageInfo::TailDirection::kTop;
+        LOG(FATAL) << "Unexpected direction: " << direction;
     }
   }
 
   static CLSID clsid_png_;
   static CLSID clsid_bmp_;
 
-  static HANDLE font_handle_;
   static ULONG_PTR gdiplus_token_;
 };
 
-HANDLE BalloonImageTest::font_handle_;
 CLSID BalloonImageTest::clsid_png_;
 CLSID BalloonImageTest::clsid_bmp_;
 ULONG_PTR BalloonImageTest::gdiplus_token_;
@@ -337,8 +327,8 @@ TEST_P(BalloonImageTest, TestImpl) {
   CPoint actual_tail_offset;
   CSize actual_size;
   std::vector<ARGBColor> actual_buffer;
-  CBitmap dib = TestableBalloonImage::CreateInternal(
-      info, &actual_tail_offset, &actual_size, &actual_buffer);
+  wil::unique_hbitmap dib(TestableBalloonImage::CreateInternal(
+      info, &actual_tail_offset, &actual_size, &actual_buffer));
 
   EXPECT_EQ(actual_tail_offset.x, spec.output().tail_offset_x());
   EXPECT_EQ(actual_tail_offset.y, spec.output().tail_offset_y());

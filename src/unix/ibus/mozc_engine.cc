@@ -38,21 +38,22 @@
 #include <sstream>
 #include <string>
 
-#include "base/clock.h"
-#include "base/const.h"
-#include "base/file_util.h"
-#include "base/logging.h"
-#include "base/singleton.h"
-#include "base/system_util.h"
-#include "base/util.h"
-#include "protocol/candidates.pb.h"
-#include "protocol/commands.pb.h"
-#include "protocol/config.pb.h"
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "base/clock.h"
+#include "base/const.h"
+#include "base/file_util.h"
+#include "base/singleton.h"
+#include "base/system_util.h"
+#include "base/util.h"
+#include "base/vlog.h"
 #include "client/client.h"
+#include "protocol/candidates.pb.h"
+#include "protocol/commands.pb.h"
+#include "protocol/config.pb.h"
 #include "renderer/renderer_client.h"
 #include "unix/ibus/candidate_window_handler.h"
 #include "unix/ibus/engine_registrar.h"
@@ -112,8 +113,8 @@ struct SurroundingTextInfo {
 
 bool GetSurroundingText(IbusEngineWrapper *engine, SurroundingTextInfo *info) {
   if (!(engine->CheckCapabilities(IBUS_CAP_SURROUNDING_TEXT))) {
-    VLOG(1) << "Give up CONVERT_REVERSE due to client_capabilities: "
-            << engine->GetCapabilities();
+    MOZC_VLOG(1) << "Give up CONVERT_REVERSE due to client_capabilities: "
+                 << engine->GetCapabilities();
     return false;
   }
   uint cursor_pos = 0;
@@ -369,8 +370,8 @@ void MozcEngine::PageUp(IbusEngineWrapper *engine) {
 
 bool MozcEngine::ProcessKeyEvent(IbusEngineWrapper *engine, uint keyval,
                                  uint keycode, uint modifiers) {
-  VLOG(2) << "keyval: " << keyval << ", keycode: " << keycode
-          << ", modifiers: " << modifiers;
+  MOZC_VLOG(2) << "keyval: " << keyval << ", keycode: " << keycode
+               << ", modifiers: " << modifiers;
   if (property_handler_->IsDisabled()) {
     return false;
   }
@@ -386,7 +387,7 @@ bool MozcEngine::ProcessKeyEvent(IbusEngineWrapper *engine, uint keyval,
     return false;
   }
 
-  VLOG(2) << key.DebugString();
+  MOZC_VLOG(2) << key;
   if (!property_handler_->IsActivated() && !client_->IsDirectModeCommand(key)) {
     return false;
   }
@@ -406,7 +407,7 @@ bool MozcEngine::ProcessKeyEvent(IbusEngineWrapper *engine, uint keyval,
     return false;
   }
 
-  VLOG(2) << output.DebugString();
+  MOZC_VLOG(2) << output;
 
   UpdateAll(engine, output);
 
@@ -480,7 +481,7 @@ bool MozcEngine::UpdateDeletionRange(IbusEngineWrapper *engine,
 bool MozcEngine::UpdateResult(IbusEngineWrapper *engine,
                               const commands::Output &output) const {
   if (!output.has_result()) {
-    VLOG(2) << "output doesn't contain result";
+    MOZC_VLOG(2) << "output doesn't contain result";
     return true;
   }
 
@@ -526,7 +527,7 @@ void MozcEngine::SyncData(bool force) {
   const absl::Time current_time = Clock::GetAbslTime();
   if (force || (current_time >= last_sync_time_ &&
                 current_time - last_sync_time_ >= kSyncDataInterval)) {
-    VLOG(1) << "Syncing data";
+    MOZC_VLOG(1) << "Syncing data";
     client_->SyncData();
     last_sync_time_ = current_time;
   }
@@ -534,7 +535,7 @@ void MozcEngine::SyncData(bool force) {
 
 bool MozcEngine::LaunchTool(const commands::Output &output) const {
   if (!client_->LaunchToolWithProtoBuf(output)) {
-    VLOG(2) << output.DebugString() << " Launch Failed";
+    MOZC_VLOG(2) << output << " Launch Failed";
     return false;
   }
 
@@ -654,8 +655,8 @@ bool CanUseMozcCandidateWindow(
 
   const std::optional<absl::string_view> env_candidate_window =
       GetMapValue(env, "MOZC_IBUS_CANDIDATE_WINDOW");
-  if (env_candidate_window.has_value()
-      && env_candidate_window.value() == "ibus") {
+  if (env_candidate_window.has_value() &&
+      env_candidate_window.value() == "ibus") {
     return false;
   }
 
@@ -668,9 +669,8 @@ bool CanUseMozcCandidateWindow(
     return false;
   }
   for (const std::string &compatible_desktop :
-           ibus_config.GetMozcRendererCompatibleWaylandDesktopNames()) {
-    if (std::find(current_desktops.begin(),
-                  current_desktops.end(),
+       ibus_config.GetMozcRendererCompatibleWaylandDesktopNames()) {
+    if (std::find(current_desktops.begin(), current_desktops.end(),
                   compatible_desktop) != current_desktops.end()) {
       return true;
     }

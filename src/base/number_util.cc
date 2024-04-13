@@ -40,12 +40,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
-// TODO(yuryu): This file will also move into strings/.
-#include "base/strings/internal/double_array.h"
-#include "base/strings/internal/japanese_rules.h"
-#include "base/util.h"
 #include "absl/algorithm/container.h"
+#include "absl/log/check.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
@@ -54,6 +50,10 @@
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/strings/internal/double_array.h"
+#include "base/strings/internal/japanese_rules.h"
+#include "base/strings/unicode.h"
+#include "base/util.h"
 
 namespace mozc {
 namespace {
@@ -140,14 +140,14 @@ int NumberUtil::SimpleAtoi(absl::string_view str) {
 namespace {
 
 // TODO(hidehiko): Refactoring with GetScriptType in Util class.
-inline bool IsArabicDecimalChar32(char32_t ucs4) {
+inline bool IsArabicDecimalChar32(char32_t codepoint) {
   // Halfwidth digit.
-  if (kAsciiZero <= ucs4 && ucs4 <= kAsciiNine) {
+  if (kAsciiZero <= codepoint && codepoint <= kAsciiNine) {
     return true;
   }
 
   // Fullwidth digit.
-  if (0xFF10 <= ucs4 && ucs4 <= 0xFF19) {
+  if (0xFF10 <= codepoint && codepoint <= 0xFF19) {
     return true;
   }
 
@@ -363,7 +363,7 @@ bool NumberUtil::ArabicToSeparatedArabic(absl::string_view input_num,
 
     // integral part
     for (absl::string_view::size_type j = 0; j < integer.size(); ++j) {
-      // We don't add separater first
+      // We don't add separator first
       if (j != 0 && (integer.size() - j) % 3 == 0) {
         absl::StrAppend(&result, variation.separator);
       }
@@ -837,8 +837,6 @@ bool NormalizeNumbersInternal(absl::string_view input, bool trim_leading_zeros,
                               std::string *arabic_output, std::string *suffix) {
   DCHECK(kanji_output);
   DCHECK(arabic_output);
-  const char *begin = input.data();
-  const char *end = input.data() + input.size();
   std::vector<uint64_t> numbers;
   numbers.reserve(input.size());
 
@@ -847,38 +845,33 @@ bool NormalizeNumbersInternal(absl::string_view input, bool trim_leading_zeros,
   kanji_output->clear();
   arabic_output->clear();
 
-  while (begin < end) {
-    size_t mblen = 0;
-    const char32_t wchar = Util::Utf8ToUcs4(begin, end, &mblen);
-    absl::string_view kanji_char(begin, mblen);
+  for (const UnicodeChar ch : Utf8AsUnicodeChar(input)) {
+    absl::string_view kanji_char = ch.utf8();
 
-    std::string tmp;
-    NumberUtil::KanjiNumberToArabicNumber(kanji_char, &tmp);
-
+    const std::string tmp = NumberUtil::KanjiNumberToArabicNumber(kanji_char);
     uint64_t n = 0;
     if (!absl::SimpleAtoi(tmp, &n)) {
+      if (!allow_suffix) {
+        return false;
+      }
+      DCHECK(suffix);
+      *suffix = input.substr(ch.utf8().data() - input.data());
+      if (Util::ContainsScriptType(*suffix, Util::NUMBER)) {
+        // We do want to treat "2,000" as "2" + ",000".
+        return false;
+      }
       break;
     }
 
-    if (wchar >= 0x0030 && wchar <= 0x0039) {  // '0' <= wchar <= '9'
-      kanji_char = kNumKanjiDigits[wchar - 0x0030];
-    } else if (wchar >= 0xFF10 && wchar <= 0xFF19) {  // '０' <= wchar <= '９'
-      kanji_char = kNumKanjiDigits[wchar - 0xFF10];
+    const char32_t codepoint = ch.char32();
+    if (absl::ascii_isdigit(codepoint)) {  // '0' <= codepoint <= '9'
+      kanji_char = kNumKanjiDigits[codepoint - 0x0030];
+    } else if (codepoint >= 0xFF10 &&
+               codepoint <= 0xFF19) {  // '０' <= codepoint <= '９'
+      kanji_char = kNumKanjiDigits[codepoint - 0xFF10];
     }
     absl::StrAppend(kanji_output, kanji_char);
     numbers.push_back(n);
-    begin += mblen;
-  }
-  if (begin < end) {
-    if (!allow_suffix) {
-      return false;
-    }
-    DCHECK(suffix);
-    suffix->assign(begin, end);
-    if (Util::ContainsScriptType(*suffix, Util::NUMBER)) {
-      // We do want to treat "2,000" as "2" + ",000".
-      return false;
-    }
   }
 
   if (numbers.empty()) {
@@ -933,10 +926,9 @@ bool NumberUtil::NormalizeNumbersWithSuffix(absl::string_view input,
                                   kanji_output, arabic_output, suffix);
 }
 
-void NumberUtil::KanjiNumberToArabicNumber(absl::string_view input,
-                                           std::string *output) {
+std::string NumberUtil::KanjiNumberToArabicNumber(absl::string_view input) {
   // TODO(yuryu): This file will also move into strings/.
-  *output = japanese::internal::ConvertUsingDoubleArray(
+  return japanese::internal::ConvertUsingDoubleArray(
       japanese::internal::kanjinumber_to_arabicnumber_da,
       japanese::internal::kanjinumber_to_arabicnumber_table, input);
 }

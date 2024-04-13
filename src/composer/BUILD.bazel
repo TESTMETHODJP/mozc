@@ -34,8 +34,11 @@ load(
     "mozc_cc_test",
 )
 
-package(
-    default_visibility = ["//:__subpackages__"],
+package(default_visibility = ["//:__subpackages__"])
+
+mozc_cc_library(
+    name = "query",
+    hdrs = ["query.h"],
 )
 
 mozc_cc_library(
@@ -45,28 +48,28 @@ mozc_cc_library(
     deps = [
         ":key_event_util",
         ":table",
-        ":type_corrected_query",
         "//base:clock",
         "//base:japanese_util",
         "//base:logging",
         "//base:util",
+        "//base:vlog",
         "//base/strings:assign",
         "//base/strings:unicode",
         "//composer/internal:composition",
         "//composer/internal:composition_input",
         "//composer/internal:mode_switching_handler",
         "//composer/internal:transliterators",
-        "//composer/internal:typing_corrector",
         "//config:character_form_manager",
         "//config:config_handler",
+        "//engine:spellchecker_interface",
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
-        "//spelling:spellchecker_service_interface",
-        "//testing:gunit_prod",
+        "//testing:friend_test",
         "//transliteration",
-        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -74,22 +77,18 @@ mozc_cc_test(
     name = "composer_test",
     size = "small",
     srcs = ["composer_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":composer",
         ":key_parser",
         ":table",
         "//base:clock_mock",
-        "//base:logging",
-        "//base:system_util",
         "//base:util",
-        "//composer/internal:typing_model",
         "//config:character_form_manager",
         "//config:config_handler",
-        "//data_manager/testing:mock_data_manager",
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
         "//testing:gunit_main",
+        "//transliteration",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
@@ -106,24 +105,12 @@ mozc_cc_library(
         "//base:util",
         "//base/container:trie",
         "//composer/internal:special_key",
-        "//composer/internal:typing_model",
         "//data_manager:data_manager_interface",
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
-    ],
-)
-
-mozc_cc_library(
-    name = "type_corrected_query",
-    hdrs = ["type_corrected_query.h"],
-    visibility = [
-        # For //composer/internal:typing_corrector_test.
-        "//composer/internal:__pkg__",
-        "//prediction:__pkg__",
-        "//spelling:__pkg__",
     ],
 )
 
@@ -145,7 +132,6 @@ mozc_cc_test(
     name = "table_test",
     size = "small",
     srcs = ["table_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":table",
         "//composer/internal:special_key",
@@ -164,8 +150,9 @@ mozc_cc_library(
     srcs = ["key_event_util.cc"],
     hdrs = ["key_event_util.h"],
     deps = [
-        "//base:logging",
         "//protocol:commands_cc_proto",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -173,14 +160,13 @@ mozc_cc_test(
     name = "key_event_util_test",
     size = "small",
     srcs = ["key_event_util_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":key_event_util",
         ":key_parser",
-        "//base:util",
         "//protocol:commands_cc_proto",
         "//testing:gunit_main",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
@@ -191,9 +177,13 @@ mozc_cc_library(
     deps = [
         "//base:logging",
         "//base:util",
+        "//base:vlog",
         "//protocol:commands_cc_proto",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -201,11 +191,11 @@ mozc_cc_test(
     name = "key_parser_test",
     size = "small",
     srcs = ["key_parser_test.cc"],
-    requires_full_emulation = False,
     deps = [
         ":key_event_util",
         ":key_parser",
         "//protocol:commands_cc_proto",
         "//testing:gunit_main",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )

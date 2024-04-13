@@ -34,6 +34,7 @@
 #include <iostream>
 #include <string>
 
+#include "absl/flags/flag.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
 #include "base/version.h"
@@ -41,7 +42,6 @@
 #include "unix/ibus/ibus_config.h"
 #include "unix/ibus/mozc_engine.h"
 #include "unix/ibus/path_util.h"
-#include "absl/flags/flag.h"
 
 ABSL_FLAG(bool, ibus, false, "The engine is started by ibus-daemon");
 ABSL_FLAG(bool, xml, false, "Output xml data for the engine.");
@@ -49,15 +49,6 @@ ABSL_FLAG(bool, xml, false, "Output xml data for the engine.");
 namespace mozc {
 namespace ibus {
 namespace {
-
-void EnableVerboseLog() {
-#ifndef MOZC_NO_LOGGING
-  constexpr int kDefaultVerboseLevel = 1;
-  if (mozc::Logging::GetVerboseLevel() < kDefaultVerboseLevel) {
-    mozc::Logging::SetVerboseLevel(kDefaultVerboseLevel);
-  }
-#endif  // MOZC_NO_LOGGING
-}
 
 void IgnoreSigChild() {
   // Don't wait() child process termination.
@@ -121,7 +112,6 @@ void RunIbus() {
   IbusBusWrapper bus;
   MozcEngine engine;
   InitIbusComponent(&bus, &engine, absl::GetFlag(FLAGS_ibus));
-  EnableVerboseLog();  // Do nothing if MOZC_NO_LOGGING is defined.
   IgnoreSigChild();
   IbusWrapper::Main();
 }

@@ -32,14 +32,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
-#include <sstream>
 #include <string>
 #include <vector>
 
-#include "base/util.h"
 #include "dictionary/user_dictionary_storage.h"
-#include "dictionary/user_dictionary_util.h"
-#include "testing/googletest.h"
 #include "testing/gunit.h"
 
 namespace mozc {
@@ -135,6 +131,41 @@ TEST(UserDictionaryImporter, ImportFromNormalTextTest) {
   EXPECT_EQ(user_dic.entries(4).locale(), "en");
 }
 
+TEST(UserDictionaryImporter, ImportFromGboardTextTest) {
+  constexpr char kInput[] =
+      "# Gboard Dictionary Version:1\n"
+      "きょうと\t京都\tja-JP\n"
+      "せかい\t世界\t\n"
+      "あめりか\tアメリカ\ten\n";
+
+  UserDictionaryImporter::StringTextLineIterator iter(kInput);
+  UserDictionaryStorage::UserDictionary user_dic;
+
+  EXPECT_EQ(UserDictionaryImporter::ImportFromTextLineIterator(
+                UserDictionaryImporter::GBOARD_V1, &iter, &user_dic),
+            UserDictionaryImporter::IMPORT_NO_ERROR);
+
+  ASSERT_EQ(user_dic.entries_size(), 3);
+
+  EXPECT_EQ(user_dic.entries(0).key(), "きょうと");
+  EXPECT_EQ(user_dic.entries(0).value(), "京都");
+  EXPECT_EQ(user_dic.entries(0).pos(), user_dictionary::UserDictionary::NO_POS);
+  EXPECT_EQ(user_dic.entries(0).comment(), "");
+  EXPECT_EQ(user_dic.entries(0).locale(), "ja-JP");
+
+  EXPECT_EQ(user_dic.entries(1).key(), "せかい");
+  EXPECT_EQ(user_dic.entries(1).value(), "世界");
+  EXPECT_EQ(user_dic.entries(1).pos(), user_dictionary::UserDictionary::NO_POS);
+  EXPECT_EQ(user_dic.entries(1).comment(), "");
+  EXPECT_EQ(user_dic.entries(1).locale(), "");
+
+  EXPECT_EQ(user_dic.entries(2).key(), "あめりか");
+  EXPECT_EQ(user_dic.entries(2).value(), "アメリカ");
+  EXPECT_EQ(user_dic.entries(2).pos(), user_dictionary::UserDictionary::NO_POS);
+  EXPECT_EQ(user_dic.entries(2).comment(), "");
+  EXPECT_EQ(user_dic.entries(2).locale(), "en");
+}
+
 TEST(UserDictionaryImporter, ImportFromKotoeriTextTest) {
   constexpr char kInput[] =
       "\"きょうと\","
@@ -170,6 +201,38 @@ TEST(UserDictionaryImporter, ImportFromKotoeriTextTest) {
     EXPECT_EQ(user_dic.entries(1).value(), "大阪");
     EXPECT_EQ(user_dic.entries(1).pos(),
               user_dictionary::UserDictionary::PLACE_NAME);
+  }
+}
+
+TEST(UserDictionaryImporter, ImportSpecialPosTagTest) {
+  constexpr char kInput[] =
+      "きょうと\t京都\tサジェストのみ\n"
+      "おおさか\t大阪\t短縮よみ\n"
+      "すずき\t鈴木\t品詞なし\n";
+  {
+    UserDictionaryImporter::StringTextLineIterator iter(kInput);
+    UserDictionaryStorage::UserDictionary user_dic;
+
+    EXPECT_EQ(UserDictionaryImporter::ImportFromTextLineIterator(
+                  UserDictionaryImporter::MOZC, &iter, &user_dic),
+              UserDictionaryImporter::IMPORT_NO_ERROR);
+
+    ASSERT_EQ(user_dic.entries_size(), 3);
+
+    EXPECT_EQ(user_dic.entries(0).key(), "きょうと");
+    EXPECT_EQ(user_dic.entries(0).value(), "京都");
+    EXPECT_EQ(user_dic.entries(0).pos(),
+              user_dictionary::UserDictionary::SUGGESTION_ONLY);
+
+    EXPECT_EQ(user_dic.entries(1).key(), "おおさか");
+    EXPECT_EQ(user_dic.entries(1).value(), "大阪");
+    EXPECT_EQ(user_dic.entries(1).pos(),
+              user_dictionary::UserDictionary::ABBREVIATION);
+
+    EXPECT_EQ(user_dic.entries(2).key(), "すずき");
+    EXPECT_EQ(user_dic.entries(2).value(), "鈴木");
+    EXPECT_EQ(user_dic.entries(2).pos(),
+              user_dictionary::UserDictionary::NO_POS);
   }
 }
 
@@ -449,6 +512,10 @@ TEST(UserDictionaryImporter, GuessIMETypeTest) {
   EXPECT_EQ(UserDictionaryImporter::GuessIMEType("foo\tbar"),
             UserDictionaryImporter::MOZC);
 
+  EXPECT_EQ(
+      UserDictionaryImporter::GuessIMEType("# Gboard Dictionary Version:1"),
+      UserDictionaryImporter::GBOARD_V1);
+
   EXPECT_EQ(UserDictionaryImporter::GuessIMEType("foo"),
             UserDictionaryImporter::NUM_IMES);
 }
@@ -468,6 +535,11 @@ TEST(UserDictionaryImporter, DetermineFinalIMETypeTest) {
                 UserDictionaryImporter::IME_AUTO_DETECT,
                 UserDictionaryImporter::KOTOERI),
             UserDictionaryImporter::KOTOERI);
+
+  EXPECT_EQ(UserDictionaryImporter::DetermineFinalIMEType(
+                UserDictionaryImporter::IME_AUTO_DETECT,
+                UserDictionaryImporter::GBOARD_V1),
+            UserDictionaryImporter::GBOARD_V1);
 
   EXPECT_EQ(UserDictionaryImporter::DetermineFinalIMEType(
                 UserDictionaryImporter::IME_AUTO_DETECT,

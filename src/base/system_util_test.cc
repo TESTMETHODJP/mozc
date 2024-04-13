@@ -33,13 +33,13 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/match.h"
 #include "base/environ_mock.h"
 #include "base/file_util.h"
 #include "base/file_util_mock.h"
 #include "base/util.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
-#include "absl/strings/match.h"
 
 namespace mozc {
 
@@ -101,25 +101,6 @@ TEST_F(SystemUtilTest, GetUserProfileDirectory) {
 #error Undefined target platform.
 
 #endif  // Platforms
-}
-
-TEST_F(SystemUtilTest, IsWindowsX64Test) {
-  // just make sure we can compile it.
-  SystemUtil::IsWindowsX64();
-}
-
-TEST_F(SystemUtilTest, SetIsWindowsX64ModeForTest) {
-  SystemUtil::SetIsWindowsX64ModeForTest(
-      SystemUtil::IS_WINDOWS_X64_EMULATE_64BIT_MACHINE);
-  EXPECT_TRUE(SystemUtil::IsWindowsX64());
-
-  SystemUtil::SetIsWindowsX64ModeForTest(
-      SystemUtil::IS_WINDOWS_X64_EMULATE_32BIT_MACHINE);
-  EXPECT_FALSE(SystemUtil::IsWindowsX64());
-
-  // Clear the emulation.
-  SystemUtil::SetIsWindowsX64ModeForTest(
-      SystemUtil::IS_WINDOWS_X64_DEFAULT_MODE);
 }
 
 TEST_F(SystemUtilTest, GetTotalPhysicalMemoryTest) {

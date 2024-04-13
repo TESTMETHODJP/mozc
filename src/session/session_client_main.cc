@@ -33,11 +33,13 @@
 #include <ostream>
 #include <string>
 
+#include "absl/flags/flag.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
-#include "base/protobuf/message.h"
+#include "base/protobuf/text_format.h"
 #include "base/system_util.h"
 #include "base/util.h"
 #include "composer/key_parser.h"
@@ -45,8 +47,6 @@
 #include "engine/engine_interface.h"
 #include "protocol/commands.pb.h"
 #include "session/session.h"
-#include "absl/flags/flag.h"
-#include "absl/status/status.h"
 
 ABSL_FLAG(std::string, input, "", "Input file");
 ABSL_FLAG(std::string, output, "", "Output file");
@@ -83,8 +83,10 @@ void Loop(std::istream *input, std::ostream *output) {
       LOG(ERROR) << "Command failure";
     }
 
-    *output << protobuf::Utf8Format(command);
-    LOG(INFO) << protobuf::Utf8Format(command);
+    std::string textpb;
+    protobuf::TextFormat::PrintToString(command, &textpb);
+    *output << textpb;
+    LOG(INFO) << command;
   }
 }
 

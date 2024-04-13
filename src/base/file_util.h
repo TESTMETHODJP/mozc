@@ -33,11 +33,11 @@
 #include <ctime>
 #include <ios>
 #include <string>
-#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -149,7 +149,7 @@ class FileUtil {
                                      const std::string &to);
 
   // Joins the give path components using the OS-specific path delimiter.
-  static std::string JoinPath(const std::vector<absl::string_view> &components);
+  static std::string JoinPath(absl::Span<const absl::string_view> components);
 
   // Joins the given two path components using the OS-specific path delimiter.
   static std::string JoinPath(const absl::string_view path1,
@@ -168,11 +168,6 @@ class FileUtil {
   // Returns false if something went wrong.
   static absl::StatusOr<FileTimeStamp> GetModificationTime(
       const std::string &filename);
-
-  // Reads the contents of the file `filename` into `output`.
-  static absl::Status GetContents(
-      const std::string &filename, std::string *output,
-      std::ios_base::openmode mode = std::ios::binary);
 
   // Reads the contents of the file `filename` and returns it.
   static absl::StatusOr<std::string> GetContents(

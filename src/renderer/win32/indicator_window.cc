@@ -29,15 +29,11 @@
 
 #include "renderer/win32/indicator_window.h"
 
-// clang-format off
-#include <windows.h>
 #include <atlbase.h>
 #include <atltypes.h>
 #include <atlwin.h>
-#include <atlapp.h>
-#include <atlcrack.h>
-#include <atlmisc.h>
-// clang-format on
+#include <wil/resource.h>
+#include <windows.h>
 
 #include <algorithm>
 #include <vector>
@@ -45,8 +41,10 @@
 #include "base/const.h"
 #include "base/logging.h"
 #include "base/util.h"
+#include "base/win32/wide_char.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_command.pb.h"
+#include "renderer/win32/win32_font_util.h"
 #include "renderer/win32/win32_image_util.h"
 #include "renderer/win32/win32_renderer_util.h"
 
@@ -59,10 +57,6 @@ namespace {
 using ATL::CWindow;
 using ATL::CWindowImpl;
 using ATL::CWinTraits;
-using WTL::CBitmap;
-using WTL::CBitmapHandle;
-using WTL::CDC;
-using WTL::CLogFont;
 
 using ::mozc::commands::Status;
 typedef ::mozc::commands::RendererCommand::ApplicationInfo ApplicationInfo;
@@ -81,7 +75,7 @@ typedef CWinTraits<WS_POPUP | WS_DISABLED, WS_EX_LAYERED | WS_EX_TOOLWINDOW |
     IndicatorWindowTraits;
 
 struct Sprite {
-  CBitmap bitmap;
+  wil::unique_hbitmap bitmap;
   CPoint offset;
 };
 
@@ -94,8 +88,8 @@ constexpr DWORD kFadingOutInterval = 16;      // msec
 constexpr int kFadingOutAlphaDelta = 32;
 
 double GetDPIScaling() {
-  CDC desktop_dc(::GetDC(nullptr));
-  const int dpi_x = desktop_dc.GetDeviceCaps(LOGPIXELSX);
+  wil::unique_hdc desktop_dc(::GetDC(nullptr));
+  const int dpi_x = ::GetDeviceCaps(desktop_dc.get(), LOGPIXELSX);
   return static_cast<double>(dpi_x) / kDefaultDPI;
 }
 
@@ -112,10 +106,10 @@ class IndicatorWindow::WindowImpl
   WindowImpl(const WindowImpl &) = delete;
   WindowImpl &operator=(const WindowImpl &) = delete;
 
-  BEGIN_MSG_MAP_EX(WindowImpl)
-  MSG_WM_CREATE(OnCreate)
-  MSG_WM_TIMER(OnTimer)
-  MSG_WM_SETTINGCHANGE(OnSettingChange)
+  BEGIN_MSG_MAP(WindowImpl)
+  MESSAGE_HANDLER(WM_CREATE, OnCreate)
+  MESSAGE_HANDLER(WM_TIMER, OnTimer)
+  MESSAGE_HANDLER(WM_SETTINGCHANGE, OnSettingChange)
   END_MSG_MAP()
 
   void OnUpdate(const commands::RendererCommand &command,
@@ -143,10 +137,10 @@ class IndicatorWindow::WindowImpl
     const Status &status = command.application_info().indicator_info().status();
 
     alpha_ = 255;
-    current_image_ = sprites_[commands::DIRECT].bitmap;
+    current_image_ = sprites_[commands::DIRECT].bitmap.get();
     CPoint offset = sprites_[commands::DIRECT].offset;
     if (!status.has_activated() || !status.has_mode() || !status.activated()) {
-      current_image_ = sprites_[commands::DIRECT].bitmap;
+      current_image_ = sprites_[commands::DIRECT].bitmap.get();
       offset = sprites_[commands::DIRECT].offset;
     } else {
       const int mode = status.mode();
@@ -156,7 +150,7 @@ class IndicatorWindow::WindowImpl
         case commands::HALF_ASCII:
         case commands::FULL_ASCII:
         case commands::HALF_KATAKANA:
-          current_image_ = sprites_[mode].bitmap;
+          current_image_ = sprites_[mode].bitmap.get();
           offset = sprites_[mode].offset;
           break;
       }
@@ -181,11 +175,11 @@ class IndicatorWindow::WindowImpl
 
  private:
   void UpdateWindow() {
-    CSize size;
-    current_image_.GetSize(size);
+    BITMAP bm = {};
+    ::GetObject(current_image_, sizeof(bm), &bm);
+    CSize size(bm.bmWidth, bm.bmHeight);
 
-    CDC dc;
-    dc.CreateCompatibleDC();
+    wil::unique_hdc dc(::CreateCompatibleDC(nullptr));
 
     // Fading out animation.
     CPoint top_left = top_left_;
@@ -194,11 +188,12 @@ class IndicatorWindow::WindowImpl
     CPoint src_left_top(0, 0);
     BLENDFUNCTION func = {AC_SRC_OVER, 0, alpha_, AC_SRC_ALPHA};
 
-    const CBitmapHandle old_bitmap = dc.SelectBitmap(current_image_);
-    const BOOL result =
-        ::UpdateLayeredWindow(m_hWnd, nullptr, &top_left, &size, dc,
-                              &src_left_top, 0, &func, ULW_ALPHA);
-    dc.SelectBitmap(old_bitmap);
+    {
+      wil::unique_select_object old_bitmap =
+          wil::SelectObject(dc.get(), current_image_);
+      ::UpdateLayeredWindow(m_hWnd, nullptr, &top_left, &size, dc.get(),
+                            &src_left_top, 0, &func, ULW_ALPHA);
+    }
     ShowWindow(SW_SHOWNA);
   }
 
@@ -234,6 +229,7 @@ class IndicatorWindow::WindowImpl
     switch (flags) {
       case SPI_SETACTIVEWINDOWTRACKING:
         EnableOrDisableWindowForWorkaround();
+        [[fallthrough]];
       default:
         // We ignore other changes.
         break;
@@ -254,9 +250,8 @@ class IndicatorWindow::WindowImpl
 
   void LoadSprite(int mode) {
     BalloonImage::BalloonImageInfo info;
-    CLogFont logfont;
-    logfont.SetMessageBoxFont();
-    Util::WideToUtf8(logfont.lfFaceName, &info.label_font);
+    LOGFONT logfont = GetMessageBoxLogFont();
+    info.label_font = mozc::win32::WideToUtf8(logfont.lfFaceName);
 
     info.frame_color = RGBColor(1, 122, 204);
     info.blur_color = RGBColor(1, 122, 204);
@@ -302,12 +297,29 @@ class IndicatorWindow::WindowImpl
         break;
     }
     if (!info.label.empty()) {
-      sprites_[mode].bitmap.Attach(
+      sprites_[mode].bitmap.reset(
           BalloonImage::Create(info, &sprites_[mode].offset));
     }
   }
 
-  CBitmapHandle current_image_;
+  inline LRESULT OnCreate(UINT msg_id, WPARAM wparam, LPARAM lparam,
+                          BOOL &handled) {
+    return static_cast<LRESULT>(
+        OnCreate(reinterpret_cast<LPCREATESTRUCT>(lparam)));
+  }
+  inline LRESULT OnTimer(UINT msg_id, WPARAM wparam, LPARAM lparam,
+                         BOOL &handled) {
+    OnTimer(static_cast<UINT_PTR>(wparam));
+    return 0;
+  }
+  inline LRESULT OnSettingChange(UINT msg_id, WPARAM wparam, LPARAM lparam,
+                                 BOOL &handled) {
+    OnSettingChange(static_cast<UINT>(wparam),
+                    reinterpret_cast<LPCTSTR>(lparam));
+    return 0;
+  }
+
+  HBITMAP current_image_;
   CPoint top_left_;
   BYTE alpha_;
   double dpi_scaling_;

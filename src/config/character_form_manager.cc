@@ -38,6 +38,9 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/config_file_stream.h"
 #include "base/logging.h"
 #include "base/number_util.h"
@@ -46,12 +49,10 @@
 #include "base/strings/japanese.h"
 #include "base/strings/unicode.h"
 #include "base/util.h"
+#include "base/vlog.h"
 #include "config/config_handler.h"
 #include "protocol/config.pb.h"
 #include "storage/lru_storage.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace config {
@@ -276,9 +277,9 @@ char16_t GetNormalizedCharacter(const absl::string_view str) {
       if (strings::AtLeastCharsLen(str, 2) == 1) {  // must be 1 character
         // normalize it to half width
         std::string tmp = japanese::HalfWidthToFullWidth(str);
-        char32_t ucs4 = Utf8AsChars32(tmp).front();
-        if (ucs4 <= 0xffff) {
-          ucs2 = static_cast<char16_t>(ucs4);
+        char32_t codepoint = Utf8AsChars32(tmp).front();
+        if (codepoint <= 0xffff) {
+          ucs2 = static_cast<char16_t>(codepoint);
         } else {
           ucs2 = 0x0000;  // no conversion as fall back
         }
@@ -414,8 +415,8 @@ void CharacterFormManagerImpl::SaveCharacterFormToStorage(
       storage_->Insert(group_key, reinterpret_cast<const char *>(&iform));
     }
   }
-  VLOG(2) << static_cast<uint16_t>(ucs2) << " is stored to " << kFileName
-          << " as " << form;
+  MOZC_VLOG(2) << static_cast<uint16_t>(ucs2) << " is stored to " << kFileName
+               << " as " << form;
 }
 
 void CharacterFormManagerImpl::ConvertString(const absl::string_view str,
@@ -563,7 +564,7 @@ void CharacterFormManagerImpl::AddRule(const absl::string_view key,
     return;
   }
 
-  VLOG(2) << "Adding Rule: " << key << " " << form;
+  MOZC_VLOG(2) << "Adding Rule: " << key << " " << form;
 
   // sort + unique
   // use vector because set is slower.
@@ -605,7 +606,10 @@ CharacterFormManager::Data::Data() {
   const uint32_t key_type = 0;
   storage_ = LruStorage::Create(filename.c_str(), sizeof(key_type), kLruSize,
                                 kSeedValue);
-  LOG_IF(ERROR, storage_.get() == nullptr) << "cannot open " << filename;
+  if (!storage_) {
+    LOG(ERROR) << "cannot open " << filename;
+    storage_ = std::make_unique<LruStorage>();
+  }
   preedit_ = std::make_unique<PreeditCharacterFormManagerImpl>();
   conversion_ = std::make_unique<ConversionCharacterFormManagerImpl>();
   number_style_ = std::make_unique<NumberStyleManager>();
@@ -690,12 +694,12 @@ Config::CharacterForm CharacterFormManager::GetConversionCharacterForm(
 void CharacterFormManager::ClearHistory() {
   // no need to call, as storage is shared
   // GetPreeditManager()->ClearHistory();
-  VLOG(1) << "CharacterFormManager::ClearHistory() is called";
+  MOZC_VLOG(1) << "CharacterFormManager::ClearHistory() is called";
   data_->GetConversionManager()->ClearHistory();
 }
 
 void CharacterFormManager::Clear() {
-  VLOG(1) << "CharacterFormManager::Clear() is called";
+  MOZC_VLOG(1) << "CharacterFormManager::Clear() is called";
   data_->GetConversionManager()->Clear();
   data_->GetPreeditManager()->Clear();
 }

@@ -29,27 +29,32 @@
 
 #include "data_manager/data_manager.h"
 
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <new>
 #include <optional>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "base/container/serialized_string_array.h"
-#include "base/logging.h"
-#include "base/version.h"
-#include "data_manager/dataset_reader.h"
-#include "data_manager/serialized_dictionary.h"
-#include "protocol/segmenter_data.pb.h"
-#include "absl/strings/match.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/container/serialized_string_array.h"
+#include "base/logging.h"
+#include "base/mmap.h"
+#include "base/version.h"
+#include "base/vlog.h"
+#include "data_manager/dataset_reader.h"
+#include "data_manager/serialized_dictionary.h"
+#include "protocol/segmenter_data.pb.h"
 
 namespace mozc {
 namespace {
@@ -348,13 +353,14 @@ DataManager::Status DataManager::InitFromReader(const DataSetReader &reader) {
   }
   if (!reader.Get("a11y_description_token",
                   &a11y_description_token_array_data_)) {
-    VLOG(2) << "A11y description dictionary's token array is not provided";
+    MOZC_VLOG(2) << "A11y description dictionary's token array is not provided";
     a11y_description_token_array_data_ = "";
     // A11y description dictionary is optional, so don't return false here.
   }
   if (!reader.Get("a11y_description_string",
                   &a11y_description_string_array_data_)) {
-    VLOG(2) << "A11y description dictionary's string array is not provided";
+    MOZC_VLOG(2)
+        << "A11y description dictionary's string array is not provided";
     a11y_description_string_array_data_ = "";
     // A11y description dictionary is optional, so don't return false here.
   }
@@ -382,7 +388,7 @@ DataManager::Status DataManager::InitFromReader(const DataSetReader &reader) {
   }
 
   if (!reader.Get("usage_item_array", &usage_items_data_)) {
-    VLOG(2) << "Usage dictionary is not provided";
+    MOZC_VLOG(2) << "Usage dictionary is not provided";
     // Usage dictionary is optional, so don't return false here.
   } else {
     if (!reader.Get("usage_base_conjugation_suffix",
@@ -400,18 +406,6 @@ DataManager::Status DataManager::InitFromReader(const DataSetReader &reader) {
       return Status::DATA_BROKEN;
     }
   }
-
-  for (const auto &kv : reader.name_to_data_map()) {
-    if (!absl::StartsWith(kv.first, "typing_model")) {
-      continue;
-    }
-    typing_model_data_.push_back(kv);
-  }
-  std::sort(typing_model_data_.begin(), typing_model_data_.end(),
-            [](const std::pair<std::string, absl::string_view> &l,
-               const std::pair<std::string, absl::string_view> &r) {
-              return l.first < r.first;
-            });
 
   if (!reader.Get("version", &data_version_)) {
     LOG(ERROR) << "Cannot find data version";
@@ -618,17 +612,6 @@ void DataManager::GetUsageRewriterData(
   *string_array_data = usage_string_array_data_;
 }
 #endif  // NO_USAGE_REWRITER
-
-absl::string_view DataManager::GetTypingModel(const std::string &name) const {
-  const auto iter = std::lower_bound(
-      typing_model_data_.begin(), typing_model_data_.end(), name,
-      [](const std::pair<std::string, absl::string_view> &elem,
-         const std::string &key) { return elem.first < key; });
-  if (iter == typing_model_data_.end() || iter->first != name) {
-    return absl::string_view();
-  }
-  return iter->second;
-}
 
 absl::string_view DataManager::GetDataVersion() const { return data_version_; }
 

@@ -71,13 +71,14 @@
       '<!@(<(glob_protobuf) . "*.cc" --exclude "*.pb.cc" reflection_tester.cc)',
       '<!@(<(glob_protobuf) io "*.cc")',
       '<!@(<(glob_protobuf) stubs "*.cc")',
-      '<!@(<(glob) --notest --base <(protobuf_root)/third_party/utf8_range "*.cc")',
+      '<!@(<(glob) --notest --base <(protobuf_root)/third_party/utf8_range utf8_validity.cc utf8_range.c)',
     ],
     # Sources for protoc (common part and C++ generator only).
     'protoc_sources': [
-      '<!@(<(glob_protobuf) compiler "*.cc" --exclude "*_tester.cc" fake_plugin.cc main.cc)',
+      '<!@(<(glob_protobuf) compiler "*.cc" --exclude "*_tester.cc" fake_plugin.cc test_plugin.cc main.cc main_no_generators.cc)',
       '<!@(<(glob_protobuf) compiler/allowlists "*.cc")',
-      '<!@(<(glob_protobuf) compiler/cpp "**/*.cc")',
+      '<!@(<(glob_protobuf) compiler/cpp "*.cc" --exclude main.cc)',
+      '<!@(<(glob_protobuf) compiler/cpp/field_generators "*.cc")',
       'custom_protoc_main.cc',
     ],
   },
@@ -102,10 +103,10 @@
         {  # else
           'sources': ['<@(protobuf_sources)'],
           'dependencies': [
-              '../base/absl.gyp:absl_log',
-              '../base/absl.gyp:absl_status',
-              '../base/absl.gyp:absl_strings',
-              '../base/absl.gyp:absl_synchronization',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_log',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_status',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_synchronization',
           ],
           'include_dirs': [
             '<(protobuf_root)/src',
@@ -151,10 +152,10 @@
         ['use_libprotobuf==0', {
           'sources': ['<@(protoc_sources)'],
           'dependencies': [
-              '../base/absl.gyp:absl_log',
-              '../base/absl.gyp:absl_strings',
-              '../base/absl.gyp:absl_synchronization',
-              '../base/absl.gyp:absl_types',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_log',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_synchronization',
+              '<(mozc_oss_src_dir)/base/absl.gyp:absl_types',
           ],
           'include_dirs': [
             '<(protobuf_root)/src',

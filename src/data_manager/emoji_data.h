@@ -30,7 +30,10 @@
 #ifndef MOZC_DATA_MANAGER_EMOJI_DATA_H_
 #define MOZC_DATA_MANAGER_EMOJI_DATA_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <iterator>
+#include <utility>
 
 #include "base/container/serialized_string_array.h"
 
@@ -55,7 +58,8 @@ enum EmojiVersion : uint32_t {
   E13_1,
   E14_0,
   E15_0,
-  EMOJI_MAX_VERSION = E15_0,
+  E15_1,
+  EMOJI_MAX_VERSION = E15_1,
 };
 // LINT.ThenChange(//rewriter/gen_emoji_rewriter_data.py)
 
@@ -82,9 +86,14 @@ enum EmojiVersion : uint32_t {
 // be search by binary search.
 //
 // The following iterator class can be used to iterate over token array.
-class EmojiDataIterator
-    : public std::iterator<std::random_access_iterator_tag, uint32_t> {
+class EmojiDataIterator {
  public:
+  using iterator_category = std::random_access_iterator_tag;
+  using value_type = uint32_t;
+  using difference_type = std::ptrdiff_t;
+  using pointer = uint32_t *;
+  using reference = uint32_t &;
+
   static constexpr size_t kEmojiDataByteLength = 28;
 
   EmojiDataIterator() : ptr_(nullptr) {}

@@ -39,7 +39,6 @@
 #include <cstdint>
 
 #include "protocol/commands.pb.h"
-#include "testing/googletest.h"
 #include "testing/gunit.h"
 
 namespace mozc {
@@ -323,7 +322,6 @@ TEST(ConversionModeUtilTest, ConvertStatusFromMozcToNative) {
 TEST(ConversionModeUtilTest, GetMozcModeFromNativeMode) {
   // The mode conversion should always be done regardless of open/close status,
   // that is, we no longer rely on |mozc::commands::DIRECT|.
-  bool open = false;
   commands::CompositionMode mozc_mode = commands::HIRAGANA;
   EXPECT_TRUE(ConversionModeUtil::GetMozcModeFromNativeMode(
       IME_CMODE_NATIVE | IME_CMODE_FULLSHAPE | IME_CMODE_ROMAN, &mozc_mode));

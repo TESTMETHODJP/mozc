@@ -61,10 +61,11 @@
         '<(dataset_tag)_data_manager.cc',
       ],
       'dependencies': [
-        '<(mozc_dir)/base/absl.gyp:absl_strings',
-        '<(mozc_dir)/base/base.gyp:base',
-        '<(mozc_dir)/data_manager/data_manager_base.gyp:data_manager',
+        '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
+        '<(mozc_oss_src_dir)/base/base.gyp:base',
+        '<(mozc_oss_src_dir)/data_manager/data_manager_base.gyp:data_manager',
         'gen_embedded_mozc_dataset_for_<(dataset_tag)#host',
+        '<@(additional_dendencies)',
       ],
       'defines': [
         'MOZC_DATASET_MAGIC_NUMBER="<(magic_number)"',
@@ -90,7 +91,7 @@
             '<(gen_out_dir)/<(out_mozc_data_header)',
           ],
           'action': [
-            '<(python)', '<(mozc_dir)/build_tools/embed_file.py',
+            '<(python)', '<(mozc_oss_src_dir)/build_tools/embed_file.py',
             '--input=<(gen_out_dir)/<(out_mozc_data)',
             '--name=<(mozc_data_varname)',
             '--output=<(gen_out_dir)/<(out_mozc_data_header)',
@@ -104,7 +105,7 @@
       'toolsets': ['host'],
       'dependencies': [
         '../data_manager_base.gyp:dataset_writer_main',
-        '../../rewriter/rewriter_base.gyp:gen_rewriter_files#host',
+        '<(mozc_oss_src_dir)/rewriter/rewriter_base.gyp:gen_rewriter_files#host',
         '<(dataset_tag)_data_manager_base.gyp:gen_separate_pos_matcher_data_for_<(dataset_tag)#host',
         '<(dataset_tag)_data_manager_base.gyp:gen_separate_user_pos_data_for_<(dataset_tag)#host',
         'gen_separate_connection_data_for_<(dataset_tag)#host',
@@ -124,7 +125,6 @@
         'gen_separate_zero_query_data_for_<(dataset_tag)#host',
         'gen_separate_a11y_description_rewriter_data_for_<(dataset_tag)#host',
         'gen_separate_version_data_for_<(dataset_tag)#host',
-        'gen_typing_model_for_<(dataset_tag)#host',
       ],
       'actions': [
         {
@@ -289,29 +289,6 @@
                 'usage_string_array:32:<(usage_string_array)',
               ],
             }],
-            ['target_platform=="Android" or "<(dataset_tag)"=="mock"', {
-              'variables': {
-                'typing_model_qwerty_mobile-hiragana': '<(gen_out_dir)/typing_model_qwerty_mobile-hiragana.data',
-                'typing_model_12keys-hiragana': '<(gen_out_dir)/typing_model_12keys-hiragana.data',
-                'typing_model_flick-hiragana': '<(gen_out_dir)/typing_model_flick-hiragana.data',
-                'typing_model_godan-hiragana': '<(gen_out_dir)/typing_model_godan-hiragana.data',
-                'typing_model_toggle_flick-hiragana': '<(gen_out_dir)/typing_model_toggle_flick-hiragana.data',
-              },
-              'inputs': [
-                '<(typing_model_qwerty_mobile-hiragana)',
-                '<(typing_model_12keys-hiragana)',
-                '<(typing_model_flick-hiragana)',
-                '<(typing_model_godan-hiragana)',
-                '<(typing_model_toggle_flick-hiragana)',
-              ],
-              'action': [
-                'typing_model_qwerty_mobile-hiragana.tsv:32:<(gen_out_dir)/typing_model_qwerty_mobile-hiragana.data',
-                'typing_model_12keys-hiragana.tsv:32:<(gen_out_dir)/typing_model_12keys-hiragana.data',
-                'typing_model_flick-hiragana.tsv:32:<(gen_out_dir)/typing_model_flick-hiragana.data',
-                'typing_model_godan-hiragana.tsv:32:<(gen_out_dir)/typing_model_godan-hiragana.data',
-                'typing_model_toggle_flick-hiragana.tsv:32:<(gen_out_dir)/typing_model_toggle_flick-hiragana.data',
-              ],
-            }],
           ],
         },
       ],
@@ -329,7 +306,7 @@
             'pos_group_def': '<(mozc_oss_src_dir)/data/rules/user_segment_history_pos_group.def',
           },
           'inputs': [
-            '<(mozc_dir)/dictionary/gen_pos_rewrite_rule.py',
+            '<(mozc_oss_src_dir)/dictionary/gen_pos_rewrite_rule.py',
             '<(id_def)',
             '<(special_pos)',
             '<(pos_group_def)',
@@ -339,7 +316,7 @@
           ],
           'action': [
             '<(python)',
-            '<(mozc_dir)/dictionary/gen_pos_rewrite_rule.py',
+            '<(mozc_oss_src_dir)/dictionary/gen_pos_rewrite_rule.py',
             '--id_def=<(platform_data_dir)/id.def',
             '--special_pos=<(mozc_oss_src_dir)/data/rules/special_pos.def',
             '--pos_group_def=<(mozc_oss_src_dir)/data/rules/user_segment_history_pos_group.def',
@@ -439,16 +416,16 @@
             ],
           },
           'inputs': [
-            '<(mozc_dir)/converter/gen_segmenter_code.py',
+            '<(mozc_oss_src_dir)/converter/gen_segmenter_code.py',
             '<@(input_files)',
           ],
           'outputs': [
             '<(gen_out_dir)/segmenter_inl.inc',
           ],
           'action': [
-            '<(python)', '<(mozc_dir)/build_tools/redirect.py',
+            '<(python)', '<(mozc_oss_src_dir)/build_tools/redirect.py',
             '<(gen_out_dir)/segmenter_inl.inc',
-            '<(mozc_dir)/converter/gen_segmenter_code.py',
+            '<(mozc_oss_src_dir)/converter/gen_segmenter_code.py',
             '<@(input_files)',
           ],
           'message': ('[<(dataset_tag)] Generating ' +
@@ -467,7 +444,7 @@
         '<(current_dir)/gen_<(dataset_tag)_segmenter_bitarray_main.cc',
       ],
       'dependencies': [
-        '<(mozc_dir)/converter/converter_base.gyp:gen_segmenter_bitarray',
+        '<(mozc_oss_src_dir)/converter/converter_base.gyp:gen_segmenter_bitarray',
         'gen_<(dataset_tag)_segmenter_inl_header',
       ],
     },
@@ -517,7 +494,7 @@
             'special_pos': '<(mozc_oss_src_dir)/data/rules/special_pos.def',
           },
           'inputs': [
-            '<(mozc_dir)/converter/gen_boundary_data.py',
+            '<(mozc_oss_src_dir)/converter/gen_boundary_data.py',
             '<(boundary_def_var)',
             '<(id_def)',
             '<(special_pos)',
@@ -527,7 +504,7 @@
           ],
           'action': [
             '<(python)',
-            '<(mozc_dir)/converter/gen_boundary_data.py',
+            '<(mozc_oss_src_dir)/converter/gen_boundary_data.py',
             '--boundary_def=<(boundary_def)',
             '--id_def=<(platform_data_dir)/id.def',
             '--special_pos=<(mozc_oss_src_dir)/data/rules/special_pos.def',
@@ -551,7 +528,7 @@
             ],
           },
           'inputs': [
-            '<(mozc_dir)/dictionary/gen_suffix_data.py',
+            '<(mozc_oss_src_dir)/dictionary/gen_suffix_data.py',
             '<@(input_files)',
           ],
           'outputs': [
@@ -561,7 +538,7 @@
           ],
           'action': [
             '<(python)',
-            '<(mozc_dir)/dictionary/gen_suffix_data.py',
+            '<(mozc_oss_src_dir)/dictionary/gen_suffix_data.py',
             '--input=<(platform_data_dir)/suffix.txt',
             '--output_key_array=<(gen_out_dir)/suffix_key.data',
             '--output_value_array=<(gen_out_dir)/suffix_value.data',
@@ -594,7 +571,7 @@
             '<(gen_out_dir)/reading_correction_correction.data',
           ],
           'action': [
-            '<(python)', '<(mozc_dir)/rewriter/gen_reading_correction_data.py',
+            '<(python)', '<(mozc_oss_src_dir)/rewriter/gen_reading_correction_data.py',
             '--input=<@(input_files)',
             '--output_value_array=<(gen_out_dir)/reading_correction_value.data',
             '--output_error_array=<(gen_out_dir)/reading_correction_error.data',
@@ -610,7 +587,7 @@
       'type': 'none',
       'toolsets': ['host'],
       'dependencies': [
-        '../../rewriter/rewriter_base.gyp:gen_collocation_data_main#host',
+        '<(mozc_oss_src_dir)/rewriter/rewriter_base.gyp:gen_collocation_data_main#host',
       ],
       'actions': [
         {
@@ -644,7 +621,7 @@
       'type': 'none',
       'toolsets': ['host'],
       'dependencies': [
-        '../../rewriter/rewriter_base.gyp:gen_collocation_suppression_data_main#host',
+        '<(mozc_oss_src_dir)/rewriter/rewriter_base.gyp:gen_collocation_suppression_data_main#host',
       ],
       'actions': [
         {
@@ -678,7 +655,7 @@
       'type': 'none',
       'toolsets': ['host'],
       'dependencies': [
-        '../../prediction/prediction_base.gyp:gen_suggestion_filter_main#host',
+        '<(mozc_oss_src_dir)/prediction/prediction_base.gyp:gen_suggestion_filter_main#host',
       ],
       'actions': [
         {
@@ -714,7 +691,7 @@
       'type': 'none',
       'toolsets': ['host'],
       'dependencies': [
-        '../../rewriter/rewriter_base.gyp:gen_symbol_rewriter_dictionary_main#host',
+        '<(mozc_oss_src_dir)/rewriter/rewriter_base.gyp:gen_symbol_rewriter_dictionary_main#host',
       ],
       'actions': [
         {
@@ -755,7 +732,7 @@
       'type': 'none',
       'toolsets': ['host'],
       'dependencies': [
-        '../../rewriter/rewriter_base.gyp:gen_emoticon_rewriter_data_main',
+        '<(mozc_oss_src_dir)/rewriter/rewriter_base.gyp:gen_emoticon_rewriter_data_main',
       ],
       'actions': [
         {
@@ -792,7 +769,7 @@
         {
           'action_name': 'gen_separate_emoji_rewriter_data_for_<(dataset_tag)',
           'variables': {
-            'generator': '<(mozc_dir)/rewriter/gen_emoji_rewriter_data.py',
+            'generator': '<(mozc_oss_src_dir)/rewriter/gen_emoji_rewriter_data.py',
             'input_files': [
               '<(mozc_oss_src_dir)/data/emoji/emoji_data.tsv',
             ],
@@ -820,13 +797,13 @@
       'type': 'none',
       'toolsets': ['host'],
       'dependencies': [
-        '../../rewriter/rewriter_base.gyp:gen_single_kanji_noun_prefix_data_main',
+        '<(mozc_oss_src_dir)/rewriter/rewriter_base.gyp:gen_single_kanji_noun_prefix_data_main',
       ],
       'actions': [
         {
           'action_name': 'gen_single_kanji_data_for_<(dataset_tag)',
           'variables': {
-            'generator': '<(mozc_dir)/rewriter/gen_single_kanji_rewriter_data.py',
+            'generator': '<(mozc_oss_src_dir)/rewriter/gen_single_kanji_rewriter_data.py',
             'single_kanji_file': '<(mozc_oss_src_dir)/data/single_kanji/single_kanji.tsv',
             'variant_file': '<(mozc_oss_src_dir)/data/single_kanji/variant_rule.txt',
           },
@@ -894,7 +871,7 @@
             '<(gen_out_dir)/counter_suffix.data',
           ],
           'action': [
-            '<(python)', '<(mozc_dir)/rewriter/gen_counter_suffix_array.py',
+            '<(python)', '<(mozc_oss_src_dir)/rewriter/gen_counter_suffix_array.py',
             '--id_file=<(id_file)',
             '--output=<(gen_out_dir)/counter_suffix.data',
             '<@(input_files)',
@@ -912,7 +889,7 @@
         {
           'action_name': 'gen_separate_zero_query_data_for_<(dataset_tag)',
           'variables': {
-            'generator': '<(mozc_dir)/prediction/gen_zero_query_data.py',
+            'generator': '<(mozc_oss_src_dir)/prediction/gen_zero_query_data.py',
             'input_files': [
               '<(mozc_oss_src_dir)/data/emoji/emoji_data.tsv',
               '<(mozc_oss_src_dir)/data/emoticon/categorized.tsv',
@@ -941,7 +918,7 @@
         {
           'action_name': 'gen_separate_zero_query_number_data_for_<(dataset_tag)',
           'variables': {
-            'generator': '<(mozc_dir)/prediction/gen_zero_query_number_data.py',
+            'generator': '<(mozc_oss_src_dir)/prediction/gen_zero_query_number_data.py',
             'input_files': [
               '<(mozc_oss_src_dir)/data/zero_query/zero_query_number.def',
             ],
@@ -971,7 +948,7 @@
         {
           'action_name': 'gen_separate_a11y_description_rewriter_data_for_<(dataset_tag)',
           'variables': {
-            'generator': '<(mozc_dir)/rewriter/gen_a11y_description_rewriter_data.py',
+            'generator': '<(mozc_oss_src_dir)/rewriter/gen_a11y_description_rewriter_data.py',
             'input_files': [
               '<(mozc_oss_src_dir)/data/a11y_description/a11y_description_data.tsv',
             ],
@@ -991,128 +968,6 @@
             '--output_string_array=<(gen_out_dir)/a11y_description_string.data',
           ],
           'message': '[<(dataset_tag)] Generating a11y description data',
-        },
-      ],
-    },
-    {
-      'target_name': 'gen_typing_model_for_<(dataset_tag)',
-      'type': 'none',
-      'toolsets': ['host'],
-      'actions': [
-        {
-          'action_name': 'gen_qwerty_mobile-hiragana_typing_model_<(dataset_tag)',
-          'variables': {
-            'input_files': [
-              '<(mozc_oss_src_dir)/data/typing/typing_model_qwerty_mobile-hiragana.tsv',
-            ],
-          },
-          'inputs': [
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '<@(input_files)',
-          ],
-          'outputs': [
-            '<(gen_out_dir)/typing_model_qwerty_mobile-hiragana.data',
-          ],
-          'action': [
-            '<(python)',
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '--input_path',
-            '<@(input_files)',
-            '--output_path',
-            '<@(_outputs)',
-          ],
-        },
-        {
-          'action_name': 'gen_12keys-hiragana_typing_model_<(dataset_tag)',
-          'variables': {
-            'input_files': [
-              '<(mozc_oss_src_dir)/data/typing/typing_model_12keys-hiragana.tsv',
-            ],
-          },
-          'inputs': [
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '<@(input_files)',
-          ],
-          'outputs': [
-            '<(gen_out_dir)/typing_model_12keys-hiragana.data',
-          ],
-          'action': [
-            '<(python)',
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '--input_path',
-            '<@(input_files)',
-            '--output_path',
-            '<@(_outputs)',
-          ],
-        },
-        {
-          'action_name': 'gen_flick-hiragana_typing_model_<(dataset_tag)',
-          'variables': {
-            'input_files': [
-              '<(mozc_oss_src_dir)/data/typing/typing_model_flick-hiragana.tsv',
-            ],
-          },
-          'inputs': [
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '<@(input_files)',
-          ],
-          'outputs': [
-            '<(gen_out_dir)/typing_model_flick-hiragana.data',
-          ],
-          'action': [
-            '<(python)',
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '--input_path',
-            '<@(input_files)',
-            '--output_path',
-            '<@(_outputs)',
-          ],
-        },
-        {
-          'action_name': 'gen_godan-hiragana_typing_model_<(dataset_tag)',
-          'variables': {
-            'input_files': [
-              '<(mozc_oss_src_dir)/data/typing/typing_model_godan-hiragana.tsv',
-            ],
-          },
-          'inputs': [
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '<@(input_files)',
-          ],
-          'outputs': [
-            '<(gen_out_dir)/typing_model_godan-hiragana.data',
-          ],
-          'action': [
-            '<(python)',
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '--input_path',
-            '<@(input_files)',
-            '--output_path',
-            '<@(_outputs)',
-          ],
-        },
-        {
-          'action_name': 'gen_toggle_flick-hiragana_typing_model_<(dataset_tag)',
-          'variables': {
-            'input_files': [
-              '<(mozc_oss_src_dir)/data/typing/typing_model_toggle_flick-hiragana.tsv',
-            ],
-          },
-          'inputs': [
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '<@(input_files)',
-          ],
-          'outputs': [
-            '<(gen_out_dir)/typing_model_toggle_flick-hiragana.data',
-          ],
-          'action': [
-            '<(python)',
-            '<(mozc_dir)/composer/internal/gen_typing_model.py',
-            '--input_path',
-            '<@(input_files)',
-            '--output_path',
-            '<@(_outputs)',
-          ],
         },
       ],
     },

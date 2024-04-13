@@ -31,16 +31,17 @@
 
 #include <string>
 
-#include "base/file_util.h"
-#include "base/logging.h"
-#include "base/port.h"
-#include "base/singleton.h"
-#include "base/system_util.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "base/file_util.h"
+#include "base/logging.h"
+#include "base/port.h"
+#include "base/singleton.h"
+#include "base/system_util.h"
+#include "base/vlog.h"
 
 #ifdef _WIN32
 #include <wil/resource.h>
@@ -54,8 +55,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "base/strings/zstring_view.h"
 #include "absl/container/flat_hash_map.h"
+#include "base/strings/zstring_view.h"
 #endif  // !_WIN32
 
 namespace mozc {
@@ -79,7 +80,7 @@ bool ProcessMutex::Lock() { return LockAndWrite(""); }
 
 bool ProcessMutex::LockAndWrite(const absl::string_view message) {
   if (locked_) {
-    VLOG(1) << filename_ << " is already locked";
+    MOZC_VLOG(1) << filename_ << " is already locked";
     return false;
   }
 
@@ -101,7 +102,7 @@ bool ProcessMutex::LockAndWrite(const absl::string_view message) {
   locked_ = handle_.is_valid();
 
   if (!locked_) {
-    VLOG(1) << "already locked";
+    MOZC_VLOG(1) << "already locked";
     return locked_;
   }
 
@@ -162,7 +163,7 @@ class FileLockManager {
     }
 
     if (fdmap_.contains(filename)) {
-      VLOG(1) << filename << " is already locked by the same process";
+      MOZC_VLOG(1) << filename << " is already locked by the same process";
       return absl::FailedPreconditionError("already locked");
     }
 

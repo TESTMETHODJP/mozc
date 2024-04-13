@@ -34,11 +34,11 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "base/file_stream.h"
 #include "base/logging.h"
 #include "base/process_mutex.h"
 #include "ipc/window_info.pb.h"
-#include "absl/strings/string_view.h"
 
 #ifdef _WIN32
 #include <wil/resource.h>

@@ -33,6 +33,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "base/file_util.h"
 #include "base/port.h"
 #include "base/process_mutex.h"
@@ -44,8 +46,6 @@
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 
 #if defined(__ANDROID__) || defined(__wasm__)
 #error "This platform is not supported."

@@ -46,12 +46,13 @@
 #include <string>
 #include <string_view>
 
-#include "base/logging.h"
-#include "base/system_util.h"
-#include "base/win32/wide_char.h"
 #include "absl/base/call_once.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "base/logging.h"
+#include "base/system_util.h"
+#include "base/vlog.h"
+#include "base/win32/wide_char.h"
 
 // Disable StrCat macro to use absl::StrCat.
 #ifdef StrCat
@@ -95,70 +96,6 @@ constexpr std::wstring_view to_wstring_view(const wchar_t *ptr) {
 }
 
 }  // namespace
-
-HMODULE WinUtil::LoadSystemLibrary(std::wstring_view base_filename) {
-  std::wstring fullpath = SystemUtil::GetSystemDir();
-  fullpath += L"\\";
-  fullpath += base_filename;
-
-  const HMODULE module = ::LoadLibraryExW(fullpath.c_str(), nullptr,
-                                          LOAD_WITH_ALTERED_SEARCH_PATH);
-  if (nullptr == module) {
-    const int last_error = ::GetLastError();
-    DLOG(WARNING) << "LoadLibraryEx failed."
-                  << " fullpath = " << win32::WideToUtf8(fullpath)
-                  << " error = " << last_error;
-  }
-  return module;
-}
-
-HMODULE WinUtil::LoadMozcLibrary(std::wstring_view base_filename) {
-  std::wstring fullpath = win32::Utf8ToWide(SystemUtil::GetServerDirectory());
-  fullpath += L"\\";
-  fullpath += base_filename;
-
-  const HMODULE module = ::LoadLibraryExW(fullpath.c_str(), nullptr,
-                                          LOAD_WITH_ALTERED_SEARCH_PATH);
-  if (nullptr == module) {
-    const int last_error = ::GetLastError();
-    DLOG(WARNING) << "LoadLibraryEx failed."
-                  << " fullpath = " << win32::WideToUtf8(fullpath)
-                  << " error = " << last_error;
-  }
-  return module;
-}
-
-HMODULE WinUtil::GetSystemModuleHandle(std::wstring_view base_filename) {
-  std::wstring fullpath = SystemUtil::GetSystemDir();
-  fullpath += L"\\";
-  fullpath += base_filename;
-
-  HMODULE module = nullptr;
-  if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                         fullpath.c_str(), &module) == FALSE) {
-    const int last_error = ::GetLastError();
-    DLOG(WARNING) << "GetModuleHandleExW failed."
-                  << " fullpath = " << win32::WideToUtf8(fullpath)
-                  << " error = " << last_error;
-  }
-  return module;
-}
-
-HMODULE WinUtil::GetSystemModuleHandleAndIncrementRefCount(
-    std::wstring_view base_filename) {
-  std::wstring fullpath = SystemUtil::GetSystemDir();
-  fullpath += L"\\";
-  fullpath += base_filename;
-
-  HMODULE module = nullptr;
-  if (GetModuleHandleExW(0, fullpath.c_str(), &module) == FALSE) {
-    const int last_error = ::GetLastError();
-    DLOG(WARNING) << "GetModuleHandleExW failed."
-                  << " fullpath = " << win32::WideToUtf8(fullpath)
-                  << " error = " << last_error;
-  }
-  return module;
-}
 
 bool WinUtil::IsDLLSynchronizationHeld(bool *lock_status) {
   absl::call_once(g_aux_lib_initialized, &CallAuxUlibInitialize);
@@ -421,7 +358,7 @@ bool WinUtil::GetNtPath(zwstring_view dos_path, std::wstring *nt_path) {
       FILE_NAME_NORMALIZED | VOLUME_NAME_NT);
   if (copied_len_without_null == 0 || copied_len_without_null > kMaxPath) {
     const DWORD error = ::GetLastError();
-    VLOG(1) << "GetFinalPathNameByHandleW() failed: " << error;
+    MOZC_VLOG(1) << "GetFinalPathNameByHandleW() failed: " << error;
     return false;
   }
 
@@ -439,7 +376,7 @@ bool WinUtil::GetProcessInitialNtPath(DWORD pid, std::wstring *nt_path) {
       ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
 
   if (!process_handle) {
-    VLOG(1) << "OpenProcess() failed: " << ::GetLastError();
+    MOZC_VLOG(1) << "OpenProcess() failed: " << ::GetLastError();
     return false;
   }
 
@@ -449,7 +386,7 @@ bool WinUtil::GetProcessInitialNtPath(DWORD pid, std::wstring *nt_path) {
       process_handle.get(), ntpath_buffer.get(), kMaxPath);
   if (copied_len_without_null == 0 || copied_len_without_null > kMaxPath) {
     const DWORD error = ::GetLastError();
-    VLOG(1) << "GetProcessImageFileNameW() failed: " << error;
+    MOZC_VLOG(1) << "GetProcessImageFileNameW() failed: " << error;
     return false;
   }
 

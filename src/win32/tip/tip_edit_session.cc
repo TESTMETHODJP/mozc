@@ -33,6 +33,7 @@
 #include <wil/com.h>
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -42,9 +43,9 @@
 #include "base/logging.h"
 #include "base/win32/com.h"
 #include "base/win32/wide_char.h"
+#include "client/client_interface.h"
 #include "protocol/candidates.pb.h"
 #include "protocol/commands.pb.h"
-#include "client/client_interface.h"
 #include "win32/base/conversion_mode_util.h"
 #include "win32/base/deleter.h"
 #include "win32/base/input_state.h"
@@ -402,9 +403,10 @@ bool UndoCommint(TipTextService *text_service, ITfContext *context) {
       -deletion_range.offset() != deletion_range.length()) {
     return false;
   }
-  const size_t num_characters_to_be_deleted_ucs4 = -deletion_range.offset();
+  const size_t num_characters_to_be_deleted_codepoint =
+      -deletion_range.offset();
   if (!TipSurroundingText::DeletePrecedingText(
-          text_service, context, num_characters_to_be_deleted_ucs4)) {
+          text_service, context, num_characters_to_be_deleted_codepoint)) {
     // If TSF-based delete-preceding-text fails, use backspace forwarding as
     // a fall back.
 
@@ -506,6 +508,15 @@ bool OnOutputReceivedImpl(TipTextService *text_service, ITfContext *context,
   auto edit_session = MakeComPtr<SyncEditSessionImpl>(text_service, context,
                                                       std::move(new_output));
 
+  TipThreadContext *thread_context = text_service->GetThreadContext();
+
+  if (mode == kSync && thread_context->use_async_lock_in_key_handler()) {
+    // A workaround for MS Word's failure mode.
+    // See https://github.com/google/mozc/issues/819 for details.
+    // TODO(https://github.com/google/mozc/issues/821): Remove this workaround.
+    mode = kAsync;
+  }
+
   DWORD edit_session_flag = TF_ES_READWRITE;
   switch (mode) {
     case kAsync:
@@ -526,6 +537,14 @@ bool OnOutputReceivedImpl(TipTextService *text_service, ITfContext *context,
   const HRESULT hr = context->RequestEditSession(
       text_service->GetClientID(), edit_session.get(), edit_session_flag,
       &edit_session_result);
+
+  if (mode == kSync && edit_session_result == TF_E_SYNCHRONOUS) {
+    // A workaround for MS Word's failure mode.
+    // See https://github.com/google/mozc/issues/819 for details.
+    // TODO(https://github.com/google/mozc/issues/821): Remove this workaround.
+    thread_context->set_use_async_lock_in_key_handler(true);
+  }
+
   return SUCCEEDED(hr) && SUCCEEDED(edit_session_result);
 }
 

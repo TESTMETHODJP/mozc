@@ -38,21 +38,21 @@
 #include <utility>
 #include <vector>
 
-#include "base/file_stream.h"
-#include "base/init_mozc.h"
-#include "base/japanese_util.h"
-#include "base/logging.h"
-#include "base/protobuf/message.h"
-#include "base/util.h"
 #include "evaluation/scorer.h"
-#include "protocol/commands.pb.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/file_stream.h"
+#include "base/init_mozc.h"
+#include "base/japanese_util.h"
+#include "base/util.h"
+#include "base/vlog.h"
 #include "client/client.h"
+#include "protocol/commands.pb.h"
 
 ABSL_FLAG(std::string, server_path, "", "specify server path");
 ABSL_FLAG(std::string, log_path, "", "specify log output file path");
@@ -91,35 +91,35 @@ std::optional<std::vector<commands::KeyEvent>> GenerateKeySequenceFrom(
 
   std::string input;
   {
-    std::string tmp;
-    japanese_util::HiraganaToRomanji(hiragana_sentence, &tmp);
-    japanese_util::FullWidthToHalfWidth(tmp, &input);
+    std::string tmp = japanese_util::HiraganaToRomanji(hiragana_sentence);
+    input = japanese_util::FullWidthToHalfWidth(tmp);
   }
 
   for (ConstChar32Iterator iter(input); !iter.Done(); iter.Next()) {
-    const char32_t ucs4 = iter.Get();
+    const char32_t codepoint = iter.Get();
 
-    // TODO(noriyukit) Improve key sequence generation; currently, a few ucs4
-    // codes, like FF5E and 300E, cannot be handled.
+    // TODO(noriyukit) Improve key sequence generation; currently, a few
+    // codepoint codes, like FF5E and 300E, cannot be handled.
     commands::KeyEvent key;
-    if (ucs4 >= 0x20 && ucs4 <= 0x7F) {
-      key.set_key_code(static_cast<int>(ucs4));
-    } else if (ucs4 == 0x3001 || ucs4 == 0xFF64) {
+    if (codepoint >= 0x20 && codepoint <= 0x7F) {
+      key.set_key_code(static_cast<int>(codepoint));
+    } else if (codepoint == 0x3001 || codepoint == 0xFF64) {
       key.set_key_code(0x002C);  // Full-width comma -> Half-width comma
-    } else if (ucs4 == 0x3002 || ucs4 == 0xFF0E || ucs4 == 0xFF61) {
+    } else if (codepoint == 0x3002 || codepoint == 0xFF0E ||
+               codepoint == 0xFF61) {
       key.set_key_code(0x002E);  // Full-width period -> Half-width period
-    } else if (ucs4 == 0x2212 || ucs4 == 0x2015) {
+    } else if (codepoint == 0x2212 || codepoint == 0x2015) {
       key.set_key_code(0x002D);  // "−" -> "-"
-    } else if (ucs4 == 0x300C || ucs4 == 0xff62) {
+    } else if (codepoint == 0x300C || codepoint == 0xff62) {
       key.set_key_code(0x005B);  // "「" -> "["
-    } else if (ucs4 == 0x300D || ucs4 == 0xff63) {
+    } else if (codepoint == 0x300D || codepoint == 0xff63) {
       key.set_key_code(0x005D);  // "」" -> "]"
-    } else if (ucs4 == 0x30FB || ucs4 == 0xFF65) {
+    } else if (codepoint == 0x30FB || codepoint == 0xFF65) {
       key.set_key_code(0x002F);  // "・" -> "/"  "･" -> "/"
     } else {
       LOG(WARNING) << "Unexpected character: " << std::hex
-                   << static_cast<uint32_t>(ucs4) << ": in " << input << " ("
-                   << hiragana_sentence << ")";
+                   << static_cast<uint32_t>(codepoint) << ": in " << input
+                   << " (" << hiragana_sentence << ")";
       return std::nullopt;
     }
     keys.push_back(std::move(key));
@@ -167,16 +167,16 @@ std::optional<double> CalculateBleu(client::Client &client,
   for (const commands::KeyEvent &key : *keys) {
     client.SendKey(key, &output);
   }
-  VLOG(2) << "Server response: " << protobuf::Utf8Format(output);
+  MOZC_VLOG(2) << "Server response: " << output;
 
   // Calculate score
-  std::string expected_normalized;
-  Scorer::NormalizeForEvaluate(expected_result, &expected_normalized);
+  std::string expected_normalized =
+      Scorer::NormalizeForEvaluate(expected_result);
 
   std::string preedit_normalized;
   if (std::optional<std::string> preedit = GetPreedit(output);
       preedit.has_value() && !preedit->empty()) {
-    Scorer::NormalizeForEvaluate(*preedit, &preedit_normalized);
+    preedit_normalized = Scorer::NormalizeForEvaluate(*preedit);
   } else {
     LOG(WARNING) << "Could not get output";
     return std::nullopt;
@@ -184,10 +184,10 @@ std::optional<double> CalculateBleu(client::Client &client,
 
   double score = Scorer::BLEUScore({expected_normalized}, preedit_normalized);
 
-  VLOG(1) << hiragana_sentence << std::endl
-          << "   score: " << score << std::endl
-          << " preedit: " << preedit_normalized << std::endl
-          << "expected: " << expected_normalized;
+  MOZC_VLOG(1) << hiragana_sentence << std::endl
+               << "   score: " << score << std::endl
+               << " preedit: " << preedit_normalized << std::endl
+               << "expected: " << expected_normalized;
 
   // Revert session to prevent server from learning this conversion
   commands::SessionCommand command;
@@ -243,7 +243,7 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
-    VLOG(1) << "Processing " << hiragana_sentence;
+    MOZC_VLOG(1) << "Processing " << hiragana_sentence;
     if (!mozc::IsValidSourceSentence(hiragana_sentence)) {
       LOG(WARNING) << "Invalid test case: " << std::endl
                    << "    source: " << source << std::endl

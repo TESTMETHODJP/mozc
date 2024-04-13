@@ -30,15 +30,20 @@
 #ifndef MOZC_ENGINE_ENGINE_INTERFACE_H_
 #define MOZC_ENGINE_ENGINE_INTERFACE_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "converter/converter_interface.h"
 #include "data_manager/data_manager_interface.h"
 #include "dictionary/suppression_dictionary.h"
+#include "engine/data_loader.h"
+#include "engine/modules.h"
+#include "engine/spellchecker_interface.h"
 #include "engine/user_data_manager_interface.h"
-#include "prediction/predictor_interface.h"
-#include "absl/strings/string_view.h"
+#include "protocol/engine_builder.pb.h"
 
 namespace mozc {
 
@@ -57,19 +62,34 @@ class EngineInterface {
   // engine class and should not be deleted by callers.
   virtual ConverterInterface *GetConverter() const = 0;
 
-  // Returns a reference to a predictor. The returned instance is managed by the
-  // engine class and should not be deleted by callers.
-  virtual prediction::PredictorInterface *GetPredictor() const = 0;
+  // Returns the predictor name.
+  virtual absl::string_view GetPredictorName() const = 0;
 
   // Returns a reference to the suppression dictionary. The returned instance is
   // managed by the engine class and should not be deleted by callers.
   virtual dictionary::SuppressionDictionary *GetSuppressionDictionary() = 0;
 
   // Reloads internal data, e.g., user dictionary, etc.
+  // This function may read data from local files.
+  // Returns true if successfully reloaded or did nothing.
   virtual bool Reload() = 0;
 
+  // Synchronizes internal data, e.g., user dictionary, etc.
+  // This function may write data into local files.
+  // Returns true if successfully synced or did nothing.
+  virtual bool Sync() = 0;
+
+  // Waits for reloader.
+  // Returns true if successfully waited or did nothing.
+  virtual bool Wait() = 0;
+
   // Reloads internal data and wait for reloader.
+  // Returns true if successfully reloaded and waited, or did nothing.
   virtual bool ReloadAndWait() = 0;
+
+  // Reloads the modules and update objects in Engine.
+  virtual absl::Status ReloadModules(std::unique_ptr<engine::Modules> modules,
+                                     bool is_mobile) = 0;
 
   // Gets a user data manager.
   virtual UserDataManagerInterface *GetUserDataManager() = 0;
@@ -82,6 +102,19 @@ class EngineInterface {
 
   // Gets the user POS list.
   virtual std::vector<std::string> GetPosList() const = 0;
+
+  virtual void SetSpellchecker(
+      const engine::SpellcheckerInterface *spellchecker) {}
+
+  // Maybe reload a new data manager. Returns true if reloaded.
+  virtual bool MaybeReloadEngine(EngineReloadResponse *response) {
+    return false;
+  }
+  virtual bool SendEngineReloadRequest(const EngineReloadRequest &request) {
+    return false;
+  }
+  virtual void SetDataLoaderForTesting(std::unique_ptr<DataLoader> loader) {}
+  virtual void SetAlwaysWaitForLoaderResponseFutureForTesting(bool value) {}
 
  protected:
   EngineInterface() = default;

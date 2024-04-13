@@ -40,18 +40,22 @@
 #include <utility>
 #include <vector>
 
-#include "base/hash.h"
-#include "base/japanese_util.h"
-#include "base/logging.h"
-#include "base/mmap.h"
-#include "base/number_util.h"
-#include "base/util.h"
-#include "dictionary/user_dictionary_util.h"
-#include "protocol/user_dictionary_storage.pb.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "base/hash.h"
+#include "base/japanese_util.h"
+#include "base/mmap.h"
+#include "base/number_util.h"
+#include "base/strings/unicode.h"
+#include "base/util.h"
+#include "base/vlog.h"
+#include "dictionary/user_dictionary_util.h"
+#include "protocol/user_dictionary_storage.pb.h"
 
 namespace mozc {
 
@@ -68,11 +72,9 @@ uint64_t EntryFingerprint(const UserDictionary::Entry &entry) {
                      static_cast<char>(entry.pos()));
 }
 
-void NormalizePos(const absl::string_view input, std::string *output) {
-  std::string tmp;
-  output->clear();
-  japanese_util::FullWidthAsciiToHalfWidthAscii(input, &tmp);
-  japanese_util::HalfWidthKatakanaToFullWidthKatakana(tmp, output);
+std::string NormalizePos(const absl::string_view input) {
+  std::string tmp = japanese_util::FullWidthAsciiToHalfWidthAscii(input);
+  return japanese_util::HalfWidthKatakanaToFullWidthKatakana(tmp);
 }
 
 // A data type to hold conversion rules of POSes. If mozc_pos is set to be an
@@ -110,8 +112,7 @@ bool ConvertEntryInternal(const PosMap *pos_map, size_t map_size,
   }
 
   // Normalize POS (remove full width ascii and half width katakana)
-  std::string pos;
-  NormalizePos(from.pos, &pos);
+  std::string pos = NormalizePos(from.pos);
 
   std::string locale;
   // TODO(all): Better to use StrSplit.
@@ -153,8 +154,7 @@ bool ConvertEntryInternal(const PosMap *pos_map, size_t map_size,
   to->set_pos(found->mozc_pos);
 
   // Normalize reading.
-  std::string normalized_key;
-  UserDictionaryUtil::NormalizeReading(to->key(), &normalized_key);
+  std::string normalized_key = UserDictionaryUtil::NormalizeReading(to->key());
   to->set_key(normalized_key);
 
   // Copy comment.
@@ -215,7 +215,7 @@ UserDictionaryImporter::ErrorType UserDictionaryImporter::ImportFromIterator(
       continue;
     }
 
-    // Don't register words if it is aleady in the current dictionary.
+    // Don't register words if it is already in the current dictionary.
     if (!existent_entries.insert(EntryFingerprint(entry)).second) {
       continue;
     }
@@ -295,7 +295,7 @@ UserDictionaryImporter::TextInputIterator::TextInputIterator(
 
   ime_type_ = DetermineFinalIMEType(ime_type, guessed_type);
 
-  VLOG(1) << "Setting type to: " << static_cast<int>(ime_type_);
+  MOZC_VLOG(1) << "Setting type to: " << static_cast<int>(ime_type_);
 }
 
 bool UserDictionaryImporter::TextInputIterator::IsAvailable() const {
@@ -328,25 +328,33 @@ bool UserDictionaryImporter::TextInputIterator::Next(RawEntry *entry) {
     // Skip comment lines.
     // TODO(yukawa): Use string::front once C++11 is enabled on Mac.
     if (((ime_type_ == MSIME || ime_type_ == ATOK) && line[0] == '!') ||
-        (ime_type_ == MOZC && line[0] == '#') ||
+        ((ime_type_ == MOZC || ime_type_ == GBOARD_V1) && line[0] == '#') ||
         (ime_type_ == KOTOERI && absl::StartsWith(line, "//"))) {
       continue;
     }
 
-    VLOG(2) << line;
+    MOZC_VLOG(2) << line;
 
     std::vector<std::string> values;
     switch (ime_type_) {
       case MSIME:
       case ATOK:
       case MOZC:
+      case GBOARD_V1:
         values = absl::StrSplit(line, '\t', absl::AllowEmpty());
         if (values.size() < 3) {
           continue;  // Ignore this line.
         }
         entry->key = std::move(values[0]);
         entry->value = std::move(values[1]);
-        entry->pos = std::move(values[2]);
+        if (ime_type_ == GBOARD_V1) {
+          // values[2] specifies locale, not POS.
+          // Use NO_POS as a default value.
+          // pos = "品詞なし" + ":" + locale
+          entry->pos = absl::StrCat("品詞なし:", std::move(values[2]));
+        } else {
+          entry->pos = std::move(values[2]);
+        }
         if (values.size() >= 4) {
           entry->comment = std::move(values[3]);
         }
@@ -409,6 +417,10 @@ UserDictionaryImporter::IMEType UserDictionaryImporter::GuessIMEType(
     return KOTOERI;
   }
 
+  if (absl::StartsWith(lower, "# gboard dictionary version:1")) {
+    return GBOARD_V1;
+  }
+
   if (*line.begin() == '#' || absl::StrContains(line, "\t")) {
     return MOZC;
   }
@@ -458,30 +470,21 @@ UserDictionaryImporter::EncodingType UserDictionaryImporter::GuessEncodingType(
 
   // Count valid UTF8 characters.
   // TODO(taku): Improve the accuracy by making a DFA.
-  const char *begin = str.data();
-  const char *end = str.data() + str.size();
   size_t valid_utf8 = 0;
   size_t valid_script = 0;
-  while (begin < end) {
-    size_t mblen = 0;
-    const char32_t ucs4 = Util::Utf8ToUcs4(begin, end, &mblen);
-    if (mblen == 0) {
+  for (const UnicodeChar ch : Utf8AsUnicodeChar(str)) {
+    if (!ch.ok()) {
       break;
     }
-    ++valid_utf8;
-    for (size_t i = 1; i < mblen; ++i) {
-      if (begin[i] >= 0x80 && begin[i] <= 0xBF) {
-        ++valid_utf8;
-      }
-    }
+    valid_utf8 += ch.utf8().size();
 
     // "\n\r\t " or Japanese code point
-    if (ucs4 == 0x000A || ucs4 == 0x000D || ucs4 == 0x0020 || ucs4 == 0x0009 ||
-        Util::GetScriptType(ucs4) != Util::UNKNOWN_SCRIPT) {
-      valid_script += mblen;
+    const char32_t codepoint = ch.char32();
+    if (codepoint == 0x000A || codepoint == 0x000D || codepoint == 0x0020 ||
+        codepoint == 0x0009 ||
+        Util::GetScriptType(codepoint) != Util::UNKNOWN_SCRIPT) {
+      valid_script += ch.utf8().size();
     }
-
-    begin += mblen;
   }
 
   // TODO(taku): No theoretical justification for these parameters.

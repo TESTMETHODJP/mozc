@@ -29,9 +29,9 @@
 
 #include "base/version.h"
 
+#include "absl/strings/str_format.h"
 #include "base/util.h"
 #include "testing/gunit.h"
-#include "absl/strings/str_format.h"
 
 // Import the generated version_def.h.
 #include "base/version_def.h"

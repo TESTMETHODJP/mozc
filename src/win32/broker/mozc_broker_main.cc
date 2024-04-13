@@ -27,11 +27,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "absl/flags/flag.h"
 #include "base/crash_report_handler.h"
 #include "base/init_mozc.h"
 #include "base/system_util.h"
 #include "config/stats_config_util.h"
-#include "absl/flags/flag.h"
 
 #ifdef _WIN32
 #include <windows.h>

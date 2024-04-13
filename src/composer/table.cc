@@ -31,35 +31,33 @@
 
 #include "composer/table.h"
 
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <istream>  // NOLINT
-#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "base/config_file_stream.h"
 #include "base/hash.h"
 #include "base/logging.h"
 #include "base/util.h"
 #include "composer/internal/special_key.h"
-#include "composer/internal/typing_model.h"
+#include "data_manager/data_manager_interface.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_split.h"
-#include "absl/strings/string_view.h"
 
 namespace mozc {
 namespace composer {
 namespace {
 
-using internal::DeleteSpecialKeys;
+using ::mozc::composer::internal::DeleteSpecialKeys;
 
 constexpr char kDefaultPreeditTableFile[] = "system://romanji-hiragana.tsv";
 constexpr char kRomajiPreeditTableFile[] = "system://romanji-hiragana.tsv";
@@ -128,31 +126,21 @@ Table::Table() {
   special_key_map_.Register("{!}");  // timeout
 }
 
-Table::~Table() {
-  for (const auto entry : entry_set_) {
-    delete entry;
-  }
-}
-
-static constexpr char kKuten[] = "、";
-static constexpr char kTouten[] = "。";
-static constexpr char kComma[] = "，";
-static constexpr char kPeriod[] = "．";
-
-static constexpr char kCornerOpen[] = "「";
-static constexpr char kCornerClose[] = "」";
-static constexpr char kSlash[] = "／";
-static constexpr char kSquareOpen[] = "[";
-static constexpr char kSquareClose[] = "]";
-static constexpr char kMiddleDot[] = "・";
+constexpr absl::string_view kKuten = "、";
+constexpr absl::string_view kTouten = "。";
+constexpr absl::string_view kComma = "，";
+constexpr absl::string_view kPeriod = "．";
+constexpr absl::string_view kCornerOpen = "「";
+constexpr absl::string_view kCornerClose = "」";
+constexpr absl::string_view kSlash = "／";
+constexpr absl::string_view kSquareOpen = "[";
+constexpr absl::string_view kSquareClose = "]";
+constexpr absl::string_view kMiddleDot = "・";
 
 bool Table::InitializeWithRequestAndConfig(
-    const commands::Request &request, const config::Config &config,
-    const DataManagerInterface &data_manager) {
+    const commands::Request &request, const config::Config &config) {
   case_sensitive_ = false;
   bool result = false;
-  typing_model_ = TypingModel::CreateTypingModel(
-      request.special_romanji_table(), data_manager);
   if (request.special_romanji_table() !=
       mozc::commands::Request::DEFAULT_TABLE) {
     const char *table_file_name;
@@ -389,23 +377,24 @@ const Entry *Table::AddRuleWithAttributes(
     DeleteEntry(old_entry);
   }
 
-  Entry *entry = new Entry(input, output, pending, attributes);
-  entries_.AddEntry(input, entry);
-  entry_set_.insert(entry);
+  auto entry = std::make_unique<Entry>(input, output, pending, attributes);
+  Entry *entry_ptr = entry.get();
+  entries_.AddEntry(input, entry_ptr);
+  entry_set_.insert(std::move(entry));
 
   // Check if the input has a large capital character.
   // Invisible character is exception.
   if (!case_sensitive_) {
     const std::string trimed_input = DeleteSpecialKeys(input);
     for (ConstChar32Iterator iter(trimed_input); !iter.Done(); iter.Next()) {
-      const char32_t ucs4 = iter.Get();
-      if ('A' <= ucs4 && ucs4 <= 'Z') {
+      const char32_t codepoint = iter.Get();
+      if ('A' <= codepoint && codepoint <= 'Z') {
         case_sensitive_ = true;
         break;
       }
     }
   }
-  return entry;
+  return entry_ptr;
 }
 
 void Table::DeleteRule(const absl::string_view input) {
@@ -437,25 +426,23 @@ bool Table::LoadFromFile(const char *filepath) {
   return LoadFromStream(ifs.get());
 }
 
-const TypingModel *Table::typing_model() const { return typing_model_.get(); }
-
 namespace {
 constexpr char kAttributeDelimiter = ' ';
 
 TableAttributes ParseAttributes(const absl::string_view input) {
   TableAttributes attributes = NO_TABLE_ATTRIBUTE;
 
-  std::vector<std::string> attribute_strings =
+  std::vector<absl::string_view> attribute_strings =
       absl::StrSplit(input, kAttributeDelimiter, absl::AllowEmpty());
 
-  for (size_t i = 0; i < attribute_strings.size(); ++i) {
-    if (attribute_strings[i] == "NewChunk") {
+  for (const absl::string_view attribute_string : attribute_strings) {
+    if (attribute_string == "NewChunk") {
       attributes |= NEW_CHUNK;
-    } else if (attribute_strings[i] == "NoTransliteration") {
+    } else if (attribute_string == "NoTransliteration") {
       attributes |= NO_TRANSLITERATION;
-    } else if (attribute_strings[i] == "DirectInput") {
+    } else if (attribute_string == "DirectInput") {
       attributes |= DIRECT_INPUT;
-    } else if (attribute_strings[i] == "EndChunk") {
+    } else if (attribute_string == "EndChunk") {
       attributes |= END_CHUNK;
     }
   }
@@ -466,7 +453,6 @@ TableAttributes ParseAttributes(const absl::string_view input) {
 bool Table::LoadFromStream(std::istream *is) {
   DCHECK(is);
   std::string line;
-  const std::string empty_pending("");
   while (!is->eof()) {
     std::getline(*is, line);
     Util::ChopReturns(&line);
@@ -482,7 +468,7 @@ bool Table::LoadFromStream(std::istream *is) {
     } else if (rules.size() == 3) {
       AddRule(rules[0], rules[1], rules[2]);
     } else if (rules.size() == 2) {
-      AddRule(rules[0], rules[1], empty_pending);
+      AddRule(rules[0], rules[1], "");
     } else {
       if (line[0] != '#') {
         LOG(ERROR) << "Format error: " << line;
@@ -556,10 +542,7 @@ bool Table::HasSubRules(const absl::string_view input) const {
   }
 }
 
-void Table::DeleteEntry(const Entry *entry) {
-  entry_set_.erase(entry);
-  delete entry;
-}
+void Table::DeleteEntry(const Entry *entry) { entry_set_.erase(entry); }
 
 bool Table::case_sensitive() const { return case_sensitive_; }
 
@@ -582,9 +565,8 @@ const Table &Table::GetDefaultTable() {
 TableManager::TableManager()
     : custom_roman_table_fingerprint_(Fingerprint32("")) {}
 
-const Table *TableManager::GetTable(
-    const mozc::commands::Request &request, const mozc::config::Config &config,
-    const mozc::DataManagerInterface &data_manager) {
+const Table *TableManager::GetTable(const mozc::commands::Request &request,
+                                    const mozc::config::Config &config) {
   // calculate the hash depending on the request and the config
   uint32_t hash = request.special_romanji_table();
   hash = hash * (mozc::config::Config_PreeditMethod_PreeditMethod_MAX + 1) +
@@ -617,8 +599,8 @@ const Table *TableManager::GetTable(
     }
   }
 
-  std::unique_ptr<Table> table(new Table());
-  if (!table->InitializeWithRequestAndConfig(request, config, data_manager)) {
+  auto table = std::make_unique<Table>();
+  if (!table->InitializeWithRequestAndConfig(request, config)) {
     return nullptr;
   }
 

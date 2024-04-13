@@ -29,12 +29,12 @@
 
 #include "base/container/bitarray.h"
 
+#include <cstddef>
 #include <utility>
 #include <vector>
 
-#include "testing/googletest.h"
-#include "testing/gunit.h"
 #include "absl/random/random.h"
+#include "testing/gunit.h"
 
 namespace mozc {
 namespace {

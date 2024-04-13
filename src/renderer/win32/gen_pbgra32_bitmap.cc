@@ -36,12 +36,12 @@
 #include <memory>
 #include <string>
 
+#include "absl/base/attributes.h"
+#include "absl/flags/flag.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
 #include "base/logging.h"
 #include "base/win32/wide_char.h"
-#include "absl/base/attributes.h"
-#include "absl/flags/flag.h"
 
 ABSL_FLAG(std::string, src, "", "path to the input PNG file");
 ABSL_FLAG(std::string, dest, "", "path to the output BMP file");
@@ -138,7 +138,6 @@ bool ConvertMain() {
     for (size_t x = 0; x < width; ++x) {
       Gdiplus::Color color;
       image->GetPixel(x, height - y - 1, &color);
-      const size_t index = (y * width + x) * 4;
       output_file << static_cast<uint8_t>(color.GetB() / 255.0 * color.GetA());
       output_file << static_cast<uint8_t>(color.GetG() / 255.0 * color.GetA());
       output_file << static_cast<uint8_t>(color.GetR() / 255.0 * color.GetA());

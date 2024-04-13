@@ -37,14 +37,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/container/serialized_string_array.h"
-#include "base/logging.h"
-#include "base/strings/assign.h"
-#include "data_manager/data_manager_interface.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "base/container/serialized_string_array.h"
+#include "base/logging.h"
+#include "base/strings/assign.h"
+#include "data_manager/data_manager_interface.h"
 
 namespace mozc {
 namespace dictionary {
@@ -55,17 +55,21 @@ UserPos::UserPos(absl::string_view token_array_data,
   DCHECK_EQ(token_array_data.size() % 8, 0);
   DCHECK(SerializedStringArray::VerifyData(string_array_data));
   string_array_.Set(string_array_data);
+  InitPosList();
 }
 
-void UserPos::GetPosList(std::vector<std::string> *pos_list) const {
-  pos_list->clear();
+void UserPos::InitPosList() {
   absl::flat_hash_set<uint16_t> seen;
   for (auto iter = begin(); iter != end(); ++iter) {
     if (!seen.insert(iter.pos_index()).second) {
       continue;
     }
     const absl::string_view pos = string_array_[iter.pos_index()];
-    pos_list->emplace_back(pos.data(), pos.size());
+    if (pos == "名詞") {
+      // "名詞" is the default POS.
+      pos_list_default_index_ = pos_list_.size();
+    }
+    pos_list_.push_back({pos.data(), pos.size()});
   }
 }
 
@@ -119,12 +123,15 @@ bool UserPos::GetTokens(absl::string_view key, absl::string_view value,
 
   constexpr absl::string_view kIsolatedWordPos = "短縮よみ";
   constexpr absl::string_view kSuggestionOnlyPos = "サジェストのみ";
+  constexpr absl::string_view kNoPos = "品詞なし";
 
   uint16_t attributes = 0;
   if (pos == kIsolatedWordPos) {
     attributes = UserPos::Token::ISOLATED_WORD;
   } else if (pos == kSuggestionOnlyPos) {
     attributes = UserPos::Token::SUGGESTION_ONLY;
+  } else if (pos == kNoPos) {
+    attributes = UserPos::Token::SHORTCUT;
   }
   if (is_non_ja_locale) {
     attributes |= UserPos::Token::NON_JA_LOCALE;

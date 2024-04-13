@@ -44,7 +44,7 @@
     'compiler_host%': '',
 
     # Versioning stuff for Mac.
-    'mac_sdk%': '13.0',
+    'mac_sdk%': '13.3',
     'mac_deployment_target%': '11.0',
 
     # warning_cflags will be shared with Mac and Linux.
@@ -139,6 +139,7 @@
           'NDEBUG',
           'QT_NO_DEBUG',
           'MOZC_NO_LOGGING',
+          'ABSL_MIN_LOG_LEVEL=100',
           'IGNORE_HELP_FLAG',
           'IGNORE_INVALID_FLAG'
         ],
@@ -179,7 +180,7 @@
           }],
           ['compiler_target=="clang" or compiler_target=="gcc"', {
             'cflags_cc': [
-              '-std=c++17',
+              '-std=c++20',
             ],
           }],
         ],
@@ -199,7 +200,7 @@
           }],
           ['compiler_host=="clang" or compiler_host=="gcc"', {
             'cflags_cc': [
-              '-std=c++17',
+              '-std=c++20',
             ],
           }],
         ],
@@ -221,17 +222,8 @@
           # <unordered_map> and <unordered_set>.
           '-Wno-deprecated',
         ],
-        'conditions': [
-          ['target_platform=="Linux"', {
-            # OS_LINUX is defined always (target and host).
-            'defines': ['OS_LINUX',],
-          }],
-        ],
       }],
       ['OS=="mac"', {
-        'defines': [
-          '__APPLE__',
-        ],
         'make_global_settings': [
           ['CC', '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang'],
           ['CXX', '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++'],
@@ -262,7 +254,7 @@
             '-Wno-covered-switch-default',
             '-Wno-unnamed-type-template-args',
           ],
-          'CLANG_CXX_LANGUAGE_STANDARD': 'c++17',
+          'CLANG_CXX_LANGUAGE_STANDARD': 'c++20',
           'CLANG_CXX_LIBRARY': 'libc++',
           'OTHER_CPLUSPLUSFLAGS': [
             '$(inherited)',
