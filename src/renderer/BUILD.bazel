@@ -42,22 +42,29 @@ load(
 )
 load("//bazel/win32:build_defs.bzl", "features_gdi")
 
-package(default_visibility = ["//:__subpackages__"])
+package(default_visibility = ["//visibility:private"])
 
 mozc_cc_library(
     name = "renderer_client",
     srcs = ["renderer_client.cc"],
     hdrs = ["renderer_client.h"],
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//gui:__subpackages__",
+        "//mac:__pkg__",
+        "//renderer:__subpackages__",
+        "//unix:__subpackages__",
+        "//visibility:public",
+        "//win32:__subpackages__",
+    ],
     deps = [
         ":renderer_interface",
         "//base:clock",
-        "//base:logging",
         "//base:process",
         "//base:system_util",
         "//base:thread",
         "//base:version",
         "//base:vlog",
+        "//client:client_interface",
         "//ipc",
         "//ipc:named_event",
         "//protocol:renderer_cc_proto",
@@ -70,7 +77,6 @@ mozc_cc_library(
         macos = ["//base/mac:mac_util"],
         windows = [
             "//base/win32:win_sandbox",
-            "//base:run_level",
         ],
     ),
 )
@@ -82,14 +88,14 @@ mozc_cc_test(
     tags = ["noandroid"],
     deps = [
         ":renderer_client",
-        ":renderer_interface",
-        "//base:logging",
         "//base:number_util",
         "//base:version",
+        "//base/strings:zstring_view",
         "//ipc",
         "//protocol:commands_cc_proto",
         "//protocol:renderer_cc_proto",
         "//testing:gunit_main",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
@@ -101,10 +107,10 @@ mozc_cc_library(
     hdrs = ["renderer_server.h"],
     # TODO(b/180075250): IPC tests don't pass in forge
     tags = ["nowin"],
+    visibility = ["//renderer:__subpackages__"],
     deps = [
         ":renderer_interface",
         "//base:const",
-        "//base:logging",
         "//base:system_util",
         "//base:vlog",
         "//client:client_interface",
@@ -116,6 +122,7 @@ mozc_cc_library(
         "//protocol:config_cc_proto",
         "//protocol:renderer_cc_proto",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
@@ -130,11 +137,12 @@ mozc_cc_test(
         ":renderer_client",
         ":renderer_interface",
         ":renderer_server",
-        "//base:logging",
+        "//ipc",
         "//ipc:ipc_test_util",
         "//protocol:renderer_cc_proto",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
@@ -147,9 +155,11 @@ mozc_cc_library(
         "table_layout_interface.h",
     ],
     hdrs = ["table_layout.h"],
+    visibility = ["//renderer:__subpackages__"],
     deps = [
         "//base:coordinates",
-        "//base:logging",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -163,6 +173,7 @@ mozc_cc_test(
     tags = ["noandroid"],
     deps = [
         ":table_layout",
+        "//base:coordinates",
         "//testing:gunit_main",
     ],
 )
@@ -171,13 +182,19 @@ mozc_cc_library(
     name = "window_util",
     srcs = ["window_util.cc"],
     hdrs = ["window_util.h"],
+    visibility = ["//renderer:__subpackages__"],
     deps = ["//base:coordinates"],
 )
 
 mozc_cc_library(
     name = "renderer_interface",
     hdrs = ["renderer_interface.h"],
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//mac:__pkg__",
+        "//renderer:__subpackages__",
+        "//unix:__subpackages__",
+        "//visibility:public",
+    ],
     deps = [
         "//client:client_interface",
         "//protocol:renderer_cc_proto",
@@ -188,9 +205,14 @@ mozc_cc_library(
     name = "renderer_mock",
     testonly = True,
     hdrs = ["renderer_mock.h"],
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//unix:__subpackages__",
+        "//visibility:public",
+    ],
     deps = [
         ":renderer_interface",
+        "//client:client_interface",
+        "//protocol:renderer_cc_proto",
         "//testing:gunit",
     ],
 )
@@ -212,6 +234,7 @@ mozc_cc_library(
     srcs = ["renderer_style_handler.cc"],
     hdrs = ["renderer_style_handler.h"],
     features = features_gdi(),  # for Windows
+    visibility = ["//renderer:__subpackages__"],
     deps = [
         "//base:singleton",
         "//protocol:renderer_cc_proto",
@@ -242,7 +265,13 @@ mozc_macos_application(
     bundle_id = MACOS_BUNDLE_ID_PREFIX + ".Renderer",
     bundle_name = BRANDING + "Renderer",
     infoplists = ["mac/Info.plist"],
-    resources = ["//data/images/mac:candidate_window_logo.tiff"],
+    resources = [
+        "//data/images/mac:candidate_window_logo.tiff",
+    ],
+    visibility = [
+        "//mac:__pkg__",
+        "//renderer:__subpackages__",
+    ],
     deps = [":mozc_renderer_main_macos"],
     # When we support Breakpad, uncomment the following block.
     # additional_contents = {
@@ -254,7 +283,7 @@ mozc_cc_library(
     name = "mozc_renderer_main_macos",
     srcs = mozc_select(macos = ["mac/mac_renderer_main.cc"]),
     deps = [
-        "//renderer:init_mozc_renderer",
+        ":init_mozc_renderer",
     ] + mozc_select(
         macos = [":mozc_renderer_lib_macos"],
     ),
@@ -286,6 +315,7 @@ mozc_objc_library(
     ],
     sdk_frameworks = [
         "Carbon",
+        "Cocoa",
         "Foundation",
     ],
     deps = [
@@ -296,16 +326,16 @@ mozc_objc_library(
         ":window_util",
         "//base:const",
         "//base:coordinates",
-        "//base:logging",
         "//base:util",
         "//base/mac:mac_util",
         "//client:client_interface",
         "//mac:common",
-        "//protocol:candidates_cc_proto",
+        "//protocol:candidate_window_cc_proto",
         "//protocol:commands_cc_proto",
         "//protocol:renderer_cc_proto",
-        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
     ],
 )
@@ -316,11 +346,9 @@ mozc_cc_library(
     hdrs = ["init_mozc_renderer.h"],
     visibility = ["//renderer:__subpackages__"],
     deps = [
-        "//base:crash_report_handler",
         "//base:init_mozc",
         "//base:run_level",
         "//base:system_util",
-        "//config:stats_config_util",
         "@com_google_absl//absl/flags:flag",
     ],
 )

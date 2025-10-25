@@ -28,23 +28,13 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Functions to manipulate bits and bytes.
-//
-// Use absl for the following C++20 functions:
-// - std::countl_one;
-// - std::countl_zero;
-// - std::countr_one;
-// - std::countr_zero;
-// - std::popcount;
-// - std::rotl;
-// - std::rotr;
-// - std::bit_ceil;
-// - std::bit_floor;
-// - std::bit_width;
-// - std::has_single_bit;
 
 #ifndef MOZC_BASE_BITS_H_
 #define MOZC_BASE_BITS_H_
 
+#include <bit>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
@@ -71,7 +61,7 @@
 namespace mozc {
 namespace bits_internal {
 template <typename T, typename Iterator>
-inline constexpr void Advance(Iterator &iter);
+inline constexpr void Advance(Iterator& iter);
 #ifndef __cpp_lib_byteswap
 inline MOZC_BITS_BYTESWAP_CONSTEXPR uint16_t ByteSwap16(uint16_t n);
 inline MOZC_BITS_BYTESWAP_CONSTEXPR uint32_t ByteSwap32(uint32_t n);
@@ -79,25 +69,14 @@ inline MOZC_BITS_BYTESWAP_CONSTEXPR uint64_t ByteSwap64(uint64_t n);
 #endif  // !__cpp_lib_byteswap
 }  // namespace bits_internal
 
-// Endian is a replicate of C++23 std::endian.
-enum class Endian : int8_t {
-  kLittle = 0,
-  kBig = 1,
-#ifdef ABSL_IS_LITTLE_ENDIAN
-  kNative = kLittle,
-#else   // ABSL_IS_LITTLE_ENDIAN
-  kNative = kBig,
-#endif  // !ABSL_IS_LITTLE_ENDIAN
-};
-
 // byteswap is a limited implementation of std::byteswap in C++23.
 // Reverses the byte order of the given integer value.
 // Unlike std::byteswap, it only supports 8-, 16-, 32-, and 64-bit integer
 // types. It's not constexpr in MSVC, either.
 // If this file is compiled for C++23, it'll be an alias of std::byteswap.
 #ifndef __cpp_lib_byteswap
-template <typename T,
-          std::enable_if_t<std::is_integral_v<T>, std::nullptr_t> = nullptr>
+template <typename T>
+  requires(std::integral<T>)
 inline MOZC_BITS_BYTESWAP_CONSTEXPR T byteswap(T n) {
   static_assert(
       sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
@@ -116,7 +95,7 @@ inline MOZC_BITS_BYTESWAP_CONSTEXPR T byteswap(T n) {
 using std::byteswap;
 #endif  // __cpp_lib_byteswap
 
-// Loads a value of type T from std::addressof(*iter) with the native byte
+// Loads a value of type T from std::to_address(iter) with the native byte
 // order. Use this function instead of reinterpret_cast to read a multi-byte
 // type from a byte array. Returns the result.
 //
@@ -128,19 +107,11 @@ using std::byteswap;
 //
 //  uint32_t a = LoadUnaligned<uint32_t>(buf.data());
 //  uint32_t b = LoadUnaligned<uint32_t>(buf.data() + 4);
-template <typename T, typename Iterator,
-          typename IterTag =
-              typename std::iterator_traits<Iterator>::iterator_category,
-          // TODO(yuryu): C++20: require std::contiguous_iterator.
-          std::enable_if_t<
-              std::is_convertible_v<IterTag, std::random_access_iterator_tag>,
-              std::nullptr_t> = nullptr>
+template <typename T, typename Iterator>
+  requires(std::contiguous_iterator<Iterator> && std::integral<T>)
 inline T LoadUnaligned(Iterator iter) {
-  static_assert(std::is_arithmetic_v<T>,
-                "The value type must be an arithmetic type");
-
   T result;
-  memcpy(&result, std::addressof(*iter), sizeof(T));
+  memcpy(&result, std::to_address(iter), sizeof(T));
   return result;
 }
 
@@ -155,13 +126,13 @@ inline T LoadUnaligned(Iterator iter) {
 //    values.push_back(LoadUnalignedAdvance<uint32_t>(iter));
 //  }
 template <typename T, typename Iterator>
-inline T LoadUnalignedAdvance(Iterator &iter) {
+inline T LoadUnalignedAdvance(Iterator& iter) {
   const T result = LoadUnaligned<T>(iter);
   bits_internal::Advance<T>(iter);
   return result;
 }
 
-// Stores a value of sizeof(T) to std::addressof(*it) with the native byte
+// Stores a value of sizeof(T) to std::to_address(it) with the native byte
 // order. Use this function instead of reinterpret_cast to store a multi-byte
 // type to a byte array. Returns a iterator pointing the element immediately
 // after the stored value.
@@ -181,29 +152,19 @@ inline T LoadUnalignedAdvance(Iterator &iter) {
 //    }
 //    return result;
 //  }
-template <typename T, typename U, typename Iterator,
-          typename IterTag =
-              typename std::iterator_traits<Iterator>::iterator_category,
-          // TODO(yuryu): C++20: require std::contiguous_iterator.
-          std::enable_if_t<
-              std::is_convertible_v<IterTag, std::random_access_iterator_tag>,
-              std::nullptr_t> = nullptr>
-inline Iterator StoreUnaligned(const U value, Iterator iter) {
-  static_assert(std::is_arithmetic_v<T>,
-                "The value type must be an arithmetic type.");
-  static_assert(sizeof(T) == sizeof(value),
-                "The sizeof(value) must equal to sizeof(T).");
-
-  memcpy(std::addressof(*iter), std::addressof(value), sizeof(T));
+template <typename T, typename Iterator>
+  requires(std::contiguous_iterator<Iterator> && std::integral<T>)
+inline Iterator StoreUnaligned(const T value, Iterator iter) {
+  memcpy(std::to_address(iter), std::addressof(value), sizeof(T));
   bits_internal::Advance<T>(iter);
   return iter;
 }
 
 // HostToNet changes the host byte order value to the network byte order.
-template <typename T,
-          std::enable_if_t<std::is_integral_v<T>, std::nullptr_t> = nullptr>
+template <typename T>
+  requires(std::integral<T>)
 inline T HostToNet(const T n) {
-  if constexpr (Endian::kNative == Endian::kLittle) {
+  if constexpr (std::endian::native == std::endian::little) {
     return byteswap(n);
   } else {
     return n;
@@ -211,17 +172,17 @@ inline T HostToNet(const T n) {
 }
 
 // NetToHost changes the network byte order value to the host byte order.
-template <typename T,
-          std::enable_if_t<std::is_integral_v<T>, std::nullptr_t> = nullptr>
+template <typename T>
+  requires(std::integral<T>)
 inline T NetToHost(const T n) {
   return HostToNet(n);
 }
 
 // HostToLittle changes the host byte order value to the little endian order.
-template <typename T,
-          std::enable_if_t<std::is_integral_v<T>, std::nullptr_t> = nullptr>
+template <typename T>
+  requires(std::integral<T>)
 inline T HostToLittle(const T n) {
-  if constexpr (Endian::kNative == Endian::kLittle) {
+  if constexpr (std::endian::native == std::endian::little) {
     return n;
   } else {
     return byteswap(n);
@@ -229,8 +190,8 @@ inline T HostToLittle(const T n) {
 }
 
 // LittleToHost changes the little endian byte order to the host byte order.
-template <typename T,
-          std::enable_if_t<std::is_integral_v<T>, std::nullptr_t> = nullptr>
+template <typename T>
+  requires(std::integral<T>)
 inline T LittleToHost(const T n) {
   return HostToLittle(n);
 }
@@ -238,7 +199,7 @@ inline T LittleToHost(const T n) {
 namespace bits_internal {
 
 template <typename T, typename Iterator>
-inline constexpr void Advance(Iterator &iter) {
+inline constexpr void Advance(Iterator& iter) {
   using IterValue = typename std::iterator_traits<Iterator>::value_type;
   constexpr size_t iterator_value_size = sizeof(IterValue);
 

@@ -30,11 +30,12 @@
 #ifndef MOZC_PREDICTION_PREDICTOR_INTERFACE_H_
 #define MOZC_PREDICTION_PREDICTOR_INTERFACE_H_
 
-#include <string>
+#include <cstdint>
+#include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
-#include "converter/segments.h"
+#include "absl/types/span.h"
+#include "prediction/result.h"
 #include "request/conversion_request.h"
 
 namespace mozc::prediction {
@@ -49,14 +50,17 @@ class PredictorInterface {
   // SUGGESTION: automatic suggestions
   // PREDICTION: invoked only when user pushes "tab" key.
   // less aggressive than SUGGESTION mode.
-  ABSL_MUST_USE_RESULT virtual bool PredictForRequest(
-      const ConversionRequest &request, Segments *segments) const = 0;
+  virtual std::vector<Result> Predict(
+      const ConversionRequest& request) const = 0;
 
-  // Hook(s) for all mutable operations.
-  virtual void Finish(const ConversionRequest &request, Segments *segments) {}
+  // Finish the conversion. Stores the history for penalization.
+  // results[0] stores the committed result.
+  // We can revert the Finish operation with the revert_id and Revert method.
+  virtual void Finish(const ConversionRequest& request,
+                      absl::Span<const Result> results, uint32_t revert_id) {}
 
   // Reverts the last Finish operation.
-  virtual void Revert(Segments *segments) {}
+  virtual void Revert(uint32_t revert_id) {}
 
   // Clears all history data of UserHistoryPredictor.
   virtual bool ClearAllHistory() { return true; }
@@ -79,7 +83,7 @@ class PredictorInterface {
   // Waits for syncer thread to complete.
   virtual bool Wait() { return true; }
 
-  virtual const std::string &GetPredictorName() const = 0;
+  virtual absl::string_view GetPredictorName() const = 0;
 };
 
 }  // namespace mozc::prediction

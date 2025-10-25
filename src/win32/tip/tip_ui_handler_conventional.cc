@@ -36,11 +36,11 @@
 #include <cstddef>
 #include <utility>
 
-#include "base/logging.h"
+#include "absl/log/check.h"
 #include "base/win32/com.h"
 #include "base/win32/wide_char.h"
 #include "base/win32/win_util.h"
-#include "protocol/candidates.pb.h"
+#include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_command.pb.h"
 #include "renderer/win32/win32_renderer_client.h"
@@ -69,10 +69,11 @@ using RendererCommand = ::mozc::commands::RendererCommand;
 using ApplicationInfo = ::mozc::commands::RendererCommand::ApplicationInfo;
 
 size_t GetTargetPos(const commands::Output &output) {
-  if (!output.has_candidates() || !output.candidates().has_category()) {
+  if (!output.has_candidate_window() ||
+      !output.candidate_window().has_category()) {
     return 0;
   }
-  switch (output.candidates().category()) {
+  switch (output.candidate_window().category()) {
     case commands::PREDICTION:
     case commands::SUGGESTION:
       return 0;
@@ -116,8 +117,9 @@ bool FillVisibility(ITfUIElementMgr *ui_element_manager,
   bool candidate_window_visible = false;
 
   // Check if suggest window and candidate window are actually visible.
-  if (output.has_candidates() && output.candidates().has_category()) {
-    switch (output.candidates().category()) {
+  if (output.has_candidate_window() &&
+      output.candidate_window().has_category()) {
+    switch (output.candidate_window().category()) {
       case commands::SUGGESTION:
         suggest_window_visible = show_suggest_window;
         break;
@@ -277,8 +279,8 @@ bool FillCharPosition(TipPrivateContext *private_context, ITfContext *context,
   composition_target->set_position(0);
 
   bool vertical_writing = false;
-  if (SUCCEEDED(TipRangeUtil::IsVerticalWriting(
-          target_range.get(), read_cookie, &vertical_writing))) {
+  if (SUCCEEDED(TipRangeUtil::IsVerticalWriting(target_range.get(), read_cookie,
+                                                &vertical_writing))) {
     composition_target->set_vertical_writing(vertical_writing);
   }
 

@@ -33,24 +33,59 @@ load(
     "mozc_cc_test",
 )
 
-package(default_visibility = ["//:__subpackages__"])
+package(default_visibility = ["//visibility:private"])
 
 mozc_cc_library(
     name = "conversion_request",
     hdrs = ["conversion_request.h"],
+    visibility = [
+        "//:__subpackages__",
+        "//converter:__pkg__",
+        "//dictionary:__subpackages__",
+        "//engine:__pkg__",
+        "//prediction:__pkg__",
+        "//rewriter:__pkg__",
+    ],
     deps = [
+        "//base:util",
+        "//base/strings:assign",
         "//composer",
         "//config:config_handler",
+        "//converter:inner_segment",
+        "//prediction:result",
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+mozc_cc_test(
+    name = "conversion_request_test",
+    srcs = ["conversion_request_test.cc"],
+    deps = [
+        ":conversion_request",
+        "//composer",
+        "//composer:table",
+        "//converter:inner_segment",
+        "//converter:segments",
+        "//prediction:result",
+        "//protocol:commands_cc_proto",
+        "//protocol:config_cc_proto",
+        "//testing:gunit_main",
+        "@com_google_absl//absl/strings",
     ],
 )
 
 mozc_cc_library(
     name = "request_util",
     hdrs = ["request_util.h"],
+    visibility = [
+        "//:__subpackages__",
+        "//converter:__pkg__",
+        "//prediction:__pkg__",
+    ],
     deps = [
         ":conversion_request",
         "//composer",
@@ -63,6 +98,14 @@ mozc_cc_library(
     testonly = 1,
     srcs = ["request_test_util.cc"],
     hdrs = ["request_test_util.h"],
+    visibility = [
+        "//:__subpackages__",
+        "//converter:__pkg__",
+        "//engine:__pkg__",
+        "//prediction:__pkg__",
+        "//rewriter:__pkg__",
+        "//session:__pkg__",
+    ],
     deps = [
         "//protocol:commands_cc_proto",
     ],
@@ -73,7 +116,7 @@ mozc_cc_test(
     srcs = ["request_test_util_test.cc"],
     deps = [
         ":request_test_util",
+        "//protocol:commands_cc_proto",
         "//testing:gunit_main",
-        "//testing:mozctest",
     ],
 )

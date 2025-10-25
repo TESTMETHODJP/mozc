@@ -36,20 +36,16 @@
 #include <windows.h>
 
 #include <atomic>
-#include <type_traits>
 
-#include "absl/base/attributes.h"
 #include "absl/base/casts.h"
+#include "base/win32/com.h"
 
 namespace mozc::win32 {
 namespace com_implements_internal {
 
 // Reference counter for the COM module. Use CanComModuleUnloadNow() to
 // determine if the COM module can unload safely.
-ABSL_CONST_INIT extern std::atomic<int> com_module_ref_count;
-
-// Placeholder to prevent classes from deriving another ComImplement.
-struct ComImplementsBaseTag {};
+constinit extern std::atomic<int> com_module_ref_count;
 
 }  // namespace com_implements_internal
 
@@ -66,15 +62,17 @@ struct ComImplementsTraits {
 };
 
 // This is the default implementation of IsIIDOf. If the COM interface derives
-// another COM interface (not IUnknown), explicitly define an overload of
-// IsIIDOf.
+// from another COM interface (not IUnknown), explicitly define an overload of
+// IsIIDOf in the ::mozc::win32 namespace.
 // For example, ITfLangBarItemButton derives from ITfLangBarItem. In order to
 // answer QueryInterface() for IID_ITfLangBarItem, define:
 //
+// namespace mozc::win32 {
 // template<>
 // IsIIDOf<ITfLangBarItemButton>(REFIID riid) {
 //   return IsIIDOf<ITfLangBarItemButton, ITfLangBarItem>(riid);
 // }
+// }  // namespace mozc::win32
 //
 // This way, IsIIDOf<ITfLangBarItemButton>() will check if
 // `riid` is for one of the specified interface types (ITfLangBarItemButton and
@@ -94,21 +92,15 @@ bool IsIIDOf(REFIID riid) {
 // Note that you need to define a specialization of IsIIDOf<IFoo>() if IFoo
 // is not an immediate derived interface of IUnknown.
 template <typename Traits, typename... Interfaces>
-class ComImplements : public com_implements_internal::ComImplementsBaseTag,
-                      public Interfaces... {
+class ComImplements : public Interfaces... {
  public:
-  static_assert(
-      std::conjunction_v<std::is_convertible<Interfaces *, IUnknown *>...>,
-      "COM interfaces must derive from IUnknown.");
-  static_assert(
-      !std::disjunction_v<std::is_base_of<
-          Interfaces, com_implements_internal::ComImplementsBaseTag>...>,
-      "Do not derive from ComImplements multiple times.");
+  static_assert((ComInterface<Interfaces> && ...),
+                "Interfaces must be abstract COM interfaces.");
 
   ComImplements() { ++com_implements_internal::com_module_ref_count; }
   // Disallow copies and movies.
-  ComImplements(const ComImplements &) = delete;
-  ComImplements &operator=(const ComImplements &) = delete;
+  ComImplements(const ComImplements&) = delete;
+  ComImplements& operator=(const ComImplements&) = delete;
   virtual ~ComImplements() {
     Traits::OnObjectRelease(--com_implements_internal::com_module_ref_count);
   }
@@ -118,11 +110,11 @@ class ComImplements : public com_implements_internal::ComImplementsBaseTag,
   // TODO(yuryu): Make these final by reorganizing implementation classes.
   STDMETHODIMP_(ULONG) AddRef() override;
   STDMETHODIMP_(ULONG) Release() override;
-  STDMETHODIMP QueryInterface(REFIID riid, void **out) override;
+  STDMETHODIMP QueryInterface(REFIID riid, void** out) override;
 
  protected:
   template <typename T, typename... Rest>
-  void *QueryInterfaceImpl(REFIID riid);
+  void* QueryInterfaceImpl(REFIID riid);
 
  private:
   std::atomic<ULONG> ref_count_{0};
@@ -154,7 +146,7 @@ ComImplements<Traits, Interfaces...>::Release() {
 
 template <typename Traits, typename... Interfaces>
 STDMETHODIMP ComImplements<Traits, Interfaces...>::QueryInterface(REFIID riid,
-                                                                  void **out) {
+                                                                  void** out) {
   if (out == nullptr) {
     return E_POINTER;
   }
@@ -168,14 +160,14 @@ STDMETHODIMP ComImplements<Traits, Interfaces...>::QueryInterface(REFIID riid,
 
 template <typename Traits, typename... Interfaces>
 template <typename T, typename... Rest>
-void *ComImplements<Traits, Interfaces...>::QueryInterfaceImpl(REFIID riid) {
+void* ComImplements<Traits, Interfaces...>::QueryInterfaceImpl(REFIID riid) {
   if (IsIIDOf<T>(riid)) {
-    return absl::implicit_cast<T *>(this);
+    return absl::implicit_cast<T*>(this);
   }
   if constexpr (sizeof...(Rest) == 0) {
     // This is the last QueryInterfaceImpl in the list. Check for IUnknown.
     if (IsIIDOf<IUnknown>(riid)) {
-      return absl::implicit_cast<IUnknown *>(absl::implicit_cast<T *>(this));
+      return absl::implicit_cast<IUnknown*>(absl::implicit_cast<T*>(this));
     }
     return nullptr;
   } else {

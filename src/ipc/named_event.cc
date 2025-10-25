@@ -31,20 +31,22 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "base/const.h"
 #include "base/hash.h"
-#include "base/logging.h"
 #include "base/system_util.h"
 #include "base/vlog.h"
 
 #ifdef _WIN32
 #include <sddl.h>
+#include <wil/resource.h>
 #include <windows.h>
 
 #include "base/win32/wide_char.h"
@@ -77,7 +79,7 @@ bool IsProcessAlive(pid_t pid) {
 #endif  // !_WIN32
 }  // namespace
 
-std::string NamedEventUtil::GetEventPath(const char *name) {
+std::string NamedEventUtil::GetEventPath(const char* name) {
   name = (name == nullptr) ? "nullptr" : name;
   std::string event_name = absl::StrCat(
       kEventPathPrefix, SystemUtil::GetUserSidAsString(), ".", name);
@@ -93,15 +95,14 @@ std::string NamedEventUtil::GetEventPath(const char *name) {
   //  equal to or less than 13 characters in length not including the
   //  terminating null character."
   constexpr size_t kEventPathLength = 13;
-  std::string buf =
-      absl::StrFormat("/%x", static_cast<uint64_t>(Fingerprint(event_name)));
+  std::string buf = absl::StrFormat("/%x", CityFingerprint(event_name));
   buf.erase(std::min(kEventPathLength, buf.size()));
   return buf;
 #endif  // _WIN32
 }
 
 #ifdef _WIN32
-NamedEventListener::NamedEventListener(const char *name)
+NamedEventListener::NamedEventListener(const char* name)
     : is_owner_(false), handle_(nullptr) {
   std::wstring event_path =
       win32::Utf8ToWide(NamedEventUtil::GetEventPath(name));
@@ -109,16 +110,19 @@ NamedEventListener::NamedEventListener(const char *name)
   handle_ = ::OpenEventW(EVENT_ALL_ACCESS, false, event_path.c_str());
 
   if (handle_ == nullptr) {
-    SECURITY_ATTRIBUTES security_attributes;
-    if (!WinSandbox::MakeSecurityAttributes(WinSandbox::kSharableEvent,
-                                            &security_attributes)) {
-      LOG(ERROR) << "Cannot make SecurityAttributes";
+    wil::unique_hlocal_security_descriptor security_descriptor =
+        WinSandbox::MakeSecurityDescriptor(WinSandbox::kSharableEvent);
+    if (!security_descriptor) {
+      LOG(ERROR) << "Cannot make SecurityDescriptor";
       return;
     }
-
+    SECURITY_ATTRIBUTES security_attributes = {
+        .nLength = sizeof(SECURITY_ATTRIBUTES),
+        .lpSecurityDescriptor = security_descriptor.get(),
+        .bInheritHandle = FALSE,
+    };
     handle_ =
         ::CreateEventW(&security_attributes, true, false, event_path.c_str());
-    ::LocalFree(security_attributes.lpSecurityDescriptor);
     if (handle_ == nullptr) {
       LOG(ERROR) << "CreateEvent() failed: " << ::GetLastError();
       return;
@@ -207,7 +211,7 @@ int NamedEventListener::WaitEventOrProcess(absl::Duration msec, size_t pid) {
   return result;
 }
 
-NamedEventNotifier::NamedEventNotifier(const char *name) : handle_(nullptr) {
+NamedEventNotifier::NamedEventNotifier(const char* name) : handle_(nullptr) {
   std::wstring event_path =
       win32::Utf8ToWide(NamedEventUtil::GetEventPath(name));
   handle_ = ::OpenEventW(EVENT_MODIFY_STATE, false, event_path.c_str());
@@ -242,7 +246,7 @@ bool NamedEventNotifier::Notify() {
 
 #else   // _WIN32
 
-NamedEventListener::NamedEventListener(const char *name)
+NamedEventListener::NamedEventListener(const char* name)
     : is_owner_(false), sem_(SEM_FAILED) {
   key_filename_ = NamedEventUtil::GetEventPath(name);
 
@@ -317,7 +321,7 @@ int NamedEventListener::WaitEventOrProcess(absl::Duration msec, size_t pid) {
   return NamedEventListener::TIMEOUT;
 }
 
-NamedEventNotifier::NamedEventNotifier(const char *name) : sem_(SEM_FAILED) {
+NamedEventNotifier::NamedEventNotifier(const char* name) : sem_(SEM_FAILED) {
   const std::string key_filename = NamedEventUtil::GetEventPath(name);
   sem_ = ::sem_open(key_filename.c_str(), 0);
   if (sem_ == SEM_FAILED) {

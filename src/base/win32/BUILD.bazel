@@ -76,8 +76,10 @@ mozc_cc_library(
         "//win32/base:__subpackages__",
     ],
     deps = [
-        "//base:logging",
         "//base:util",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -104,9 +106,9 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":wide_char",
-        "//base:logging",
         "//base:mmap",
         "//testing:mozctest",
+        "@com_google_absl//absl/log",
     ],
 )
 
@@ -118,9 +120,9 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":wide_char",
-        "//base:logging",
         "//base:system_util",
         "//base/strings:zstring_view",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_microsoft_wil//:wil",
@@ -173,6 +175,7 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     visibility = [
+        "//gui/tool:__subpackages__",
         "//renderer/win32:__subpackages__",
         "//server:__pkg__",
         "//win32/broker:__subpackages__",
@@ -204,9 +207,9 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
-        "//base:logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -232,7 +235,6 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":wide_char",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_microsoft_wil//:wil",
@@ -259,9 +261,9 @@ mozc_cc_library(
     deps = [
         ":hresult",
         ":hresultor_internal",
-        "//base:logging",
         "//base:port",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -293,8 +295,9 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
+        ":hresult",
         ":hresultor",
-        "@com_google_absl//absl/meta:type_traits",
+        "@com_google_absl//absl/base:nullability",
         "@com_microsoft_wil//:wil",
     ],
 )
@@ -321,8 +324,8 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
+        ":com",
         "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
     ],
 )
 

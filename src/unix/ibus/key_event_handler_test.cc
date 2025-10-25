@@ -34,9 +34,6 @@
 
 #include "absl/random/random.h"
 #include "absl/strings/str_format.h"
-#include "base/clock.h"
-#include "base/port.h"
-#include "base/util.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "testing/gunit.h"
@@ -178,6 +175,13 @@ TEST_F(KeyEventHandlerTest, GetKeyEvent) {
                                        config::Config::ROMAN, true, &key));
     EXPECT_MODIFIERS_TO_BE_SENT(kNoModifiers);
     EXPECT_NO_MODIFIERS_PRESSED();
+  }
+
+  { // Ignore Super (Mod4)
+    key.Clear();
+    EXPECT_FALSE(handler_->GetKeyEvent(IBUS_space, kDummyKeycode,
+                                       IBUS_MOD4_MASK, config::Config::ROMAN,
+                                       true, &key));
   }
 
   // This test fails in current implementation.

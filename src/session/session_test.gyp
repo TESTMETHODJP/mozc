@@ -48,10 +48,8 @@
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:config_proto',
         '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
         '<(mozc_oss_src_dir)/testing/testing.gyp:testing',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
         'session.gyp:session',
         'session.gyp:session_handler',
-        'session.gyp:session_usage_observer',
       ],
     },
     {
@@ -69,7 +67,6 @@
         '<(mozc_oss_src_dir)/rewriter/rewriter.gyp:rewriter',
         '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
         '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
         'session.gyp:session',
       ],
       'variables': {
@@ -103,57 +100,13 @@
       ],
       'dependencies': [
         '<(mozc_oss_src_dir)/base/base_test.gyp:clock_mock',
-        '<(mozc_oss_src_dir)/engine/engine.gyp:minimal_engine',
+        '<(mozc_oss_src_dir)/data_manager/oss/oss_data_manager.gyp:oss_data_manager',
+        '<(mozc_oss_src_dir)/data_manager/testing/mock_data_manager.gyp:mock_data_manager',
         '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
         '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
         'session.gyp:session',
         'session.gyp:session_server',
         'session_handler_test_util',
-      ],
-      'variables': {
-        'test_size': 'small',
-      },
-    },
-    {
-      'target_name': 'session_converter_test',
-      'type': 'executable',
-      'sources': [
-        'session_converter_test.cc',
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/data_manager/testing/mock_data_manager.gyp:mock_data_manager',
-        '<(mozc_oss_src_dir)/request/request.gyp:request_test_util',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:testing',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:testing_util',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
-        'session.gyp:session',
-      ],
-    },
-    {
-      'target_name': 'session_module_test',
-      'type': 'executable',
-      'sources': [
-        'session_observer_handler_test.cc',
-        'session_usage_observer_test.cc',
-        'session_usage_stats_util_test.cc',
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/base/base.gyp:base',
-        '<(mozc_oss_src_dir)/base/base_test.gyp:clock_mock',
-        '<(mozc_oss_src_dir)/config/config.gyp:config_handler',
-        '<(mozc_oss_src_dir)/config/config.gyp:stats_config_util',
-        '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_base.gyp:usage_stats',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
-        'session.gyp:session_handler',
-        'session.gyp:session_usage_observer',
-        'session_base.gyp:keymap',
-        'session_base.gyp:session_usage_stats_util',
       ],
       'variables': {
         'test_size': 'small',
@@ -197,11 +150,9 @@
       'target_name': 'session_internal_test',
       'type': 'executable',
       'sources': [
-        'internal/candidate_list_test.cc',
-        'internal/ime_context_test.cc',
-        'internal/keymap_test.cc',
-        'internal/session_output_test.cc',
-        'internal/key_event_transformer_test.cc',
+        'ime_context_test.cc',
+        'keymap_test.cc',
+        'key_event_transformer_test.cc',
       ],
       'dependencies': [
         '<(mozc_oss_src_dir)/base/base.gyp:base',
@@ -253,21 +204,6 @@
       },
     },
     {
-      'target_name': 'session_converter_stress_test',
-      'type': 'executable',
-      'sources': [
-        'session_converter_stress_test.cc'
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/engine/engine.gyp:mock_data_engine_factory',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
-        'session.gyp:session',
-      ],
-      'variables': {
-        'test_size': 'large',
-      },
-    },
-    {
       'target_name': 'session_handler_scenario_test',
       'type': 'executable',
       'sources': [
@@ -279,14 +215,12 @@
         '<(mozc_oss_src_dir)/base/base.gyp:base',
         '<(mozc_oss_src_dir)/base/base.gyp:number_util',
         '<(mozc_oss_src_dir)/data/test/session/scenario/scenario.gyp:install_session_handler_scenario_test_data',
-        '<(mozc_oss_src_dir)/data/test/session/scenario/usage_stats/usage_stats.gyp:install_session_handler_usage_stats_scenario_test_data',
         '<(mozc_oss_src_dir)/engine/engine.gyp:mock_data_engine_factory',
-        '<(mozc_oss_src_dir)/protocol/protocol.gyp:candidates_proto',
+        '<(mozc_oss_src_dir)/protocol/protocol.gyp:candidate_window_proto',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
         '<(mozc_oss_src_dir)/request/request.gyp:request_test_util',
         '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
         '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
         'session.gyp:session_handler',
         'session.gyp:session_handler_tool',
         'session_handler_test_util',
@@ -304,15 +238,12 @@
         ## Stress tests and scenario tests are disabled,
         ## because they take long time (~100sec in total).
         ## Those tests are checked by other tools (e.g. Bazel test).
-        # 'session_converter_stress_test',
         # 'session_handler_scenario_test',
         # 'session_handler_stress_test',
         'random_keyevents_generator_test',
-        'session_converter_test',
         'session_handler_test',
         'session_key_handling_test',
         'session_internal_test',
-        'session_module_test',
         'session_regression_test',
         'session_test',
         'session_watch_dog_test',

@@ -34,6 +34,7 @@
 #include <optional>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "base/strings/zstring_view.h"
 
@@ -62,11 +63,11 @@ class Mmap final {
 
   Mmap() = default;
 
-  Mmap(const Mmap &) = delete;
-  Mmap &operator=(const Mmap &) = delete;
+  Mmap(const Mmap&) = delete;
+  Mmap& operator=(const Mmap&) = delete;
 
-  Mmap(Mmap &&);
-  Mmap &operator=(Mmap &&);
+  Mmap(Mmap&&);
+  Mmap& operator=(Mmap&&);
 
   ~Mmap() { Close(); }
 
@@ -84,19 +85,22 @@ class Mmap final {
   // kernel, it fails if the process is running in user privilege.
   // TODO(team): Check if mlock is really necessary for Mac.
   static bool IsMLockSupported();
-  static int MaybeMLock(const void *addr, size_t len);
-  static int MaybeMUnlock(const void *addr, size_t len);
+  static int MaybeMLock(const void* addr, size_t len);
+  static int MaybeMUnlock(const void* addr, size_t len);
 
-  constexpr char &operator[](size_t i) { return data_[i]; }
+  constexpr char& operator[](size_t i) { return data_[i]; }
   constexpr char operator[](size_t i) const { return data_[i]; }
-  constexpr char *begin() { return data_.begin(); }
-  constexpr const char *begin() const { return data_.begin(); }
-  constexpr char *end() { return data_.end(); }
-  constexpr const char *end() const { return data_.end(); }
-  constexpr char *data() { return data_.data(); }
-  constexpr const char *data() const { return data_.data(); }
+  constexpr char* begin() { return data_.begin(); }
+  constexpr const char* begin() const { return data_.begin(); }
+  constexpr char* end() { return data_.end(); }
+  constexpr const char* end() const { return data_.end(); }
+  constexpr char* data() { return data_.data(); }
+  constexpr const char* data() const { return data_.data(); }
   constexpr absl::Span<char> span() { return data_; }
   constexpr absl::Span<const char> span() const { return data_; }
+  constexpr absl::string_view string_view() const {
+    return absl::string_view(data(), size());
+  }
 
   constexpr bool empty() const { return data_.empty(); }
   constexpr size_t size() const { return data_.size(); }

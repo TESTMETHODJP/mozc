@@ -30,12 +30,14 @@
 #ifndef MOZC_CONVERTER_LATTICE_H_
 #define MOZC_CONVERTER_LATTICE_H_
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
+#include "absl/types/span.h"
 #include "converter/node.h"
 #include "converter/node_allocator.h"
 
@@ -43,100 +45,101 @@ namespace mozc {
 
 class Lattice {
  public:
-  Lattice()
-      : history_end_pos_(0),
-        node_allocator_(std::make_unique<NodeAllocator>()) {}
+  Lattice() : node_allocator_(std::make_unique<NodeAllocator>()) {}
 
-  NodeAllocator *node_allocator() const { return node_allocator_.get(); }
+  NodeAllocator* node_allocator() const { return node_allocator_.get(); }
 
   // set key and initializes lattice with key.
   void SetKey(std::string key);
 
   // return key.
-  const std::string &key() const { return key_; }
-
-  // Set history end position.
-  // For cache, we have to reset lattice when the history size is changed.
-  void set_history_end_pos(size_t pos) { history_end_pos_ = pos; }
-
-  size_t history_end_pos() const { return history_end_pos_; }
+  absl::string_view key() const { return key_; }
 
   // allocate new node.
-  Node *NewNode() { return node_allocator_->NewNode(); }
+  Node* NewNode() { return node_allocator_->NewNode(); }
 
-  // return nodes (linked list) starting with |pos|.
-  // To traverse all nodes, use Node::bnext member.
-  Node *begin_nodes(size_t pos) const { return begin_nodes_[pos]; }
+  // return the array of nodes starting with `pos`.
+  absl::Span<Node* const> begin_nodes(size_t pos) const {
+    DCHECK_LE(pos, key_.size());
+    return begin_nodes_[pos];
+  }
 
-  // return nodes (linked list) ending at |pos|.
-  // To traverse all nodes, use Node::enext member.
-  Node *end_nodes(size_t pos) const { return end_nodes_[pos]; }
+  // return the array of nodes ending with `pos`.
+  absl::Span<Node* const> end_nodes(size_t pos) const {
+    DCHECK_LE(pos, key_.size());
+    return end_nodes_[pos];
+  }
 
-  // return bos nodes.
-  // alias of end_nodes(0).
-  Node *bos_nodes() const { return end_nodes_[0]; }
+  // return bos or eos node.
+  Node* bos_node() {
+    DCHECK_EQ(end_nodes_[0].size(), 1);
+    return end_nodes_[0].front();
+  }
 
-  // return eos nodes.
-  // alias of begin_nodes(key.size()).
-  Node *eos_nodes() const { return begin_nodes_[key_.size()]; }
+  Node* eos_node() {
+    DCHECK_EQ(begin_nodes_[key_.size()].size(), 1);
+    return begin_nodes_[key_.size()].front();
+  }
 
-  // inset nodes (linked list) to the position |pos|.
-  void Insert(size_t pos, Node *node);
+  const Node* bos_node() const {
+    DCHECK_EQ(end_nodes_[0].size(), 1);
+    return end_nodes_[0].front();
+  }
 
-  // clear all lattice and nodes allocated with NewNode method.
-  void Clear();
+  const Node* eos_node() const {
+    DCHECK_EQ(begin_nodes_[key_.size()].size(), 1);
+    return begin_nodes_[key_.size()].front();
+  }
+
+  // inset one node to the position `pos`.
+  void Insert(size_t pos, Node* node);
+
+  // inset multiple nodes to the position `pos`.
+  void Insert(size_t pos, absl::Span<Node* const> nodes);
 
   // return true if this instance has a valid lattice.
   bool has_lattice() const { return !begin_nodes_.empty(); }
 
-  // set key with cache information kept
-  void UpdateKey(absl::string_view new_key);
-
-  // add suffix_key to the end of a current key
-  void AddSuffix(absl::string_view suffix_key);
-
-  // erase the suffix of a key so that the length of the key becomes new_len
-  void ShrinkKey(size_t new_len);
-
-  // getter
-  size_t cache_info(const size_t pos) const {
-    CHECK_LE(pos, key_.size());
-    return cache_info_[pos];
-  }
-
-  // setter
-  void SetCacheInfo(const size_t pos, const size_t len) {
-    CHECK_LE(pos, key_.size());
-    cache_info_[pos] = len;
-  }
-
-  // revert the wcost of nodes if it has ENABLE_CACHE attribute.
-  // This function is needed for wcost may be changed during conversion
-  // process for some heuristic methods.
-  void ResetNodeCost();
-
   // Dump the best path and the path that contains the designated string.
   std::string DebugString() const;
 
-  // Set the node info that should be used in DebugString() (For debug use).
-  static void SetDebugDisplayNode(size_t begin_pos, size_t end_pos,
-                                  std::string str);
+ private:
+  // clear all lattice and nodes allocated with NewNode method
+  // Only called via Setkey().
+  void Clear();
 
-  // Reset the debug info.
-  static void ResetDebugDisplayNode();
+  std::string key_;
+  std::vector<std::vector<Node*>> begin_nodes_;
+  std::vector<std::vector<Node*>> end_nodes_;
+  std::unique_ptr<NodeAllocator> node_allocator_;
+};
+
+// RAII class to insert nodes in detractor.
+// Adding a node while iterating through a vector/span is generally unsafe
+// because it can invalidate the vector's internal iterators. To avoid this, we
+// can use this helper class. Nodes are inserted in a batch during the
+// destructor.
+//
+// ScopedLatticeNodeInserter inserter(&lattice);
+// for (const Node *node : lattice.begin_nodes(pos)) {
+//   inserter.Insert(pos, new_node);
+// }
+class ScopedLatticeNodeInserter {
+ public:
+  explicit ScopedLatticeNodeInserter(Lattice* lattice) : lattice_(lattice) {}
+  ~ScopedLatticeNodeInserter() {
+    for (auto [pos, node] : inserted_) {
+      lattice_->Insert(pos, node);
+    }
+  }
+
+  bool IsInserted() const { return !inserted_.empty(); }
+
+  void Insert(size_t pos, Node* node) { inserted_.emplace_back(pos, node); }
 
  private:
-  // TODO(team): Splitting the cache module may make this module simpler.
-  std::string key_;
-  size_t history_end_pos_;
-  std::vector<Node *> begin_nodes_;
-  std::vector<Node *> end_nodes_;
-  std::unique_ptr<NodeAllocator> node_allocator_;
-
-  // cache_info_ holds cache information about lookup.
-  // If cache_info_[pos] equals to len, it means key.substr(pos, k)
-  // (1 <= k <= len) is already looked up.
-  std::vector<size_t> cache_info_;
+  Lattice* lattice_ = nullptr;
+  std::vector<std::pair<size_t, Node*>> inserted_;
 };
 
 }  // namespace mozc

@@ -72,7 +72,7 @@ def LoadInput(input_file, input_version, base_data):
 def SaveOutput(output_file, output_lines):
   """Save the output file."""
   fields = ['status', 'input', 'output', 'command', 'argument', 'version']
-  with open(output_file, 'w', encoding='utf-8') as file:
+  with open(output_file, 'w', encoding='utf-8', newline='\n') as file:
     file.write('# ' + '\t'.join(fields) + '\n')
     file.write('\n'.join(output_lines) + '\n')
 
@@ -88,7 +88,7 @@ def main():
 
   if args.version_file:
     version = mozc_version.MozcVersion(args.version_file)
-    use_build_oss = (args.data_type == 'oss')
+    use_build_oss = args.data_type == 'oss'
     version_string = version.GetShortVersionString(use_build_oss=use_build_oss)
   else:
     version_string = ''

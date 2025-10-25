@@ -31,9 +31,14 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 
+#include "absl/base/no_destructor.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "base/container/serialized_string_array.h"
 #include "base/util.h"
+#include "converter/candidate.h"
 #include "dictionary/pos_matcher.h"
 
 using mozc::dictionary::PosMatcher;
@@ -42,9 +47,9 @@ namespace mozc {
 namespace number_compound_util {
 
 bool SplitStringIntoNumberAndCounterSuffix(
-    const SerializedStringArray &suffix_array, absl::string_view input,
-    absl::string_view *number, absl::string_view *counter_suffix,
-    uint32_t *script_type) {
+    const SerializedStringArray& suffix_array, absl::string_view input,
+    absl::string_view* number, absl::string_view* counter_suffix,
+    uint32_t* script_type) {
   *script_type = NONE;
   absl::string_view s = input, rest = input;
   while (!s.empty()) {
@@ -100,8 +105,8 @@ bool SplitStringIntoNumberAndCounterSuffix(
                             *counter_suffix);
 }
 
-bool IsNumber(const SerializedStringArray &suffix_array,
-              const PosMatcher &pos_matcher, const Segment::Candidate &cand) {
+bool IsNumber(const SerializedStringArray& suffix_array,
+              const PosMatcher& pos_matcher, const converter::Candidate& cand) {
   // Compound number entries have the left POS ID of number.
   if (pos_matcher.IsNumber(cand.lid) || pos_matcher.IsKanjiNumber(cand.lid)) {
     return true;
@@ -110,7 +115,7 @@ bool IsNumber(const SerializedStringArray &suffix_array,
   // check the opportunities of rewriting such number nouns.
   // TODO(toshiyuki, team): It may be better to set number POS to such number
   // noun entries at dictionary build time.  correct POS.  Then, we can omit the
-  // following runtime strcture check.
+  // following runtime structure check.
   if (!pos_matcher.IsGeneralNoun(cand.lid)) {
     return false;
   }
@@ -122,6 +127,92 @@ bool IsNumber(const SerializedStringArray &suffix_array,
   uint32_t script_type = 0;
   if (!number_compound_util::SplitStringIntoNumberAndCounterSuffix(
           suffix_array, cand.content_value, &number, &suffix, &script_type)) {
+    return false;
+  }
+  // Some number including general noun should be excluded from IsNumber().
+  static const absl::NoDestructor<
+      absl::flat_hash_set<std::pair<absl::string_view, absl::string_view>>>
+      kExceptions({
+          {"いざよい", "十六夜"},
+          {"いちぎ", "一義"},
+          {"いちじょ", "一女"},
+          {"いっか", "一家"},
+          {"いっこう", "一行"},
+          {"いったい", "一体"},
+          {"いっとき", "一時"},
+          {"おはこ", "十八番"},
+          {"ここのえ", "九重"},
+          {"ごごん", "五言"},
+          {"ごしちにち", "五七日"},
+          {"ごじゅうさんつぎ", "五十三次"},
+          {"ごせち", "五節"},
+          {"さんきゃく", "三脚"},
+          {"さんさんくど", "三三九度"},
+          {"さんしちにち", "三七日"},
+          {"さんしゃ", "三者"},
+          {"しき", "四季"},
+          {"しきゅう", "四球"},
+          {"しちごん", "七言"},
+          {"しちりん", "七輪"},
+          {"しで", "四手"},
+          {"じゅうじ", "十字"},
+          {"しろくばん", "四六判"},
+          {"しろくぶん", "四六文"},
+          {"しんし", "参差"},
+          {"せんきん", "千金"},
+          {"せんげん", "千言"},
+          {"せんざい", "千歳"},
+          {"せんしん", "千進"},
+          {"せんすじ", "千筋"},
+          {"せんみつ", "千三つ"},
+          {"ちくさ", "千種"},
+          {"ちとせ", "千年"},
+          {"ちとせ", "千歳"},
+          {"ちよ", "千代"},
+          {"とうしゃく", "十尺"},
+          {"とえ", "十重"},
+          {"とき", "十寸"},
+          {"ななえ", "七重"},
+          {"ななくさ", "七種"},
+          {"なななぬか", "七七日"},
+          {"はたえ", "二十重"},
+          {"はちじゅうはちや", "八十八夜"},
+          {"はっぴゃくやちょう", "八百八町"},
+          {"ひとえ", "一重"},
+          {"ひとなのか", "一七日"},
+          {"ひゃっこう", "百行"},
+          {"ふたえ", "二重"},
+          {"ふたご", "二子"},
+          {"ふたなのか", "二七日"},
+          {"ふたば", "二葉"},
+          {"ふため", "二目"},
+          {"みけ", "三毛"},
+          {"みそか", "三十日"},
+          {"みつくち", "三口"},
+          {"みつご", "三児"},
+          {"みつご", "三子"},
+          {"みつば", "三葉"},
+          {"みつめ", "三目"},
+          {"みなのか", "三七日"},
+          {"むかで", "百足"},
+          {"ももとせ", "百歳"},
+          {"やえ", "八重"},
+          {"やちよ", "八千代"},
+          {"やつがしら", "八頭"},
+          {"やつくち", "八口"},
+          {"やつで", "八手"},
+          {"やつはし", "八橋"},
+          {"ゆり", "百合"},
+          {"よも", "四方"},
+          {"りくごう", "六合"},
+          {"りくたい", "六体"},
+          {"れいほん", "零本"},
+          {"ろくどう", "六道"},
+          {"ろっかい", "六界"},
+          {"ろっぽう", "六方"},
+          {"ろっぽう", "六法"},
+      });
+  if (kExceptions->contains(std::make_pair(cand.key, cand.value))) {
     return false;
   }
   return !number.empty();

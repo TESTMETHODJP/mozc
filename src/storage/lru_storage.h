@@ -30,12 +30,14 @@
 #ifndef MOZC_STORAGE_LRU_STORAGE_H_
 #define MOZC_STORAGE_LRU_STORAGE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <list>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "base/mmap.h"
@@ -46,54 +48,55 @@ namespace storage {
 class LruStorage {
  public:
   LruStorage() = default;
-  LruStorage(LruStorage &&) = default;
-  LruStorage &operator=(LruStorage &&) = default;
+  LruStorage(LruStorage&&) = default;
+  LruStorage& operator=(LruStorage&&) = default;
   ~LruStorage() { Close(); }
 
-  bool Open(const char *filename);
+  bool Open(const char* filename);
   void Close();
 
   // Try to open existing database
   // If the file is broken or cannot open, tries to recreate
   // new file
-  bool OpenOrCreate(const char *filename, size_t new_value_size,
+  bool OpenOrCreate(const char* filename, size_t new_value_size,
                     size_t new_size, uint32_t new_seed);
 
   // Looks up elements by key.
-  const char *Lookup(absl::string_view key, uint32_t *last_access_time) const;
-  const char *Lookup(absl::string_view key) const {
-      uint32_t last_access_time;
-      return Lookup(key, &last_access_time);
+  const char* absl_nullable Lookup(absl::string_view key,
+                                   uint32_t* last_access_time) const;
+  const char* absl_nullable Lookup(absl::string_view key) const {
+    uint32_t last_access_time;
+    return Lookup(key, &last_access_time);
   }
 
   // A safer lookup for string values (the pointers returned by above Lookup()'s
   // are not null terminated.)
   absl::string_view LookupAsString(const absl::string_view key) const {
-    const char *ptr = Lookup(key);
+    const char* ptr = Lookup(key);
     return (ptr == nullptr) ? absl::string_view()
                             : absl::string_view(ptr, value_size_);
   }
 
   // Returns all the values.  The order is new to old (*values->begin() is the
   // most recently used one).
-  void GetAllValues(std::vector<std::string> *values) const;
+  void GetAllValues(std::vector<std::string>* values) const;
 
   // Clears all LRU cache.  The mapped file is also initialized
   bool Clear();
 
   // Merges other data into this LRU.
-  bool Merge(const char *filename);
-  bool Merge(const LruStorage &storage);
+  bool Merge(const char* filename);
+  bool Merge(const LruStorage& storage);
 
   // Updates timestamp.
   bool Touch(absl::string_view key);
 
   // Inserts a key value pair.
-  bool Insert(absl::string_view key, const char *value);
+  bool Insert(absl::string_view key, const char* value);
 
   // Inserts a key value pair only if |key| already exists.
   // CAUTION: despite the name, it does nothing if there's no value of |key|.
-  bool TryInsert(absl::string_view key, const char *value);
+  bool TryInsert(absl::string_view key, const char* value);
 
   // Deletes the element if exists.  Returns false on failure (it's not failure
   // if the element for |key| doesn't exist.)
@@ -103,10 +106,6 @@ class LruStorage {
   // the last access is before |timestamp|.  Returns the number of deleted
   // elements.
   int DeleteElementsBefore(uint32_t timestamp);
-
-  // Deletes all the elements that are not accessed for 62 days.
-  // Returns the number of deleted elements.
-  int DeleteElementsUntouchedFor62Days();
 
   // Returns the byte length of each item, which is the user specified value
   // size + 12 bytes.  Here, 12 bytes is used for fingerprint (8 bytes) and
@@ -125,7 +124,7 @@ class LruStorage {
   // Returns the seed used for fingerprinting.
   uint32_t seed() const { return seed_; }
 
-  const std::string &filename() const { return filename_; }
+  const std::string& filename() const { return filename_; }
 
   // Writes one entry at |i| th index.
   // i must be 0 <= i < size.
@@ -135,19 +134,19 @@ class LruStorage {
 
   // Reads one entry from |i| th index.
   // i must be 0 <= i < size.
-  void Read(size_t i, uint64_t *fp, std::string *value,
-            uint32_t *last_access_time) const;
+  void Read(size_t i, uint64_t* fp, std::string* value,
+            uint32_t* last_access_time) const;
 
   // Creates Instance from file. Call Open internally
-  static std::unique_ptr<LruStorage> Create(const char *filename);
+  static std::unique_ptr<LruStorage> Create(const char* filename);
 
   // Creates Instance from file. Call OpenOrCreate internally
-  static std::unique_ptr<LruStorage> Create(const char *filename,
+  static std::unique_ptr<LruStorage> Create(const char* filename,
                                             size_t value_size, size_t size,
                                             uint32_t seed);
 
   // Creates an empty LRU db file
-  static bool CreateStorageFile(const char *filename, size_t value_size,
+  static bool CreateStorageFile(const char* filename, size_t value_size,
                                 size_t size, uint32_t seed);
 
   // The byte length used to store fingerprint and timestamp for each item.
@@ -157,24 +156,24 @@ class LruStorage {
 
  private:
   // Initializes this LRU from memory buffer.
-  bool Open(char *ptr, size_t ptr_size);
+  bool Open(char* ptr, size_t ptr_size);
 
   // Deletes the element from |fp| or |it|.
   bool Delete(uint64_t fp);
-  bool Delete(std::list<char *>::iterator it);
+  bool Delete(std::list<char*>::iterator it);
 
   // Actual implementation of Delete() methods.
-  bool Delete(uint64_t fp, std::list<char *>::iterator it);
+  bool Delete(uint64_t fp, std::list<char*>::iterator it);
 
   size_t value_size_ = 0;
   size_t size_ = 0;
   uint32_t seed_ = 0;
-  char *next_item_ = nullptr;
-  char *begin_ = nullptr;
-  char *end_ = nullptr;
+  char* next_item_ = nullptr;
+  char* begin_ = nullptr;
+  char* end_ = nullptr;
   std::string filename_;
-  std::list<char *> lru_list_;  // Front is the most recently used data.
-  absl::flat_hash_map<uint64_t, std::list<char *>::iterator> lru_map_;
+  std::list<char*> lru_list_;  // Front is the most recently used data.
+  absl::flat_hash_map<uint64_t, std::list<char*>::iterator> lru_map_;
   Mmap mmap_;
 };
 

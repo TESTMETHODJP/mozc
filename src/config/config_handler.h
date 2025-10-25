@@ -47,28 +47,36 @@ inline constexpr int kConfigVersion = 1;
 class ConfigHandler {
  public:
   ConfigHandler() = delete;
-  ConfigHandler(const ConfigHandler &) = delete;
-  ConfigHandler &operator=(const ConfigHandler &) = delete;
+  ConfigHandler(const ConfigHandler&) = delete;
+  ConfigHandler& operator=(const ConfigHandler&) = delete;
 
   // Returns current config.
   // This method returns a *copied* Config instance
   // so use this with caution, especially when custom_keymap_table exists
   // the copy operation against typically 5KB string always happens.
-  static void GetConfig(Config *config);
+  static config::Config GetCopiedConfig();
 
-  // Returns current Config as a unique_ptr.
-  // The same performance note as GetConfig(Config*) applies.
-  static std::unique_ptr<config::Config> GetConfig();
+  // Returns current const Config as a shared_ptr.
+  // The actual config is shared by ConfigHandler and caller unless config
+  // is updated. This method is also thread safe, i.e., it is safe for caller
+  // to use the Config while ConfigHandler is loading another config
+  // asynchronously.
+  // While std::shared_ptr is not recommended in the style guide, we use it to
+  // avoid unintentionally copying Config, which has a large footprint and is
+  // updated asynchronously.
+  static std::shared_ptr<const config::Config> GetSharedConfig();
 
   // Sets config.
-  static void SetConfig(const Config &config);
+  static void SetConfig(Config config);
 
   // Gets default config value.
   //
   // Using these functions are safer than using an uninitialized config value.
   // These functions are also thread-safe.
-  static void GetDefaultConfig(Config *config);
-  static const Config &DefaultConfig();
+  static void GetDefaultConfig(Config* config);
+
+  static const Config& DefaultConfig();
+  static std::shared_ptr<const config::Config> GetSharedDefaultConfig();
 
   // Reloads config from storage.
   //
@@ -76,16 +84,17 @@ class ConfigHandler {
   static void Reload();
 
   // Sets config file. (for unit testing)
-  static void SetConfigFileName(absl::string_view filename);
+  static void SetConfigFileNameForTesting(absl::string_view filename);
 
   // Get config file name.
-  static std::string GetConfigFileName();
-
-  // Utility function to put config meta data
-  static void SetMetaData(Config *config);
+  static std::string GetConfigFileNameForTesting();
 
   // Get default keymap for each platform.
   static Config::SessionKeymap GetDefaultKeyMap();
+
+#ifdef _WIN32
+  static void FixupFilePermission();
+#endif  // _WIN32
 };
 
 }  // namespace config

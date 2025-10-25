@@ -31,8 +31,6 @@
 
 #include <memory>
 
-#include "base/logging.h"
-#include "base/run_level.h"
 #include "base/win32/win_util.h"
 #include "client/client.h"
 #include "client/client_interface.h"
@@ -48,10 +46,6 @@ constexpr int kErrorLevelGeneralError = 1;
 }  // namespace
 
 int RunPrelaunchProcesses(int argc, char *argv[]) {
-  if (RunLevel::IsProcessInJob()) {
-    return kErrorLevelGeneralError;
-  }
-
   bool is_service_process = false;
   if (!WinUtil::IsServiceProcess(&is_service_process)) {
     // Returns DENY conservatively.

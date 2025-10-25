@@ -57,6 +57,7 @@
 #include "base/win32/win_util.h"
 #include "client/client.h"
 #include "client/client_interface.h"
+#include "config/config_handler.h"
 #include "renderer/renderer_client.h"
 #include "win32/base/input_dll.h"
 #include "win32/base/omaha_util.h"
@@ -66,9 +67,9 @@
 #include "win32/cache_service/cache_service_manager.h"
 #include "win32/custom_action/resource.h"
 
-#if !defined(MOZC_NO_LOGGING)
+#if !defined(NDEBUG)
 #include <atlstr.h>
-#endif  // !MOZC_NO_LOGGING
+#endif  // !NDEBUG
 
 #ifdef _DEBUG
 #define DEBUG_BREAK_FOR_DEBUGGER()                                      \
@@ -170,12 +171,12 @@ bool WriteOmahaErrorById(int resource_id) {
 
 template <size_t num_elements>
 bool WriteOmahaError(const wchar_t (&function)[num_elements], int line) {
-#if !defined(MOZC_NO_LOGGING)
+#if !defined(NDEBUG)
   ATL::CStringW log;
   log.Format(L"%s: %s; %s(%d)", L"WriteOmahaError: ",
              mozc::Version::GetMozcVersionW().c_str(), function, line);
   ::OutputDebugStringW(log);
-#endif  // !defined(MOZC_NO_LOGGING)
+#endif  // !defined(NDEBUG)
   const std::wstring &message =
       FormatMessageByResourceId(IDS_FORMAT_FUNCTION_AND_LINE, function, line);
   return OmahaUtil::WriteOmahaError(message, GetVersionHeader());
@@ -209,19 +210,23 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD ul_reason_for_call,
 UINT __stdcall EnsureAllApplicationPackagesPermisssions(MSIHANDLE msi_handle) {
   DEBUG_BREAK_FOR_DEBUGGER();
   if (!mozc::WinSandbox::EnsureAllApplicationPackagesPermisssion(
-          GetMozcComponentPath(mozc::kMozcServerName))) {
+          GetMozcComponentPath(mozc::kMozcServerName),
+          mozc::WinSandbox::AppContainerVisibilityType::kProgramFiles)) {
     return ERROR_INSTALL_FAILURE;
   }
   if (!mozc::WinSandbox::EnsureAllApplicationPackagesPermisssion(
-          GetMozcComponentPath(mozc::kMozcRenderer))) {
+          GetMozcComponentPath(mozc::kMozcRenderer),
+          mozc::WinSandbox::AppContainerVisibilityType::kProgramFiles)) {
     return ERROR_INSTALL_FAILURE;
   }
   if (!mozc::WinSandbox::EnsureAllApplicationPackagesPermisssion(
-          GetMozcComponentPath(mozc::kMozcTIP32))) {
+          GetMozcComponentPath(mozc::kMozcTIP32),
+          mozc::WinSandbox::AppContainerVisibilityType::kProgramFiles)) {
     return ERROR_INSTALL_FAILURE;
   }
   if (!mozc::WinSandbox::EnsureAllApplicationPackagesPermisssion(
-          GetMozcComponentPath(mozc::kMozcTIP64))) {
+          GetMozcComponentPath(mozc::kMozcTIP64),
+          mozc::WinSandbox::AppContainerVisibilityType::kProgramFiles)) {
     return ERROR_INSTALL_FAILURE;
   }
   return ERROR_SUCCESS;
@@ -239,21 +244,19 @@ UINT __stdcall ShutdownServer(MSIHANDLE msi_handle) {
   DEBUG_BREAK_FOR_DEBUGGER();
   std::unique_ptr<mozc::client::ClientInterface> server_client(
       mozc::client::ClientFactory::NewClient());
-  bool server_result = true;
   if (server_client->PingServer()) {
-    server_result = server_client->Shutdown();
+    if (!server_client->Shutdown()) {
+      // This is not fatal as Windows Installer can replace executables even
+      // when they still are running. Just log error then go ahead.
+      LOG_ERROR_FOR_OMAHA();
+    }
   }
   mozc::renderer::RendererClient renderer_client;
-  const bool renderer_result = renderer_client.Shutdown(true);
-  if (!server_result) {
+  if (!renderer_client.Shutdown(true)) {
+    // This is not fatal as Windows Installer can replace executables even when
+    // they are still running. Just log error then go ahead.
     LOG_ERROR_FOR_OMAHA();
-    return ERROR_INSTALL_FAILURE;
   }
-  if (!renderer_result) {
-    LOG_ERROR_FOR_OMAHA();
-    return ERROR_INSTALL_FAILURE;
-  }
-
   return ERROR_SUCCESS;
 }
 
@@ -325,6 +328,24 @@ UINT __stdcall EnableTipProfile(MSIHANDLE msi_handle) {
 
   // Do not care about errors.
   ::InstallLayoutOrTip(desc.c_str(), 0);
+  return ERROR_SUCCESS;
+}
+
+UINT __stdcall FixupConfigFilePermission(MSIHANDLE msi_handle) {
+  bool is_service = false;
+  if (::mozc::WinUtil::IsServiceAccount(&is_service) && is_service) {
+    // Do nothing if this is a service account.
+    return ERROR_SUCCESS;
+  }
+
+  // Check the file permission of "config1.db" if exists to ensure that
+  // "ALL APPLICATION PACKAGES" have read access to it.
+  // See https://github.com/google/mozc/issues/1076 for details.
+  ::mozc::config::ConfigHandler::FixupFilePermission();
+
+  // Return always ERROR_SUCCESS regardless of the result, as not being able
+  // to fixup the permission is not problematic enough to block installation
+  // and upgrading.
   return ERROR_SUCCESS;
 }
 
@@ -427,16 +448,13 @@ UINT __stdcall WriteApValueRollback(MSIHANDLE msi_handle) {
 UINT __stdcall RegisterTIP(MSIHANDLE msi_handle) {
   DEBUG_BREAK_FOR_DEBUGGER();
   mozc::ScopedCOMInitializer com_initializer;
+  HRESULT result = S_OK;
 
-#if defined(_M_X64)
-  const std::wstring &path = GetMozcComponentPath(mozc::kMozcTIP64);
-#elif defined(_M_IX86)
-  const std::wstring &path = GetMozcComponentPath(mozc::kMozcTIP32);
-#else  // _M_X64, _M_IX86
-#error "Unsupported CPU architecture"
-#endif  // _M_X64, _M_IX86, and others
-  HRESULT result =
-      mozc::win32::TsfRegistrar::RegisterProfiles(path.c_str(), path.length());
+  // The path here is to retrieve Win32 resources such as icon and product name,
+  // which does not need to match the native CPU architecture. Here we use
+  // 32-bit TIP DLL as it is always installed even on an ARM64 target.
+  const std::wstring resource_dll_path = GetMozcComponentPath(mozc::kMozcTIP32);
+  result = mozc::win32::TsfRegistrar::RegisterProfiles(resource_dll_path);
   if (FAILED(result)) {
     LOG_ERROR_FOR_OMAHA();
     UnregisterTIP(msi_handle);

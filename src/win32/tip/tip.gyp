@@ -62,6 +62,7 @@
           'sources': [
             'mozc_tip_main.cc',
             'tip_candidate_list.cc',
+            'tip_candidate_string.cc',
             'tip_class_factory.cc',
             'tip_compartment_util.cc',
             'tip_composition_util.cc',
@@ -69,6 +70,7 @@
             'tip_dll_module.cc',
             'tip_edit_session.cc',
             'tip_edit_session_impl.cc',
+            'tip_enum_candidates.cc',
             'tip_enum_display_attributes.cc',
             'tip_input_mode_manager.cc',
             'tip_keyevent_handler.cc',
@@ -95,12 +97,10 @@
           'dependencies': [
             '<(mozc_oss_src_dir)/base/absl.gyp:absl_base',
             '<(mozc_oss_src_dir)/base/base.gyp:base',
-            '<(mozc_oss_src_dir)/base/base.gyp:crash_report_handler',
             '<(mozc_oss_src_dir)/base/base.gyp:update_util',
             '<(mozc_oss_src_dir)/base/win32/base_win32.gyp:com_implements',
             '<(mozc_oss_src_dir)/client/client.gyp:client',
             '<(mozc_oss_src_dir)/config/config.gyp:config_handler',
-            '<(mozc_oss_src_dir)/config/config.gyp:stats_config_util',
             '<(mozc_oss_src_dir)/protobuf/protobuf.gyp:protobuf',
             '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
             '<(mozc_oss_src_dir)/protocol/protocol.gyp:renderer_proto',
@@ -117,6 +117,8 @@
           'type': 'executable',
           'sources': [
             'tip_candidate_list_test.cc',
+            'tip_candidate_string_test.cc',
+            'tip_enum_candidates_test.cc',
             'tip_display_attributes_test.cc',
             'tip_enum_display_attributes_test.cc',
             'tip_input_mode_manager_test.cc',

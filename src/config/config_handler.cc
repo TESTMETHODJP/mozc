@@ -30,6 +30,7 @@
 // Handler of mozc configuration.
 #include "config/config_handler.h"
 
+#include <atomic>
 #include <cstdint>
 #include <istream>
 #include <memory>
@@ -49,9 +50,15 @@
 #include "base/singleton.h"
 #include "base/strings/assign.h"
 #include "base/system_util.h"
+#include "base/thread.h"
 #include "base/version.h"
 #include "base/vlog.h"
 #include "protocol/config.pb.h"
+
+#ifdef _WIN32
+#include "base/win32/wide_char.h"
+#include "base/win32/win_sandbox.h"
+#endif  // _WIN32
 
 namespace mozc {
 namespace config {
@@ -62,8 +69,8 @@ constexpr absl::string_view kFileNamePrefix = "user://config";
 void AddCharacterFormRule(const absl::string_view group,
                           const Config::CharacterForm preedit_form,
                           const Config::CharacterForm conversion_form,
-                          Config *config) {
-  Config::CharacterFormRule *rule = config->add_character_form_rules();
+                          Config* config) {
+  Config::CharacterFormRule* rule = config->add_character_form_rules();
   rule->set_group(group);
   rule->set_preedit_character_form(preedit_form);
   rule->set_conversion_character_form(conversion_form);
@@ -78,220 +85,42 @@ bool GetPlatformSpecificDefaultEmojiSetting() {
   return use_emoji_conversion_default;
 }
 
-class ConfigHandlerImpl final {
- public:
-  ConfigHandlerImpl()
-      :  // <user_profile>/config1.db
-        filename_(absl::StrFormat("%s%d.db", kFileNamePrefix, kConfigVersion)) {
-    Reload();
-    ConfigHandler::GetDefaultConfig(&default_config_);
-  }
-
-  void GetConfig(Config *config) const ABSL_LOCKS_EXCLUDED(mutex_);
-  std::unique_ptr<config::Config> GetConfig() const ABSL_LOCKS_EXCLUDED(mutex_);
-  const Config &DefaultConfig() const;
-  void SetConfig(const Config &config) ABSL_LOCKS_EXCLUDED(mutex_);
-  void Reload() ABSL_LOCKS_EXCLUDED(mutex_);
-  void SetConfigFileName(absl::string_view filename)
-      ABSL_LOCKS_EXCLUDED(mutex_);
-  std::string GetConfigFileName() ABSL_LOCKS_EXCLUDED(mutex_);
-
- private:
-  // copy config to config_ and do some
-  // platform dependent hooks/rewrites
-  void SetConfigInternal(Config config) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-  void ReloadUnlocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-
-  std::string filename_ ABSL_GUARDED_BY(mutex_);
-  Config config_ ABSL_GUARDED_BY(mutex_);
-  Config default_config_;
-  mutable absl::Mutex mutex_;
-  uint64_t stored_config_hash_ ABSL_GUARDED_BY(mutex_) = 0;
-};
-
-ConfigHandlerImpl *GetConfigHandlerImpl() {
-  return Singleton<ConfigHandlerImpl>::get();
-}
-
-// return current Config
-void ConfigHandlerImpl::GetConfig(Config *config) const {
-  absl::MutexLock lock(&mutex_);
-  *config = config_;
-}
-
-// return current Config as a unique_ptr.
-std::unique_ptr<config::Config> ConfigHandlerImpl::GetConfig() const {
-  absl::MutexLock lock(&mutex_);
-  return std::make_unique<config::Config>(config_);
-}
-
-const Config &ConfigHandlerImpl::DefaultConfig() const {
-  return default_config_;
-}
-
-// set config and rewrite internal data
-void ConfigHandlerImpl::SetConfigInternal(Config config) {
-  config_ = std::move(config);
-
-#ifdef MOZC_NO_LOGGING
-  // Delete the optional field from the config.
-  config_.clear_verbose_level();
-  // Fall back if the default value is not the expected value.
-  if (config_.verbose_level() != 0) {
-    config_.set_verbose_level(0);
-  }
-#endif  // MOZC_NO_LOGGING
-
-  mozc::internal::SetConfigVLogLevel(config_.verbose_level());
-
-  // Initialize platform specific configuration.
-  if (config_.session_keymap() == Config::NONE) {
-    config_.set_session_keymap(ConfigHandler::GetDefaultKeyMap());
-  }
-
-#if defined(__ANDROID__) && defined(CHANNEL_DEV)
-  stored_config_.mutable_general_config()->set_upload_usage_stats(true);
-#endif  // CHANNEL_DEV && __ANDROID__
-
-  if (GetPlatformSpecificDefaultEmojiSetting() &&
-      !config_.has_use_emoji_conversion()) {
-    config_.set_use_emoji_conversion(true);
-  }
-}
-
-void ConfigHandlerImpl::SetConfig(const Config &config) {
-  uint64_t hash = Fingerprint(config.SerializeAsString());
-
-  absl::MutexLock lock(&mutex_);
-
-  // If the wire format of config
-  // (except for metadata, added by ConfigHandler::SetMetaData() soon later)
-  // is identical to the one of the previously stored config, skip updating.
-  if (stored_config_hash_ == hash) {
-    return;
-  }
-  stored_config_hash_ = hash;
-
-  Config output_config;
-  output_config = config;
-
-  ConfigHandler::SetMetaData(&output_config);
-
-  MOZC_VLOG(1) << "Setting new config: " << filename_;
-  ConfigFileStream::AtomicUpdate(filename_, output_config.SerializeAsString());
-
-#ifdef DEBUG
-  std::string debug_content = absl::StrCat(
-      "# This is a text-based config file for debugging.\n"
-      "# Nothing happens when you edit this file manually.\n",
-      output_config);
-  ConfigFileStream::AtomicUpdate(absl::StrCat(filename_, ".txt"),
-                                 debug_content);
-#endif  // DEBUG
-
-  SetConfigInternal(std::move(output_config));
-}
-
-// Reload from file
-void ConfigHandlerImpl::Reload() {
-  absl::MutexLock lock(&mutex_);
-  ReloadUnlocked();
-}
-
-void ConfigHandlerImpl::ReloadUnlocked() {
-  MOZC_VLOG(1) << "Reloading config file: " << filename_;
-  std::unique_ptr<std::istream> is(ConfigFileStream::OpenReadBinary(filename_));
-  Config input_proto;
-
-  if (is == nullptr) {
-    LOG(ERROR) << filename_ << " is not found";
-  } else if (!input_proto.ParseFromIstream(is.get())) {
-    LOG(ERROR) << filename_ << " is broken";
-    input_proto.Clear();  // revert to default setting
-  }
-
-  // we set default config when file is broken
-  SetConfigInternal(std::move(input_proto));
-}
-
-void ConfigHandlerImpl::SetConfigFileName(const absl::string_view filename) {
-  absl::MutexLock lock(&mutex_);
-  MOZC_VLOG(1) << "set new config file name: " << filename;
-  strings::Assign(filename_, filename);
-  ReloadUnlocked();
-}
-
-std::string ConfigHandlerImpl::GetConfigFileName() {
-  absl::MutexLock lock(&mutex_);
-  return filename_;
-}
-}  // namespace
-
-// Returns current Config
-void ConfigHandler::GetConfig(Config *config) {
-  GetConfigHandlerImpl()->GetConfig(config);
-}
-
-std::unique_ptr<config::Config> ConfigHandler::GetConfig() {
-  return GetConfigHandlerImpl()->GetConfig();
-}
-
-void ConfigHandler::SetConfig(const Config &config) {
-  GetConfigHandlerImpl()->SetConfig(config);
-}
-
-// static
-void ConfigHandler::GetDefaultConfig(Config *config) {
-  config->Clear();
-  config->set_session_keymap(ConfigHandler::GetDefaultKeyMap());
+Config CreateDefaultConfig() {
+  Config config;
+  config.set_session_keymap(ConfigHandler::GetDefaultKeyMap());
 
   constexpr Config::CharacterForm kFullWidth = Config::FULL_WIDTH;
   constexpr Config::CharacterForm kLastForm = Config::LAST_FORM;
   // "ア"
-  AddCharacterFormRule("ア", kFullWidth, kFullWidth, config);
-  AddCharacterFormRule("A", kFullWidth, kLastForm, config);
-  AddCharacterFormRule("0", kFullWidth, kLastForm, config);
-  AddCharacterFormRule("(){}[]", kFullWidth, kLastForm, config);
-  AddCharacterFormRule(".,", kFullWidth, kLastForm, config);
+  AddCharacterFormRule("ア", kFullWidth, kFullWidth, &config);
+  AddCharacterFormRule("A", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule("0", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule("(){}[]", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule(".,", kFullWidth, kLastForm, &config);
   // "。、",
-  AddCharacterFormRule("。、", kFullWidth, kFullWidth, config);
+  AddCharacterFormRule("。、", kFullWidth, kFullWidth, &config);
   // "・「」"
-  AddCharacterFormRule("・「」", kFullWidth, kFullWidth, config);
-  AddCharacterFormRule("\"'", kFullWidth, kLastForm, config);
-  AddCharacterFormRule(":;", kFullWidth, kLastForm, config);
-  AddCharacterFormRule("#%&@$^_|`\\", kFullWidth, kLastForm, config);
-  AddCharacterFormRule("~", kFullWidth, kLastForm, config);
-  AddCharacterFormRule("<>=+-/*", kFullWidth, kLastForm, config);
-  AddCharacterFormRule("?!", kFullWidth, kLastForm, config);
+  AddCharacterFormRule("・「」", kFullWidth, kFullWidth, &config);
+  AddCharacterFormRule("\"'", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule(":;", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule("#%&@$^_|`\\", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule("~", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule("<>=+-/*", kFullWidth, kLastForm, &config);
+  AddCharacterFormRule("?!", kFullWidth, kLastForm, &config);
 
 #if defined(__ANDROID__) && defined(CHANNEL_DEV)
-  config->mutable_general_config()->set_upload_usage_stats(true);
+  config.mutable_general_config().set_upload_usage_stats(true);
 #endif  // __ANDROID__ && CHANNEL_DEV
 
   if (GetPlatformSpecificDefaultEmojiSetting()) {
-    config->set_use_emoji_conversion(true);
+    config.set_use_emoji_conversion(true);
   }
+
+  return config;
 }
 
-// static
-const Config &ConfigHandler::DefaultConfig() {
-  return GetConfigHandlerImpl()->DefaultConfig();
-}
-
-// Reload from file
-void ConfigHandler::Reload() { GetConfigHandlerImpl()->Reload(); }
-
-void ConfigHandler::SetConfigFileName(const absl::string_view filename) {
-  GetConfigHandlerImpl()->SetConfigFileName(filename);
-}
-
-std::string ConfigHandler::GetConfigFileName() {
-  return GetConfigHandlerImpl()->GetConfigFileName();
-}
-
-// static
-void ConfigHandler::SetMetaData(Config *config) {
-  GeneralConfig *general_config = config->mutable_general_config();
+void SetMetaData(Config* config) {
+  GeneralConfig* general_config = config->mutable_general_config();
   general_config->set_config_version(kConfigVersion);
   general_config->set_last_modified_time(
       absl::ToUnixSeconds(Clock::GetAbslTime()));
@@ -299,15 +128,220 @@ void ConfigHandler::SetMetaData(Config *config) {
   general_config->set_platform(SystemUtil::GetOSVersionString());
 }
 
-Config::SessionKeymap ConfigHandler::GetDefaultKeyMap() {
-  if constexpr (TargetIsOSX()) {
-    return config::Config::KOTOERI;
-  } else if constexpr (TargetIsChromeOS()) {
-    return config::Config::CHROMEOS;
-  } else {
-    return config::Config::MSIME;
+void NormalizeConfig(Config* config) {
+#ifdef NDEBUG
+  // Delete the optional field from the config.
+  config->clear_verbose_level();
+  // Fall back if the default value is not the expected value.
+  if (config->verbose_level() != 0) {
+    config->set_verbose_level(0);
+  }
+#endif  // NDEBUG
+
+  mozc::internal::SetConfigVLogLevel(config->verbose_level());
+
+  // Initialize platform specific configuration.
+  if (config->session_keymap() == Config::NONE) {
+    config->set_session_keymap(ConfigHandler::GetDefaultKeyMap());
+  }
+
+#if defined(__ANDROID__) && defined(CHANNEL_DEV)
+  config->mutable_general_config()->set_upload_usage_stats(true);
+#endif  // CHANNEL_DEV && __ANDROID__
+
+  if (GetPlatformSpecificDefaultEmojiSetting() &&
+      !config->has_use_emoji_conversion()) {
+    config->set_use_emoji_conversion(true);
   }
 }
+
+class ConfigHandlerImpl final {
+ public:
+  ConfigHandlerImpl()
+      :  // <user_profile>/config1.db
+        filename_(absl::StrFormat("%s%d.db", kFileNamePrefix, kConfigVersion)),
+        default_config_(std::make_shared<Config>(CreateDefaultConfig())) {
+    Reload();
+  }
+
+  std::shared_ptr<const Config> GetSharedConfig() const;
+  std::shared_ptr<const Config> GetSharedDefaultConfig() const;
+
+  void SetConfig(Config config);
+  void Reload();
+
+  void SetConfigFileName(absl::string_view filename)
+      ABSL_LOCKS_EXCLUDED(mutex_);
+
+  std::string GetConfigFileName() const ABSL_LOCKS_EXCLUDED(mutex_);
+
+ private:
+  void SetConfigInternal(std::shared_ptr<Config> config);
+
+  std::string filename_ ABSL_GUARDED_BY(mutex_);
+  std::atomic<uint64_t> config_hash_ = 0;   // hash of final config.
+  std::atomic<uint64_t> content_hash_ = 0;  // hash w/o metadata.
+  AtomicSharedPtr<Config> config_;
+  std::shared_ptr<const Config> default_config_;
+  mutable absl::Mutex mutex_;
+};
+
+ConfigHandlerImpl* GetConfigHandlerImpl() {
+  return Singleton<ConfigHandlerImpl>::get();
+}
+
+std::shared_ptr<const Config> ConfigHandlerImpl::GetSharedConfig() const {
+  // TODO(all): use std::atomic<std::shared_ptr<T>> once it is fully supported.
+  return config_.load();
+}
+
+std::shared_ptr<const Config> ConfigHandlerImpl::GetSharedDefaultConfig()
+    const {
+  return default_config_;
+}
+
+// update internal data
+void ConfigHandlerImpl::SetConfigInternal(std::shared_ptr<Config> config) {
+  config_.store(std::move(config));
+}
+
+void ConfigHandlerImpl::SetConfig(Config config) {
+  const uint64_t config_hash = CityFingerprint(config.SerializeAsString());
+
+  // If the wire format of config is identical to the one of the previously
+  // stored config, skip updating.
+  if (config_hash_ == config_hash) {
+    return;
+  }
+
+  auto output_config = std::make_shared<Config>(std::move(config));
+
+  // Fix config because `config` may be broken.
+  NormalizeConfig(output_config.get());
+
+  // If the wire format of the config w/o metadata is identical to the one of
+  // the previous config, skip updating.
+  output_config->mutable_general_config()->clear_last_modified_time();
+  const uint64_t content_hash =
+      CityFingerprint(output_config->SerializeAsString());
+  if (content_hash_ == content_hash) {
+    return;
+  }
+  content_hash_ = content_hash;
+
+  // Set metadata and update `config_hash_`.
+  SetMetaData(output_config.get());
+  config_hash_ = CityFingerprint(output_config->SerializeAsString());
+
+  const std::string filename = GetConfigFileName();
+
+  MOZC_VLOG(1) << "Setting new config: " << filename;
+  ConfigFileStream::AtomicUpdate(filename, output_config->SerializeAsString());
+
+#ifdef _WIN32
+  ConfigFileStream::FixupFilePermission(filename);
+#endif  // _WIN32
+
+#ifdef DEBUG
+  const std::string debug_content = absl::StrCat(
+      "# This is a text-based config file for debugging.\n"
+      "# Nothing happens when you edit this file manually.\n",
+      *output_config);
+  ConfigFileStream::AtomicUpdate(absl::StrCat(filename, ".txt"), debug_content);
+#endif  // DEBUG
+
+  SetConfigInternal(output_config);
+}
+
+// Reload from file
+void ConfigHandlerImpl::Reload() {
+  const std::string filename = GetConfigFileName();
+
+  MOZC_VLOG(1) << "Reloading config file: " << filename;
+  std::unique_ptr<std::istream> is(ConfigFileStream::OpenReadBinary(filename));
+  auto input_config = std::make_shared<Config>();
+
+  if (is == nullptr) {
+    LOG(ERROR) << filename << " is not found";
+  } else if (!input_config->ParseFromIstream(is.get())) {
+    LOG(ERROR) << filename << " is broken";
+    input_config->Clear();  // revert to default setting
+  }
+
+  // we set default config when file is broken
+  NormalizeConfig(input_config.get());
+
+  SetConfigInternal(input_config);
+}
+
+void ConfigHandlerImpl::SetConfigFileName(const absl::string_view filename) {
+  {
+    absl::WriterMutexLock lock(mutex_);
+    MOZC_VLOG(1) << "set new config file name: " << filename;
+    strings::Assign(filename_, filename);
+  }
+  Reload();
+}
+
+std::string ConfigHandlerImpl::GetConfigFileName() const {
+  absl::ReaderMutexLock lock(mutex_);
+  return filename_;
+}
+}  // namespace
+
+Config ConfigHandler::GetCopiedConfig() { return *GetSharedConfig(); }
+
+std::shared_ptr<const Config> ConfigHandler::GetSharedConfig() {
+  return GetConfigHandlerImpl()->GetSharedConfig();
+}
+
+void ConfigHandler::SetConfig(Config config) {
+  GetConfigHandlerImpl()->SetConfig(std::move(config));
+}
+
+// static
+void ConfigHandler::GetDefaultConfig(Config* config) {
+  *config = DefaultConfig();
+}
+
+std::shared_ptr<const Config> ConfigHandler::GetSharedDefaultConfig() {
+  return GetConfigHandlerImpl()->GetSharedDefaultConfig();
+}
+
+// static
+const Config& ConfigHandler::DefaultConfig() {
+  return *GetSharedDefaultConfig();  // NOLINT: The referenced object has static
+                                     // lifetime.
+}
+
+// Reload from file
+void ConfigHandler::Reload() { GetConfigHandlerImpl()->Reload(); }
+
+void ConfigHandler::SetConfigFileNameForTesting(
+    const absl::string_view filename) {
+  GetConfigHandlerImpl()->SetConfigFileName(filename);
+}
+
+std::string ConfigHandler::GetConfigFileNameForTesting() {
+  return GetConfigHandlerImpl()->GetConfigFileName();
+}
+
+Config::SessionKeymap ConfigHandler::GetDefaultKeyMap() {
+  if constexpr (TargetIsOSX()) {
+    return Config::KOTOERI;
+  } else if constexpr (TargetIsChromeOS()) {
+    return Config::CHROMEOS;
+  } else {
+    return Config::MSIME;
+  }
+}
+
+#ifdef _WIN32
+// static
+void ConfigHandler::FixupFilePermission() {
+  ConfigFileStream::FixupFilePermission(GetConfigFileNameForTesting());
+}
+#endif  // _WIN32
 
 }  // namespace config
 }  // namespace mozc

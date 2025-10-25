@@ -36,7 +36,7 @@
 #include <shlwapi.h>
 #include <windows.h>
 
-#include "base/logging.h"
+#include "absl/log/log.h"
 #include "base/mmap.h"
 #include "base/win32/wide_char.h"
 #include "testing/mozctest.h"
@@ -46,7 +46,7 @@ namespace {
 
 HANDLE g_font_handle_ = nullptr;
 
-HANDLE LoadPrivateFont(const wchar_t *font_name) {
+HANDLE LoadPrivateFont(const wchar_t* font_name) {
   wchar_t w_path[MAX_PATH] = {};
   const DWORD char_size =
       ::GetModuleFileNameW(nullptr, w_path, std::size(w_path));
@@ -91,8 +91,7 @@ HANDLE LoadPrivateFont(const wchar_t *font_name) {
 bool WinFontTestHelper::Initialize() {
   if (g_font_handle_ == nullptr) {
     const std::string path = testing::GetSourceFileOrDie(
-        {MOZC_DICT_DIR_COMPONENTS, "test", "renderer", "win32",
-         "mozc_test_font.ttf"});
+        {"data", "test", "renderer", "win32", "mozc_test_font.ttf"});
     g_font_handle_ = LoadPrivateFont(win32::Utf8ToWide(path).c_str());
     if (g_font_handle_ == nullptr) {
       return false;
@@ -110,9 +109,7 @@ void WinFontTestHelper::Uninitialize() {
 }
 
 // static
-std::string WinFontTestHelper::GetTestFontName() {
-  return "MozcTestFont";
-}
+std::string WinFontTestHelper::GetTestFontName() { return "MozcTestFont"; }
 
 }  // namespace mozc
 

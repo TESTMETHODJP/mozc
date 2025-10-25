@@ -30,6 +30,7 @@
 #include "storage/existence_filter.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -39,13 +40,13 @@
 #include <utility>
 #include <vector>
 
-#include "absl/numeric/bits.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/types/span.h"
 #include "base/bits.h"
-#include "base/logging.h"
 #include "base/vlog.h"
 
 namespace mozc {
@@ -96,7 +97,7 @@ BlockBitmapBuilder::BlockBitmapBuilder(uint32_t size) {
 
 std::string::iterator BlockBitmapBuilder::SerializeTo(
     std::string::iterator it) {
-  for (const auto& block : blocks_) {
+  for (const std::vector<uint32_t>& block : blocks_) {
     for (const uint32_t i : block) {
       it = StoreUnaligned<uint32_t>(i, it);
     }
@@ -107,7 +108,7 @@ std::string::iterator BlockBitmapBuilder::SerializeTo(
 BlockBitmap BlockBitmapBuilder::Build() const {
   std::vector<absl::Span<const uint32_t>> blocks;
   blocks.reserve(blocks_.size());
-  for (const auto& block : blocks_) {
+  for (const std::vector<uint32_t>& block : blocks_) {
     blocks.push_back(block);
   }
   return BlockBitmap(std::move(blocks));
@@ -130,10 +131,22 @@ absl::StatusOr<ExistenceFilterParams> ReadHeader(
   ExistenceFilterParams params;
   params.size = *it++;
   params.expected_nelts = *it++;
-  params.num_hashes = *it++;
+
+  // Assumes little-endian.
+  // num_hashes was originally stored as 32bit integer, so the old
+  // binary stores the value in lower bits.
+  const uint32_t v = *it++;
+  params.num_hashes = v & 0xFFFF;
+  params.fp_type = v >> 16;
+
   if (params.num_hashes >= 8 || params.num_hashes <= 0) {
     return absl::InvalidArgumentError("Bad number of hashes (header.k)");
   }
+
+  if (params.fp_type >= ExistenceFilterParams::FP_TYPE_SIZE) {
+    return absl::InvalidArgumentError("unsupported fp type");
+  }
+
   return params;
 }
 
@@ -155,7 +168,7 @@ std::ostream& operator<<(std::ostream& os,
 
 bool ExistenceFilter::Exists(uint64_t hash) const {
   for (int i = 0; i < params_.num_hashes; ++i) {
-    hash = absl::rotl(hash, 8);
+    hash = std::rotl(hash, 8);
     const uint32_t index = hash % params_.size;
     if (!rep_.Get(index)) {
       return false;
@@ -185,29 +198,25 @@ absl::StatusOr<ExistenceFilter> ExistenceFilter::Read(
 }
 
 ExistenceFilterBuilder ExistenceFilterBuilder::CreateOptimal(
-    size_t size_in_bytes, uint32_t estimated_insertions) {
+    size_t size_in_bytes, uint32_t estimated_insertions, uint16_t fp_type) {
   CHECK_LT(size_in_bytes, (1 << 29)) << "Requested size is too big";
   CHECK_GT(estimated_insertions, 0);
-  const uint32_t m = std::max<size_t>(1, size_in_bytes * 8);
+  CHECK_LT(fp_type, ExistenceFilterParams::FP_TYPE_SIZE);
+  const uint32_t m = std::max<uint32_t>(1, size_in_bytes * 8);
   const uint32_t n = estimated_insertions;
 
-  int optimal_k =
-      static_cast<int>((static_cast<float>(m) / n * log(2.0)) + 0.5);
-  if (optimal_k < 1) {
-    optimal_k = 1;
-  }
-  if (optimal_k > 7) {
-    optimal_k = 7;
-  }
+  uint16_t optimal_k =
+      static_cast<uint16_t>(std::round(static_cast<float>(m) / n * log(2.0)));
+  optimal_k = std::clamp<uint16_t>(optimal_k, 1, 7);
 
   MOZC_VLOG(1) << "optimal_k: " << optimal_k;
 
-  return ExistenceFilterBuilder({m, n, optimal_k});
+  return ExistenceFilterBuilder({m, n, optimal_k, fp_type});
 }
 
 void ExistenceFilterBuilder::Insert(uint64_t hash) {
   for (int i = 0; i < params_.num_hashes; ++i) {
-    hash = absl::rotl(hash, 8);
+    hash = std::rotl(hash, 8);
     const uint32_t index = hash % params_.size;
     rep_.Set(index);
   }
@@ -237,7 +246,10 @@ std::string ExistenceFilterBuilder::SerializeAsString() {
   // write header
   it = StoreUnaligned<uint32_t>(params_.size, it);
   it = StoreUnaligned<uint32_t>(params_.expected_nelts, it);
-  it = StoreUnaligned<uint32_t>(params_.num_hashes, it);
+  // Original num_hashes was 32 bit integer. Pushes the num_hases first so
+  // it can evaluated properly even when loading them as single 32 bit integer.
+  it = StoreUnaligned<uint16_t>(params_.num_hashes, it);
+  it = StoreUnaligned<uint16_t>(params_.fp_type, it);
   // This method is called on data generation and we can call LOG(INFO) here.
   LOG(INFO) << "Header written: " << params_;
 

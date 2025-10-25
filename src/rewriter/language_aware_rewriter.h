@@ -35,31 +35,30 @@
 #include "converter/segments.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
+#include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 
 class LanguageAwareRewriter : public RewriterInterface {
  public:
-  LanguageAwareRewriter(const dictionary::PosMatcher &pos_matcher,
-                        const dictionary::DictionaryInterface *dictionary);
-  LanguageAwareRewriter(const LanguageAwareRewriter &) = delete;
-  LanguageAwareRewriter &operator=(const LanguageAwareRewriter &) = delete;
+  LanguageAwareRewriter(const dictionary::PosMatcher& pos_matcher,
+                        const dictionary::DictionaryInterface& dictionary);
+  LanguageAwareRewriter(const LanguageAwareRewriter&) = delete;
+  LanguageAwareRewriter& operator=(const LanguageAwareRewriter&) = delete;
   ~LanguageAwareRewriter() override;
 
-  int capability(const ConversionRequest &request) const override;
+  int capability(const ConversionRequest& request) const override;
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
-
-  void Finish(const ConversionRequest &request, Segments *segments) override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 
  private:
   // Fills the raw text if the query does not look like Japanese.
-  bool FillRawText(const ConversionRequest &request, Segments *segments) const;
+  bool FillRawText(const ConversionRequest& request, Segments* segments) const;
 
   const uint16_t unknown_id_;
-  const dictionary::DictionaryInterface *dictionary_;
+  const dictionary::DictionaryInterface* dictionary_;
 };
 
 }  // namespace mozc

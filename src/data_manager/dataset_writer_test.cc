@@ -48,7 +48,7 @@ namespace mozc {
 namespace {
 
 void SetEntry(absl::string_view name, uint64_t offset, uint64_t size,
-              DataSetMetadata::Entry *entry) {
+              DataSetMetadata::Entry* entry) {
   entry->set_name(name);
   entry->set_offset(offset);
   entry->set_size(size);
@@ -70,8 +70,8 @@ TEST(DatasetWriterTest, Write) {
     w.Add("data16", 16, "data16 \xAB\xCD\xEF");
     w.Add("data32", 32, std::string("data32 \x00\xAB\n\r\n", 12));
     w.Add("data64", 64, std::string("data64 \t\t\x00\x00", 11));
-    w.Add("data128", 128, std::string("data128 abcdefg"));
-    w.Add("data256", 256, std::string("data256 xyz"));
+    w.Add("data128", 128, "data128 abcdefg");
+    w.Add("data256", 256, "data256 xyz");
 
     w.AddFile("file8", 8, in.path());
     w.AddFile("file16", 16, in.path());
@@ -121,8 +121,8 @@ TEST(DatasetWriterTest, Write) {
   SetEntry("file64", 128, 5, metadata.add_entries());
   SetEntry("file128", 144, 5, metadata.add_entries());
   SetEntry("file256", 160, 5, metadata.add_entries());
-  const std::string &metadata_chunk = metadata.SerializeAsString();
-  const std::string &metadata_size =
+  const std::string& metadata_chunk = metadata.SerializeAsString();
+  const std::string& metadata_size =
       Util::SerializeUint64(metadata_chunk.size());
   // Append data_chunk except for the last '\0'.
   std::string expected(data_chunk, sizeof(data_chunk) - 1);

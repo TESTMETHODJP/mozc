@@ -35,8 +35,8 @@
 #include <windows.h>
 
 #include <string>
-#include <vector>
 
+#include "absl/types/span.h"
 
 namespace mozc {
 
@@ -67,17 +67,17 @@ namespace mozc {
 class WinAPITestHelper {
  public:
   WinAPITestHelper() = delete;
-  WinAPITestHelper(const WinAPITestHelper &) = delete;
-  WinAPITestHelper &operator=(const WinAPITestHelper &) = delete;
+  WinAPITestHelper(const WinAPITestHelper&) = delete;
+  WinAPITestHelper& operator=(const WinAPITestHelper&) = delete;
 
   // An opaque data to restore API hook.
   class RestoreInfo;
-  typedef RestoreInfo *RestoreInfoHandle;
+  typedef RestoreInfo* RestoreInfoHandle;
 
-  typedef void *FunctionPointer;
+  typedef void* FunctionPointer;
   struct HookRequest {
    public:
-    HookRequest(const std::string &src_module, const std::string &src_proc_name,
+    HookRequest(const std::string& src_module, const std::string& src_proc_name,
                 FunctionPointer new_proc_addr);
     const std::string module_name;
     const std::string proc_name;
@@ -85,9 +85,9 @@ class WinAPITestHelper {
   };
 
   template <typename NewProcType>
-  static HookRequest MakeHookRequest(const std::string &module,
-                                     const std::string &proc_name,
-                                     const NewProcType &new_proc_ref) {
+  static HookRequest MakeHookRequest(const std::string& module,
+                                     const std::string& proc_name,
+                                     const NewProcType& new_proc_ref) {
     return HookRequest(module, proc_name, &new_proc_ref);
   }
 
@@ -102,12 +102,12 @@ class WinAPITestHelper {
   //   Since this code is designed to be used in unit test, this method
   //   causes critical failure and stops execution when something fails.
   static RestoreInfoHandle DoHook(HMODULE target_module,
-                                  const std::vector<HookRequest> &requests);
+                                  absl::Span<const HookRequest> requests);
 
-  // Restores the API hooks. |backup_info| cannot be used after this method
+  // Restores the API hooks. |restore_info| cannot be used after this method
   // is called.
   // Note: This method is not thread-safe.
-  static void RestoreHook(RestoreInfoHandle backup_info);
+  static void RestoreHook(RestoreInfoHandle restore_info);
 };
 
 #define DEFINE_HOOK(module_name, original_proc, new_proc)             \

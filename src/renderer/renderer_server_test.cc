@@ -29,13 +29,15 @@
 
 #include "renderer/renderer_server.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "base/logging.h"
+#include "ipc/ipc.h"
 #include "ipc/ipc_test_util.h"
 #include "protocol/renderer_command.pb.h"
 #include "renderer/renderer_client.h"
@@ -49,29 +51,27 @@ namespace {
 
 class TestRenderer : public RendererInterface {
  public:
-  TestRenderer() : counter_(0), finished_(false) {}
-
   bool Activate() override { return true; }
 
   bool IsAvailable() const override { return true; }
 
-  bool ExecCommand(const commands::RendererCommand &command) override {
-    if (finished_) {
+  bool ExecCommand(const commands::RendererCommand& command) override {
+    if (finished_.load(std::memory_order_acquire)) {
       return false;
     }
-    counter_++;
+    counter_.fetch_add(1, std::memory_order_relaxed);
     return true;
   }
 
-  void Reset() { counter_ = 0; }
+  void Reset() { counter_.store(0, std::memory_order_relaxed); }
 
-  int counter() const { return counter_; }
+  int counter() const { return counter_.load(std::memory_order_relaxed); }
 
-  void Shutdown() { finished_ = true; }
+  void Shutdown() { finished_.store(true, std::memory_order_release); }
 
  private:
-  int counter_;
-  bool finished_;
+  std::atomic<int> counter_ = 0;
+  std::atomic<bool> finished_ = false;
 };
 
 class TestRendererServer : public RendererServer {
@@ -90,13 +90,13 @@ class TestRendererServer : public RendererServer {
 class DummyRendererLauncher : public RendererLauncherInterface {
  public:
   void StartRenderer(
-      const std::string &name, const std::string &renderer_path,
+      const std::string& name, const std::string& renderer_path,
       bool disable_renderer_path_check,
-      IPCClientFactoryInterface *ipc_client_factory_interface) override {
+      IPCClientFactoryInterface* ipc_client_factory_interface) override {
     LOG(INFO) << name << " " << renderer_path;
   }
 
-  bool ForceTerminateRenderer(const std::string &name) override { return true; }
+  bool ForceTerminateRenderer(const std::string& name) override { return true; }
 
   void OnFatal(RendererErrorType type) override {
     LOG(ERROR) << static_cast<int>(type);
@@ -106,7 +106,7 @@ class DummyRendererLauncher : public RendererLauncherInterface {
 
   bool CanConnect() const override { return true; }
 
-  void SetPendingCommand(const commands::RendererCommand &command) override {}
+  void SetPendingCommand(const commands::RendererCommand& command) override {}
 
   void set_suppress_error_dialog(bool suppress) override {}
 };
@@ -116,7 +116,7 @@ class RendererServerTest : public testing::TestWithTempUserProfile {};
 TEST_F(RendererServerTest, IPCTest) {
   mozc::IPCClientFactoryOnMemory on_memory_client_factory;
 
-  std::unique_ptr<TestRendererServer> server(new TestRendererServer);
+  auto server = std::make_unique<TestRendererServer>();
   TestRenderer renderer;
   server->SetRendererInterface(&renderer);
 #ifdef __APPLE__
@@ -124,7 +124,7 @@ TEST_F(RendererServerTest, IPCTest) {
 #endif  // __APPLE__
   renderer.Reset();
 
-  // listning event
+  // listening event
   server->StartServer();
   absl::SleepFor(absl::Seconds(1));
 

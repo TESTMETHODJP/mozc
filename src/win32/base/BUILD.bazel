@@ -34,16 +34,14 @@ load(
     "MOZC_TAGS",
     "mozc_cc_library",
     "mozc_cc_test",
+    "mozc_cc_win32_library",
 )
-load("//bazel:stubs.bzl", "lexan")
 load(
     "//bazel/win32:build_defs.bzl",
     "features_gdi",
 )
 
-package(
-    default_visibility = ["//win32:__subpackages__"],
-)
+package(default_visibility = ["//win32:__subpackages__"])
 
 mozc_cc_library(
     name = "config_snapshot",
@@ -53,7 +51,6 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         "//base:system_util",
-        "//client:client_interface",
         "//config:config_handler",
         "//protocol:config_cc_proto",
         "//session:key_info_util",
@@ -67,9 +64,10 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
-        "//base:logging",
         "//base:vlog",
         "//protocol:commands_cc_proto",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -94,8 +92,8 @@ mozc_cc_library(
     deps = [
         ":input_state",
         ":keyboard",
-        "//base:logging",
         "//protocol:commands_cc_proto",
+        "@com_google_absl//absl/log",
     ],
 )
 
@@ -110,11 +108,12 @@ mozc_cc_test(
         ":keyboard",
         "//protocol:commands_cc_proto",
         "//testing:gunit_main",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
 filegroup(
-    # TODO(yuryu): lexan.resource_files doesn't seem to accept cc_library.
+    # TODO(yuryu): windows.resource_files doesn't seem to accept cc_library.
     # This is a workaround for now.
     name = "display_name_resource_h_for_rc",
     srcs = ["display_name_resource.h"],
@@ -146,11 +145,11 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
-        "//base:logging",
         "//base:util",
+        "//bazel/win32:user32",
         "@com_google_absl//absl/algorithm:container",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -160,11 +159,15 @@ mozc_cc_library(
     hdrs = ["imm_util.h"],
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
+    visibility = [
+        "//gui:__subpackages__",
+    ],
     deps = [
         ":input_dll",
+        ":msctf_dll",
         ":tsf_profile",
-        "//base:logging",
         "//base/win32:wide_char",
+        "@com_google_absl//absl/log",
         "@com_microsoft_wil//:wil",
     ],
 )
@@ -215,8 +218,9 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
-        "//base:logging",
         "//bazel/win32:user32",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -228,7 +232,6 @@ mozc_cc_test(
     deps = [
         ":keyboard",
         "//testing:gunit_main",
-        "@com_google_absl//absl/base",
     ],
 )
 
@@ -243,13 +246,12 @@ mozc_cc_library(
         ":input_state",
         ":keyboard",
         "//base:japanese_util",
-        "//base:logging",
         "//base:util",
         "//base/win32:wide_char",
         "//client:client_interface",
-        "//config:config_handler",
         "//protocol:commands_cc_proto",
         "//session:key_info_util",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -262,17 +264,19 @@ mozc_cc_test(
         ":input_state",
         ":keyboard",
         ":keyevent_handler",
-        "//base:logging",
         "//base:version",
+        "//base/strings:zstring_view",
         "//client",
         "//client:client_interface",
         "//composer:key_event_util",
         "//config:config_handler",
+        "//ipc",
         "//ipc:ipc_mock",
         "//protocol:commands_cc_proto",
         "//session:key_info_util",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -309,11 +313,10 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
-        "//base:logging",
-        "//base:util",
         "//base/win32:wide_char",
         "//bazel/win32:gdi32",
         "//bazel/win32:user32",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_microsoft_wil//:wil",
     ],
@@ -353,15 +356,15 @@ mozc_cc_test(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":omaha_util",
-        "//base:logging",
         "//base:singleton",
         "//base:system_util",
         "//base/win32:win_api_test_helper",
         "//testing:gunit_main",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
-lexan.cc_windows_dll(
+mozc_cc_win32_library(
     name = "input_dll",
     srcs = [
         "input_dll.cc",
@@ -373,7 +376,7 @@ lexan.cc_windows_dll(
     target_compatible_with = ["@platforms//os:windows"],
     win_def_file = "input_dll.def",
     deps = [
-        "//base:logging",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -388,7 +391,7 @@ mozc_cc_test(
     ],
 )
 
-lexan.cc_windows_dll(
+mozc_cc_win32_library(
     name = "msctf_dll",
     srcs = [
         "msctf_dll.cc",
@@ -397,7 +400,7 @@ lexan.cc_windows_dll(
     target_compatible_with = ["@platforms//os:windows"],
     win_def_file = "msctf_dll.def",
     deps = [
-        "//base:logging",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -461,9 +464,9 @@ mozc_cc_library(
         ":display_name_resource_h",
         ":tsf_profile",
         "//base:const",
-        "//base:logging",
         "//base/win32:com",
         "//base/win32:wide_char",
+        "@com_google_absl//absl/log",
         "@com_microsoft_wil//:wil",
     ],
 )
@@ -475,10 +478,7 @@ mozc_cc_library(
     features = features_gdi(),
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
-    deps = [
-        "//base:logging",
-        "//base:vlog",
-    ],
+    deps = ["//base:vlog"],
 )
 
 mozc_cc_library(
@@ -489,9 +489,8 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         ":input_dll",
-        ":msctf_dll",
+        ":msctf_dll",  # buildcleaner: keep
         ":tsf_profile",
-        "//base:logging",
         "//base/win32:wide_char",
     ],
 )

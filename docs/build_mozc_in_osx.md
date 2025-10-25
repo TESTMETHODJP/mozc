@@ -12,17 +12,12 @@ and make sure the operations before running them.
 git clone https://github.com/google/mozc.git
 cd mozc/src
 
-export PYTHON_VENV_ROOT=${PWD}/python-venv
-python3 -m venv ${PYTHON_VENV_ROOT}
-source ${PYTHON_VENV_ROOT}/bin/activate
-python3 -m pip install requests
-
 python3 build_tools/update_deps.py
 
 # CMake is also required to build Qt.
 python3 build_tools/build_qt.py --release --confirm_license
 
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt
+MOZC_QT_PATH=${PWD}/third_party/qt bazelisk build package --config oss_macos --config release_build
 open bazel-bin/mac/Mozc.pkg
 ```
 
@@ -40,18 +35,19 @@ Check [Build with GitHub Actions](#build-with-github-actions) for details.
 
 ### System Requirements
 
-64-bit macOS 11 and later versions are supported.
+64-bit macOS 12 and later versions are supported.
 
 ### Software Requirements
 
 Building on Mac requires the following software.
 
 * [Xcode](https://apps.apple.com/us/app/xcode/id497799835)
-  * Xcode 13 (macOS 13 SDK) or later
+  * Xcode 16.0 or later
   * ⚠️Xcode Command Line Tools aren't sufficient.
-* [Bazel](https://docs.bazel.build/versions/master/install-os-x.html) for Bazel build
-* Python 3.9 or later with the following pip module.
-  * `requests`
+* [Bazelisk](https://github.com/bazelbuild/bazelisk)
+  * Bazelisk is a wrapper of [Bazel](https://bazel.build/) to use the specific version of Bazel.
+  * [src/.bazeliskrc](../src/.bazeliskrc) controls which version of Bazel is used.
+* Python 3.9 or later.
 * CMake 3.18.4 or later (to build Qt6)
 
 ## Get the Code
@@ -65,19 +61,6 @@ cd mozc/src
 
 Hereafter you can do all the operations without changing directory.
 
-### Set up and enable Python virtual environment
-
-The following commands set up Python virtual environment under `mozc/src/python-venv`.
-
-```
-export PYTHON_VENV_ROOT=${PWD}/python-venv
-python3 -m venv ${PYTHON_VENV_ROOT}
-source ${PYTHON_VENV_ROOT}/bin/activate
-python3 -m pip install requests
-```
-
-Using `mozc/src/python-venv` as the virtual environment location is not mandatory. Any other location should also work.
-
 ### Check out additional build dependencies
 
 ```
@@ -87,7 +70,7 @@ python build_tools/update_deps.py
 In this step, additional build dependencies will be downloaded.
 
   * [Ninja 1.11.0](https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-mac.zip)
-  * [Qt 6.7.0](https://download.qt.io/archive/qt/6.7/6.7.0/submodules/qtbase-everywhere-src-6.7.0.tar.xz)
+  * [Qt 6.9.1](https://download.qt.io/archive/qt/6.8/6.8.0/submodules/qtbase-everywhere-src-6.9.1.tar.xz)
   * [git submodules](../.gitmodules)
 
 You can specify `--noqt` option if you would like to use your own Qt binaries.
@@ -133,7 +116,7 @@ brew install cmake
 ### Build installer
 
 ```
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt
+MOZC_QT_PATH=${PWD}/third_party/qt bazelisk build package --config oss_macos --config release_build
 open bazel-bin/mac/Mozc.pkg
 ```
 
@@ -142,21 +125,21 @@ open bazel-bin/mac/Mozc.pkg
 To build an Intel64 macOS binary regardless of the host CPU architecture.
 ```
 python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x64_64
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt --macos_cpus=x64_64
+MOZC_QT_PATH=${PWD}/third_party/qt bazelisk build package --config oss_macos --config release_build --macos_cpus=x64_64
 open bazel-bin/mac/Mozc.pkg
 ```
 
 To build a Universal macOS Binary both x86_64 and arm64.
 ```
 python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x86_64,arm64
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt --macos_cpus=x86_64,arm64
+MOZC_QT_PATH=${PWD}/third_party/qt bazelisk build package --config oss_macos --config release_build --macos_cpus=x86_64,arm64
 open bazel-bin/mac/Mozc.pkg
 ```
 
 ### Unit tests
 
 ```
-MOZC_QT_PATH=${PWD}/third_party/qt bazel test ... --config oss_macos --build_tests_only -c dbg
+MOZC_QT_PATH=${PWD}/third_party/qt bazelisk test ... --config oss_macos --build_tests_only -c dbg
 ```
 
 See [build Mozc in Docker](build_mozc_in_docker.md#unittests) for details.
@@ -196,7 +179,7 @@ Files in the GitHub Actions page remain available up to 90 days.
 You can also find Mozc Installers for macOS in google/mozc repository. Please keep in mind that Mozc is not an officially supported Google product, even if downloaded from https://github.com/google/mozc/.
 
 1. Sign in GitHub.
-2. Check [recent successfull macOS runs](https://github.com/google/mozc/actions/workflows/macos.yaml?query=is%3Asuccess) in google/mozc repository.
+2. Check [recent successful macOS runs](https://github.com/google/mozc/actions/workflows/macos.yaml?query=is%3Asuccess) in google/mozc repository.
 3. Find action in last 90 days and click it.
 4. Download `Mozc.pkg` from the action result page.
 
@@ -223,7 +206,6 @@ For GYP build, Ninja and Packages are also required.
 * [Ninja](https://github.com/ninja-build/ninja) for GYP build
 * [Packages](http://s.sudre.free.fr/Software/Packages/about.html) for installer
 * Python 3.9 or later with the following pip module.
-  * `requests`
   * `six`
 
 ### Build executables
@@ -231,7 +213,7 @@ For GYP build, Ninja and Packages are also required.
 First, you'll need to generate Xcode project using a tool called [GYP](https://chromium.googlesource.com/external/gyp).
 
 ```
-GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=11.0" python3 build_mozc.py gyp
+GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=12.0" python3 build_mozc.py gyp
 ```
 
 You can customize the SDK version target OS version here.
@@ -245,7 +227,7 @@ python3 build_mozc.py build -c Release mac/mac.gyp:GoogleJapaneseInput
 If you want to build Mozc without Qt dependencies, specify `--noqt` option as follows.  Note that GUI tools will be built as a mock version that does nothing if you specify `--noqt`.
 
 ```
-GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=11.0" python3 build_mozc.py gyp --noqt
+GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=12.0" python3 build_mozc.py gyp --noqt
 python3 build_mozc.py build -c Release mac/mac.gyp:GoogleJapaneseInput
 ```
 
@@ -259,7 +241,7 @@ GUI tools executables are linked with the libraries in `third_party/qt`. You mig
 
 You can also build an installer.
 ```
-GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=11.0" python3 build_mozc.py gyp
+GYP_DEFINES="mac_sdk=13.0 mac_deployment_target=12.0" python3 build_mozc.py gyp
 python3 build_mozc.py build -c Release :Installer
 ```
 

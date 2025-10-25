@@ -96,14 +96,22 @@
       ],
     },
     {
+      'target_name': 'absl_container_internal',
+      'toolsets': ['host', 'target'],
+      'type': 'static_library',
+      'sources': [
+        '<!@(<(glob_absl) container/internal "*.cc")',
+      ],
+    },
+    {
       'target_name': 'absl_hash_internal',
       'toolsets': ['host', 'target'],
       'type': 'static_library',
       'sources': [
-        '<(absl_srcdir)/container/internal/raw_hash_set.cc',
-        '<(absl_srcdir)/hash/internal/city.cc',
-        '<(absl_srcdir)/hash/internal/hash.cc',
-        '<(absl_srcdir)/hash/internal/low_level_hash.cc',
+        '<!@(<(glob_absl) hash/internal "*.cc" --exclude print_hash_of.cc)',
+      ],
+      'dependencies': [
+          'absl_container_internal',
       ],
     },
     {
@@ -177,6 +185,10 @@
       'sources': [
         '<!@(<(glob_absl) status "*.cc")',
         '<!@(<(glob_absl) status/internal "*.cc")',
+      ],
+      'include_dirs': [
+        '<(gmock_dir)/include',
+        '<(gtest_dir)/include',
       ],
       'dependencies': [
         'absl_base',

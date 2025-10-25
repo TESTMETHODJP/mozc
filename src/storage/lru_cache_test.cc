@@ -42,9 +42,9 @@ namespace {
 using ::testing::ElementsAre;
 
 template <typename Key, typename Value>
-size_t SizeOfFreeList(const LruCache<Key, Value> &cache) {
+size_t SizeOfFreeList(const LruCache<Key, Value>& cache) {
   size_t size = 0;
-  for (const typename LruCache<Key, Value>::Element *e =
+  for (const typename LruCache<Key, Value>::Element* e =
            cache.FreeListForTesting();
        e; e = e->next) {
     ++size;
@@ -53,10 +53,10 @@ size_t SizeOfFreeList(const LruCache<Key, Value> &cache) {
 }
 
 template <typename Key, typename Value>
-std::vector<Key> GetOrderedKeys(const LruCache<Key, Value> &cache) {
+std::vector<Key> GetOrderedKeys(const LruCache<Key, Value>& cache) {
   std::vector<Key> keys;
   keys.reserve(cache.Size());
-  for (const typename LruCache<Key, Value>::Element &elem : cache) {
+  for (const typename LruCache<Key, Value>::Element& elem : cache) {
     keys.push_back(elem.key);
   }
   return keys;
@@ -88,13 +88,13 @@ TEST(LruCacheTest, Lookup) {
   EXPECT_THAT(GetOrderedKeys(cache), ElementsAre(2, 1, 0));
 
   // Looked up elements are moved to the head.
-  EXPECT_TRUE(cache.Lookup(0) != nullptr);
+  EXPECT_NE(cache.Lookup(0), nullptr);
   EXPECT_THAT(GetOrderedKeys(cache), ElementsAre(0, 2, 1));
-  EXPECT_TRUE(cache.Lookup(1) != nullptr);
+  EXPECT_NE(cache.Lookup(1), nullptr);
   EXPECT_THAT(GetOrderedKeys(cache), ElementsAre(1, 0, 2));
 
-  EXPECT_TRUE(cache.Lookup(-1) == nullptr);
-  EXPECT_TRUE(cache.Lookup(3) == nullptr);
+  EXPECT_EQ(cache.Lookup(-1), nullptr);
+  EXPECT_EQ(cache.Lookup(3), nullptr);
 }
 
 TEST(LruCacheTest, LookupWithoutInsert) {
@@ -106,11 +106,11 @@ TEST(LruCacheTest, LookupWithoutInsert) {
 
   // Unlike Lookup, LRU order shouldn't change.
   for (int i = 0; i < 3; ++i) {
-    EXPECT_TRUE(cache.LookupWithoutInsert(i) != nullptr);
+    EXPECT_NE(cache.LookupWithoutInsert(i), nullptr);
     EXPECT_THAT(GetOrderedKeys(cache), ElementsAre(2, 1, 0));
   }
-  EXPECT_TRUE(cache.LookupWithoutInsert(-1) == nullptr);
-  EXPECT_TRUE(cache.LookupWithoutInsert(3) == nullptr);
+  EXPECT_EQ(cache.LookupWithoutInsert(-1), nullptr);
+  EXPECT_EQ(cache.LookupWithoutInsert(3), nullptr);
 }
 
 TEST(LruCacheTest, Erase) {

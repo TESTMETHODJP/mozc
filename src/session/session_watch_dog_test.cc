@@ -36,12 +36,12 @@
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/log/check.h"
 #include "absl/memory/memory.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "base/cpu_stats.h"
-#include "base/logging.h"
 #include "client/client_mock.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
@@ -49,7 +49,6 @@
 namespace mozc {
 namespace {
 
-using ::testing::Mock;
 using ::testing::Return;
 
 // Returns the given CPU load values in order.
@@ -60,7 +59,7 @@ class TestCPUStats : public CPUStatsInterface {
   }
 
   float GetSystemCPULoad() override {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     CHECK_GT(cpu_loads_.size(), 0);
     float load = cpu_loads_.back();
     cpu_loads_.pop_back();
@@ -72,7 +71,7 @@ class TestCPUStats : public CPUStatsInterface {
   size_t GetNumberOfProcessors() const override { return size_t{1}; }
 
   void Set(std::vector<float> cpu_loads) {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     cpu_loads_ = std::move(cpu_loads);
     std::reverse(cpu_loads_.begin(), cpu_loads_.end());
   }
@@ -84,8 +83,8 @@ class TestCPUStats : public CPUStatsInterface {
 
 }  // namespace
 
-client::ClientMock *CreateMockClient() {
-  auto *client = new client::ClientMock();
+client::ClientMock* CreateMockClient() {
+  auto* client = new client::ClientMock();
   EXPECT_CALL(*client, PingServer()).WillRepeatedly(Return(true));
   ON_CALL(*client, Cleanup()).WillByDefault(Return(true));
   return client;
@@ -93,8 +92,8 @@ client::ClientMock *CreateMockClient() {
 
 TEST(SessionWatchDogTest, SessionWatchDogTest) {
   constexpr absl::Duration kInterval = absl::Seconds(1);
-  auto *client = CreateMockClient();
-  auto stats = std::make_unique<TestCPUStats>(std::vector<float>(10, 0.0f));
+  auto* client = CreateMockClient();
+  auto stats = std::make_unique<TestCPUStats>(std::vector<float>(5, 0.0f));
   EXPECT_CALL(*client, Cleanup()).Times(5);
 
   SessionWatchDog watchdog(kInterval, absl::WrapUnique(client),
@@ -105,16 +104,12 @@ TEST(SessionWatchDogTest, SessionWatchDogTest) {
   EXPECT_EQ(watchdog.interval(), kInterval);
 
   absl::SleepFor(absl::Milliseconds(5500));  // 5.5 sec
-  Mock::VerifyAndClearExpectations(&client);
-
-  EXPECT_CALL(*client, Cleanup()).Times(5);
-  absl::SleepFor(absl::Milliseconds(5000));  // 10.5 sec
 }
 
 TEST(SessionWatchDogTest, SessionWatchDogCPUStatsTest) {
   constexpr absl::Duration kInterval = absl::Seconds(1);
-  auto *client = CreateMockClient();
-  auto *cpu_loads = new TestCPUStats(std::vector<float>(20, 0.8f));
+  auto* client = CreateMockClient();
+  auto* cpu_loads = new TestCPUStats(std::vector<float>(5, 0.8f));
 
   mozc::SessionWatchDog watchdog(kInterval, absl::WrapUnique(client),
                                  absl::WrapUnique(cpu_loads));
@@ -123,15 +118,6 @@ TEST(SessionWatchDogTest, SessionWatchDogCPUStatsTest) {
   absl::SleepFor(absl::Milliseconds(100));
   EXPECT_EQ(watchdog.interval(), kInterval);
   absl::SleepFor(absl::Milliseconds(5500));  // 5.5 sec
-
-  // not called
-  Mock::VerifyAndClearExpectations(&client);
-
-  // CPU loads become low
-  EXPECT_CALL(*client, Cleanup()).Times(5);
-  cpu_loads->Set(std::vector<float>(20, 0.0f));
-
-  absl::SleepFor(absl::Milliseconds(5000));  // 5 sec
 }
 
 TEST(SessionWatchDogTest, SessionCanSendCleanupCommandTest) {

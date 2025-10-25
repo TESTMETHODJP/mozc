@@ -36,19 +36,20 @@
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/random/random.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "base/file_stream.h"
-#include "base/logging.h"
 #include "base/util.h"
 #include "converter/connector.h"
 #include "converter/node.h"
 #include "converter/segmenter.h"
 #include "data_manager/connection_file_reader.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "dictionary/pos_matcher.h"
 #include "prediction/suggestion_filter.h"
 #include "testing/gunit.h"
@@ -59,19 +60,18 @@ using ::mozc::dictionary::PosMatcher;
 }  // namespace
 
 DataManagerTestBase::DataManagerTestBase(
-    DataManagerInterface *data_manager, const size_t lsize, const size_t rsize,
-    IsBoundaryFunc is_boundary, const std::string &connection_txt_file,
-    const int expected_resolution,
-    const std::vector<std::string> &dictionary_files,
-    const std::vector<std::string> &suggestion_filter_files)
+    DataManager* data_manager, const size_t lsize, const size_t rsize,
+    IsBoundaryFunc is_boundary, const std::string& connection_txt_file,
+    const int expected_resolution, std::vector<std::string> dictionary_files,
+    std::vector<std::string> suggestion_filter_files)
     : data_manager_(data_manager),
       lsize_(lsize),
       rsize_(rsize),
       is_boundary_(is_boundary),
       connection_txt_file_(connection_txt_file),
       expected_resolution_(expected_resolution),
-      dictionary_files_(dictionary_files),
-      suggestion_filter_files_(suggestion_filter_files) {}
+      dictionary_files_(std::move(dictionary_files)),
+      suggestion_filter_files_(std::move(suggestion_filter_files)) {}
 
 void DataManagerTestBase::SegmenterTest_SameAsInternal() {
   // This test verifies that a segmenter created by MockDataManager provides
@@ -251,12 +251,8 @@ void DataManagerTestBase::SuggestionFilterTest_IsBadSuggestion() {
 }
 
 void DataManagerTestBase::CounterSuffixTest_ValidateTest() {
-  const char *data = nullptr;
-  size_t data_size = 0;
-  data_manager_->GetCounterSuffixSortedArray(&data, &data_size);
-
   SerializedStringArray suffix_array;
-  ASSERT_TRUE(suffix_array.Init(absl::string_view(data, data_size)));
+  ASSERT_TRUE(suffix_array.Init(data_manager_->GetCounterSuffixSortedArray()));
 
   // Check if the array is sorted in ascending order.
   absl::string_view prev_suffix;  // The smallest string.

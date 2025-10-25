@@ -29,12 +29,6 @@
 
 #include "config/stats_config_util.h"
 
-#include <string>
-
-#include "absl/base/casts.h"
-#include "absl/container/flat_hash_map.h"
-#include "absl/flags/flag.h"
-#include "base/singleton.h"
 #include "testing/gunit.h"
 
 #ifdef __ANDROID__
@@ -45,6 +39,10 @@
 #endif  // __ANDROID__
 
 #ifdef _WIN32
+#include <bit>
+
+#include "absl/container/flat_hash_map.h"
+#include "base/singleton.h"
 #include "base/win32/win_api_test_helper.h"
 #endif  // _WIN32
 
@@ -64,8 +62,7 @@ constexpr wchar_t kOmahaUsageKeyForEveryone[] =
     L"{DDCCD2A9-025E-4142-BCEB-F467B88CF830}";
 constexpr wchar_t kSendStatsName[] = L"usagestats";
 
-// TODO(yuryu): absl::bit_cast is not constexpr with VC++2017.
-HKEY DefineHKey(const uintptr_t value) { return absl::bit_cast<HKEY>(value); }
+HKEY DefineHKey(const uintptr_t value) { return std::bit_cast<HKEY>(value); }
 
 const HKEY kHKCU_ClientState = DefineHKey(1);
 const HKEY kHKLM_ClientState = DefineHKey(2);
@@ -75,9 +72,9 @@ constexpr int kRunLevelLow = 0;
 constexpr int kRunLevelMedium = 1;
 constexpr int kRunLevelHigh = 2;
 
-bool TryGetKnownKey(HKEY key, LPCWSTR sub_key, HKEY *result_key) {
+bool TryGetKnownKey(HKEY key, LPCWSTR sub_key, HKEY* result_key) {
   HKEY dummy = nullptr;
-  HKEY &result = (result_key != nullptr ? *result_key : dummy);
+  HKEY& result = (result_key != nullptr ? *result_key : dummy);
   if (HKEY_CURRENT_USER == key) {
     if (std::wstring(kOmahaUsageKey) == sub_key) {
       result = kHKCU_ClientState;
@@ -124,7 +121,7 @@ class RegistryEmulator {
       }
       return i->second;
     }
-    const absl::flat_hash_map<HKEY, DWORD> &usagestats_map() const {
+    const absl::flat_hash_map<HKEY, DWORD>& usagestats_map() const {
       return usagestats_map_;
     }
     int run_level() const { return run_level_; }
@@ -167,7 +164,7 @@ class RegistryEmulator {
     }
     return true;
   }
-  static bool GetUsagestatsValue(HKEY key, DWORD *value) {
+  static bool GetUsagestatsValue(HKEY key, DWORD* value) {
     if (!HasUsagestatsValue(key)) {
       return false;
     }
@@ -212,7 +209,7 @@ class RegistryEmulator {
       DWORD options, REGSAM sam, LPSECURITY_ATTRIBUTES security_attributes,
       PHKEY result, LPDWORD disposition) {
     HKEY dummy = nullptr;
-    HKEY &result_key = result != nullptr ? *result : dummy;
+    HKEY& result_key = result != nullptr ? *result : dummy;
     if (!TryGetKnownKey(key, sub_key, &result_key)) {
       return ERROR_ACCESS_DENIED;
     }
@@ -223,7 +220,7 @@ class RegistryEmulator {
   }
   static LSTATUS WINAPI TestRegSetValueExW(HKEY key, LPCWSTR value_name,
                                            DWORD reserved, DWORD type,
-                                           const BYTE *data, DWORD num_data) {
+                                           const BYTE* data, DWORD num_data) {
     if (type != REG_DWORD || std::wstring(kSendStatsName) != value_name) {
       // Do nothing for other cases.
       return ERROR_SUCCESS;
@@ -231,7 +228,7 @@ class RegistryEmulator {
     if (!CheckWritable(key)) {
       return ERROR_ACCESS_DENIED;
     }
-    SetUsagestatsValue(key, *reinterpret_cast<const DWORD *>(data));
+    SetUsagestatsValue(key, *reinterpret_cast<const DWORD*>(data));
     return ERROR_SUCCESS;
   }
   static LSTATUS WINAPI TestRegCloseKey(HKEY key) { return ERROR_SUCCESS; }
@@ -252,7 +249,7 @@ class RegistryEmulator {
     if (!HasUsagestatsValue(key)) {
       return ERROR_FILE_NOT_FOUND;
     }
-    GetUsagestatsValue(key, reinterpret_cast<DWORD *>(data));
+    GetUsagestatsValue(key, reinterpret_cast<DWORD*>(data));
     if (type != nullptr) {
       *type = REG_DWORD;
     }
@@ -679,8 +676,8 @@ TEST(StatsConfigUtilTestWin, IsEnabled) {
 #ifdef __ANDROID__
 TEST(StatsConfigUtilTestAndroid, DefaultValueTest) {
   const TempFile config_file(testing::MakeTempFileOrDie());
-  ConfigHandler::SetConfigFileName(config_file.path());
-  EXPECT_EQ(ConfigHandler::GetConfigFileName(), config_file.path());
+  ConfigHandler::SetConfigFileNameForTesting(config_file.path());
+  EXPECT_EQ(ConfigHandler::GetConfigFileNameForTesting(), config_file.path());
   ConfigHandler::Reload();
 #ifdef CHANNEL_DEV
   EXPECT_TRUE(StatsConfigUtil::IsEnabled());

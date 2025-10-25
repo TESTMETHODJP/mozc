@@ -32,13 +32,13 @@
 
 #import "InfolistView.h"
 
+#include "absl/log/log.h"
 #include "base/coordinates.h"
-#include "base/logging.h"
 #include "client/client_interface.h"
 #include "protocol/commands.pb.h"
 #include "renderer/mac/InfolistWindow.h"
 
-using mozc::commands::Candidates;
+using mozc::commands::CandidateWindow;
 using mozc::commands::Output;
 using mozc::commands::SessionCommand;
 
@@ -69,20 +69,6 @@ namespace mozc {
 namespace renderer {
 namespace mac {
 
-namespace {
-bool SendUsageStatsEvent(client::SendCommandInterface* command_sender,
-                         const SessionCommand::UsageStatsEvent event) {
-  if (command_sender == nullptr) {
-    return false;
-  }
-  SessionCommand command;
-  command.set_type(SessionCommand::USAGE_STATS_EVENT);
-  command.set_usage_stats_event(event);
-  Output dummy_output;
-  return command_sender->SendCommand(command, &dummy_output);
-}
-}  // namespace
-
 InfolistWindow::InfolistWindow() : lasttimer_(nullptr), command_sender_(nullptr) {
   timer_handler_ = [[InfolistWindowTimerHandler alloc] initWithInfolistWindow:this];
 }
@@ -93,8 +79,8 @@ void InfolistWindow::SetSendCommandInterface(client::SendCommandInterface* send_
   command_sender_ = send_command_interface;
 }
 
-void InfolistWindow::SetCandidates(const Candidates& candidates) {
-  if (candidates.candidate_size() == 0) {
+void InfolistWindow::SetCandidateWindow(const CandidateWindow& candidate_window) {
+  if (candidate_window.candidate_size() == 0) {
     return;
   }
 
@@ -102,7 +88,7 @@ void InfolistWindow::SetCandidates(const Candidates& candidates) {
     InitWindow();
   }
   InfolistView* infolist_view = (InfolistView*)view_;
-  [infolist_view setCandidates:&candidates];
+  [infolist_view setCandidateWindow:&candidate_window];
   [infolist_view setNeedsDisplay:YES];
   NSSize size = [infolist_view updateLayout];
   ResizeWindow(size.width, size.height);
@@ -137,20 +123,12 @@ void InfolistWindow::DelayShow(int delay) {
 }
 
 void InfolistWindow::Hide() {
-  bool visible = IsVisible();
   RendererBaseWindow::Hide();
-  if (visible) {
-    SendUsageStatsEvent(command_sender_, SessionCommand::INFOLIST_WINDOW_HIDE);
-  }
   visible_ = false;
 }
 
 void InfolistWindow::Show() {
-  bool visible = IsVisible();
   RendererBaseWindow::Show();
-  if (!visible) {
-    SendUsageStatsEvent(command_sender_, SessionCommand::INFOLIST_WINDOW_SHOW);
-  }
   visible_ = true;
 }
 
@@ -169,6 +147,6 @@ void InfolistWindow::ResetView() {
   view_ = [[InfolistView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
 }
 
-}  // namespace mozc::renderer::mac
-}  // namespace mozc::renderer
+}  // namespace mac
+}  // namespace renderer
 }  // namespace mozc

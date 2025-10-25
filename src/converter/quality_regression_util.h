@@ -37,12 +37,12 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 
 namespace mozc {
-class Segments;
 class ConverterInterface;
 
 namespace commands {
@@ -70,29 +70,30 @@ class QualityRegressionUtil {
     int expected_rank;
     uint32_t platform;
     std::string OutputAsTSV() const;
-    absl::Status ParseFromTSV(const std::string &tsv_line);
+    absl::Status ParseFromTSV(const std::string& tsv_line);
   };
 
-  explicit QualityRegressionUtil(ConverterInterface *converter);
-  QualityRegressionUtil(const QualityRegressionUtil &) = delete;
-  QualityRegressionUtil &operator=(const QualityRegressionUtil &) = delete;
+  explicit QualityRegressionUtil(
+      std::shared_ptr<const ConverterInterface> converter);
+  QualityRegressionUtil(const QualityRegressionUtil&) = delete;
+  QualityRegressionUtil& operator=(const QualityRegressionUtil&) = delete;
   virtual ~QualityRegressionUtil() = default;
 
   // Pase |filename| and save the all test items into |outputs|.
-  static absl::Status ParseFile(const std::string &filename,
-                                std::vector<TestItem> *outputs);
-  static absl::Status ParseFiles(const std::vector<std::string> &filename,
-                                 std::vector<TestItem> *outputs);
+  static absl::Status ParseFile(const std::string& filename,
+                                std::vector<TestItem>* outputs);
+  static absl::Status ParseFiles(absl::Span<const std::string> filenames,
+                                 std::vector<TestItem>* outputs);
 
-  absl::StatusOr<bool> ConvertAndTest(const TestItem &item,
-                                      std::string *actual_value);
+  absl::StatusOr<bool> ConvertAndTest(const TestItem& item,
+                                      std::string* actual_value);
 
-  void SetRequest(const commands::Request &request);
-  void SetConfig(const config::Config &config);
+  void SetRequest(const commands::Request& request);
+  void SetConfig(const config::Config& config);
   static std::string GetPlatformString(uint32_t platform_bitfiled);
 
  private:
-  ConverterInterface *converter_;
+  std::shared_ptr<const ConverterInterface> converter_;
   commands::Request request_;
   config::Config config_;
   Segments segments_;

@@ -30,13 +30,13 @@
 #ifndef MOZC_BASE_THREAD_H_
 #define MOZC_BASE_THREAD_H_
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <utility>
 
 #include "absl/base/thread_annotations.h"
-#include "absl/functional/bind_front.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 
@@ -44,44 +44,48 @@
 
 namespace mozc {
 
-// Represents a thread, exposing a subset of `std::thread` APIs.
+// Represents a thread, exposing a minimal subset of `std::jthread` APIs.
 //
-// Most notably, threads are undetachable unlike `std::thread`, thus must be
-// `Join()`ed before destruction if `Joinable()`. This means that the
-// `mozc::Thread` instance must be retained even for a long-running one, though
-// which may be until the end of the process.
+// The notable differences are:
+// - Detaching is not available.
+// - Trying to join a thread that is not joinable may result in undefined
+//   behavior.
 //
-// The semantics of the present APIs are mostly the same as `std::thread`
-// counterpart of the same (but lowercase) name, except that the behavior of
-// situations where `std::thread` would throw an exception (e.g. destruction
-// before `join()`) is unspecified. It's guaranteed to be either the same
-// exception as `std::thread`, silently ignored or process termination, but
-// since there isn't really a way to robustly handle all of them you should
-// avoid such a situation as if they're UB.
-//
-// NOTE: This serves as a compatibility layer for Google where we use a
+// NOTE: This serves as a compatibility layer for Google, where we use a
 // different threading implementation internally.
 class Thread {
  public:
   Thread() noexcept = default;
 
   template <class Function, class... Args>
-  explicit Thread(Function &&f, Args &&...args)
+  explicit Thread(Function&& f, Args&&... args)
       : thread_(std::forward<Function>(f), std::forward<Args>(args)...) {}
 
-  ~Thread() = default;
+  ~Thread() {
+    if (Joinable()) {
+      Join();
+    }
+  }
 
-  Thread(const Thread &) = delete;
-  Thread &operator=(const Thread &) = delete;
+  Thread(const Thread&) = delete;
+  Thread& operator=(const Thread&) = delete;
 
-  Thread(Thread &&) noexcept = default;
-  Thread &operator=(Thread &&) noexcept = default;
+  Thread(Thread&&) noexcept = default;
+  Thread& operator=(Thread&& other) noexcept {
+    if (Joinable()) {
+      Join();
+    }
+    thread_ = std::move(other.thread_);
+    return *this;
+  }
 
   bool Joinable() const noexcept { return thread_.joinable(); }
 
   void Join() { thread_.join(); }
 
  private:
+  // Some toolchains do not support `std::jthread` yet, so we use `std::thread`
+  // for now.
   std::thread thread_;
 };
 
@@ -98,19 +102,19 @@ class BackgroundFuture {
   // Spawns a dedicated thread to invoke `f(args...)`, and eventually fulfills
   // the future.
   template <class F, class... Args>
-  explicit BackgroundFuture(F &&f, Args &&...args);
+  explicit BackgroundFuture(F&& f, Args&&... args);
 
-  BackgroundFuture(const BackgroundFuture &) = delete;
-  BackgroundFuture &operator=(const BackgroundFuture &) = delete;
+  BackgroundFuture(const BackgroundFuture&) = delete;
+  BackgroundFuture& operator=(const BackgroundFuture&) = delete;
 
-  BackgroundFuture(BackgroundFuture &&) = default;
-  BackgroundFuture &operator=(BackgroundFuture &&) = default;
+  BackgroundFuture(BackgroundFuture&&) = default;
+  BackgroundFuture& operator=(BackgroundFuture&&);
 
-  ~BackgroundFuture();
+  ~BackgroundFuture() = default;
 
   // Blocks until the future becomes ready, and returns the computed value by
   // reference.
-  const R &Get() const &ABSL_LOCKS_EXCLUDED(state_->mutex);
+  const R& Get() const& ABSL_LOCKS_EXCLUDED(state_->mutex);
 
   // Blocks until the future becomes ready, and returns the computed value by
   // move.
@@ -144,15 +148,15 @@ class BackgroundFuture<void> {
   //
   // This is essentially equivalent to `Thread` along with "done" notification.
   template <class F, class... Args>
-  explicit BackgroundFuture(F &&f, Args &&...args);
+  explicit BackgroundFuture(F&& f, Args&&... args);
 
-  BackgroundFuture(const BackgroundFuture &) = delete;
-  BackgroundFuture &operator=(const BackgroundFuture &) = delete;
+  BackgroundFuture(const BackgroundFuture&) = delete;
+  BackgroundFuture& operator=(const BackgroundFuture&) = delete;
 
-  BackgroundFuture(BackgroundFuture &&) = default;
-  BackgroundFuture &operator=(BackgroundFuture &&) = default;
+  BackgroundFuture(BackgroundFuture&&) = default;
+  BackgroundFuture& operator=(BackgroundFuture&&);
 
-  ~BackgroundFuture();
+  ~BackgroundFuture() = default;
 
   // Returns whether the future is ready.
   bool Ready() const noexcept;
@@ -171,11 +175,11 @@ class BackgroundFuture<void> {
 
 template <class R>
 template <class F, class... Args>
-BackgroundFuture<R>::BackgroundFuture(F &&f, Args &&...args)
+BackgroundFuture<R>::BackgroundFuture(F&& f, Args&&... args)
     : state_(std::make_unique<State>()),
       thread_([&state = *state_,
-               f = absl::bind_front(std::forward<F>(f),
-                                    std::forward<Args>(args)...)]() mutable {
+               f = std::bind_front(std::forward<F>(f),
+                                   std::forward<Args>(args)...)]() mutable {
         R r = std::invoke(std::move(f));
 
         absl::MutexLock lock(&state.mutex);
@@ -183,18 +187,20 @@ BackgroundFuture<R>::BackgroundFuture(F &&f, Args &&...args)
       }) {}
 
 template <class R>
-BackgroundFuture<R>::~BackgroundFuture() {
-  if (thread_.Joinable()) {
-    thread_.Join();
-  }
+BackgroundFuture<R>& BackgroundFuture<R>::operator=(BackgroundFuture&& other) {
+  // Move `thread_` first to ensure its associated thread (if any) is stopped
+  // and joined.
+  thread_ = std::move(other.thread_);
+  state_ = std::move(other.state_);
+  return *this;
 }
 
 template <class R>
-const R &BackgroundFuture<R>::Get() const & {
+const R& BackgroundFuture<R>::Get() const& {
   absl::MutexLock lock(
       &state_->mutex,
       absl::Condition(
-          +[](std::optional<R> *v) { return v->has_value(); }, &state_->value));
+          +[](std::optional<R>* v) { return v->has_value(); }, &state_->value));
   return *state_->value;
 }
 
@@ -203,7 +209,7 @@ R BackgroundFuture<R>::Get() && {
   absl::MutexLock lock(
       &state_->mutex,
       absl::Condition(
-          +[](std::optional<R> *v) { return v->has_value(); }, &state_->value));
+          +[](std::optional<R>* v) { return v->has_value(); }, &state_->value));
   R r = *std::move(state_->value);
   state_->value.reset();
   return r;
@@ -220,23 +226,26 @@ void BackgroundFuture<R>::Wait() const {
   absl::MutexLock lock(
       &state_->mutex,
       absl::Condition(
-          +[](std::optional<R> *v) { return v->has_value(); }, &state_->value));
+          +[](std::optional<R>* v) { return v->has_value(); }, &state_->value));
 }
 
 template <class F, class... Args>
-BackgroundFuture<void>::BackgroundFuture(F &&f, Args &&...args)
+BackgroundFuture<void>::BackgroundFuture(F&& f, Args&&... args)
     : done_(std::make_unique<absl::Notification>()),
       thread_([&done = *done_,
-               f = absl::bind_front(std::forward<F>(f),
-                                    std::forward<Args>(args)...)]() mutable {
+               f = std::bind_front(std::forward<F>(f),
+                                   std::forward<Args>(args)...)]() mutable {
         std::invoke(std::move(f));
         done.Notify();
       }) {}
 
-inline BackgroundFuture<void>::~BackgroundFuture() {
-  if (thread_.Joinable()) {
-    thread_.Join();
-  }
+inline BackgroundFuture<void>& BackgroundFuture<void>::operator=(
+    BackgroundFuture&& other) {
+  // Move `thread_` first to ensure its associated thread (if any) is stopped
+  // and joined.
+  thread_ = std::move(other.thread_);
+  done_ = std::move(other.done_);
+  return *this;
 }
 
 inline void BackgroundFuture<void>::Wait() const {
@@ -246,6 +255,57 @@ inline void BackgroundFuture<void>::Wait() const {
 inline bool BackgroundFuture<void>::Ready() const noexcept {
   return done_->HasBeenNotified();
 }
+
+// AtomicSharedPtr is a temporary implementation using mutex until
+// std::atomic<std::shared_ptr<T>> becomes available. std::atomic_load and
+// std::atomic_store will be deprecated in the future and the interface can be
+// unified to std::atomic<std::shared_ptr<T>>. Furthermore, std::atomic_load and
+// std::atomic_store use standard mutexes, which may cause performance problems
+// in some environments.
+template <typename T>
+class AtomicSharedPtr {
+ public:
+  AtomicSharedPtr() = default;
+  ~AtomicSharedPtr() = default;
+  explicit AtomicSharedPtr(std::shared_ptr<T> ptr) : ptr_(std::move(ptr)) {}
+  AtomicSharedPtr(const AtomicSharedPtr&) = delete;
+  AtomicSharedPtr& operator=(const AtomicSharedPtr&) = delete;
+
+  std::shared_ptr<T> load() const ABSL_LOCKS_EXCLUDED(mutex_) {
+    absl::MutexLock gurad(&mutex_);
+    return ptr_;
+  }
+
+  void store(std::shared_ptr<T> ptr) ABSL_LOCKS_EXCLUDED(mutex_) {
+    absl::MutexLock gurad(&mutex_);
+    ptr_ = std::move(ptr);
+  }
+
+ private:
+  std::shared_ptr<T> ptr_ ABSL_GUARDED_BY(mutex_);
+  mutable absl::Mutex mutex_;
+};
+
+// Wraps an atomic to make it copyable.
+template <class T>
+class CopyableAtomic : public std::atomic<T> {
+ public:
+  CopyableAtomic() = default;
+  explicit CopyableAtomic(T val) : std::atomic<T>(val) {}
+  CopyableAtomic(const CopyableAtomic<T>& other) {
+    std::atomic<T>::store(other.load(std::memory_order_relaxed),
+                          std::memory_order_relaxed);
+  }
+  CopyableAtomic& operator=(const CopyableAtomic<T>& other) {
+    std::atomic<T>::store(other.load(std::memory_order_relaxed),
+                          std::memory_order_relaxed);
+    return *this;
+  }
+  CopyableAtomic& operator=(T val) {
+    std::atomic<T>::store(val, std::memory_order_relaxed);
+    return *this;
+  }
+};
 
 }  // namespace mozc
 

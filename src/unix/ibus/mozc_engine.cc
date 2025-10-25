@@ -30,14 +30,16 @@
 #include "unix/ibus/mozc_engine.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <limits>
 #include <map>
 #include <memory>
-#include <sstream>
+#include <optional>
 #include <string>
+#include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_split.h"
@@ -46,18 +48,18 @@
 #include "base/clock.h"
 #include "base/const.h"
 #include "base/file_util.h"
-#include "base/singleton.h"
 #include "base/system_util.h"
 #include "base/util.h"
 #include "base/vlog.h"
 #include "client/client.h"
-#include "protocol/candidates.pb.h"
+#include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "renderer/renderer_client.h"
 #include "unix/ibus/candidate_window_handler.h"
 #include "unix/ibus/engine_registrar.h"
 #include "unix/ibus/ibus_candidate_window_handler.h"
+#include "unix/ibus/ibus_config.h"
 #include "unix/ibus/ibus_wrapper.h"
 #include "unix/ibus/key_event_handler.h"
 #include "unix/ibus/message_translator.h"
@@ -230,11 +232,12 @@ bool UseMozcCandidateWindow(const IbusConfig &ibus_config) {
 
 MozcEngine::MozcEngine()
     : last_sync_time_(Clock::GetAbslTime()),
-      key_event_handler_(new KeyEventHandler),
+      key_event_handler_(std::make_unique<KeyEventHandler>()),
       client_(CreateAndConfigureClient()),
-      preedit_handler_(new PreeditHandler()),
+      preedit_handler_(std::make_unique<PreeditHandler>()),
       use_mozc_candidate_window_(false),
-      mozc_candidate_window_handler_(new renderer::RendererClient()),
+      mozc_candidate_window_handler_(
+          std::make_unique<renderer::RendererClient>()),
       preedit_method_(config::Config::ROMAN) {
   ibus_config_.Initialize();
   use_mozc_candidate_window_ = UseMozcCandidateWindow(ibus_config_);
@@ -490,15 +493,16 @@ bool MozcEngine::UpdateResult(IbusEngineWrapper *engine,
 }
 
 bool MozcEngine::UpdateCandidateIDMapping(const commands::Output &output) {
-  if (!output.has_candidates() || output.candidates().candidate_size() == 0) {
+  if (!output.has_candidate_window() ||
+      output.candidate_window().candidate_size() == 0) {
     return true;
   }
 
   unique_candidate_ids_.clear();
-  const commands::Candidates &candidates = output.candidates();
-  for (int i = 0; i < candidates.candidate_size(); ++i) {
-    if (candidates.candidate(i).has_id()) {
-      const int32_t id = candidates.candidate(i).id();
+  const commands::CandidateWindow &candidate_window = output.candidate_window();
+  for (int i = 0; i < candidate_window.candidate_size(); ++i) {
+    if (candidate_window.candidate(i).has_id()) {
+      const int32_t id = candidate_window.candidate(i).id();
       unique_candidate_ids_.push_back(id);
     } else {
       // The parent node of the cascading window does not have an id since the
@@ -544,7 +548,7 @@ bool MozcEngine::LaunchTool(const commands::Output &output) const {
 
 void MozcEngine::RevertSession(IbusEngineWrapper *engine) {
   // TODO(team): We should skip following actions when there is no on-going
-  // omposition.
+  // composition.
   commands::SessionCommand command;
   command.set_type(commands::SessionCommand::REVERT);
   commands::Output output;

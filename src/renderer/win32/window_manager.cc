@@ -34,9 +34,10 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "absl/log/check.h"
 #include "base/coordinates.h"
-#include "base/logging.h"
-#include "protocol/candidates.pb.h"
+#include "client/client_interface.h"
+#include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_command.pb.h"
 #include "renderer/win32/candidate_window.h"
@@ -118,8 +119,7 @@ void WindowManager::HideAllWindows() {
 // TODO(yukawa): Refactor this method by making a new method in LayoutManager
 //   with unit tests so that LayoutManager can handle both composition windows
 //   and candidate windows.
-void WindowManager::UpdateLayout(
-    const commands::RendererCommand &command) {
+void WindowManager::UpdateLayout(const commands::RendererCommand& command) {
   typedef mozc::commands::RendererCommand::ApplicationInfo ApplicationInfo;
 
   // Hide all UI elements if |command.visible()| is false.
@@ -134,13 +134,13 @@ void WindowManager::UpdateLayout(
   // We assume |output| exists in the renderer command
   // for all |RendererCommand::UPDATE| renderer messages.
   DCHECK(command.has_output());
-  const commands::Output &output = command.output();
+  const commands::Output& output = command.output();
 
   // We assume |application_info| exists in the renderer command
   // for all |RendererCommand::UPDATE| renderer messages.
   DCHECK(command.has_application_info());
 
-  const commands::RendererCommand::ApplicationInfo &app_info =
+  const commands::RendererCommand::ApplicationInfo& app_info =
       command.application_info();
 
   (void)app_info.target_window_handle();
@@ -155,8 +155,9 @@ void WindowManager::UpdateLayout(
 
   bool is_suggest = false;
   bool is_convert_or_predict = false;
-  if (output.has_candidates() && output.candidates().has_category()) {
-    switch (output.candidates().category()) {
+  if (output.has_candidate_window() &&
+      output.candidate_window().has_category()) {
+    switch (output.candidate_window().category()) {
       case commands::SUGGESTION:
         is_suggest = true;
         break;
@@ -178,7 +179,7 @@ void WindowManager::UpdateLayout(
     indicator_window_->OnUpdate(command, layout_manager_.get());
   }
 
-  if (!output.has_candidates()) {
+  if (!output.has_candidate_window()) {
     // Hide candidate windows because there is no candidate to be displayed.
     cascading_window_->ShowWindow(SW_HIDE);
     main_window_->ShowWindow(SW_HIDE);
@@ -203,8 +204,8 @@ void WindowManager::UpdateLayout(
     return;
   }
 
-  const commands::Candidates &candidates = output.candidates();
-  if (candidates.candidate_size() == 0) {
+  const commands::CandidateWindow& candidate_window = output.candidate_window();
+  if (candidate_window.candidate_size() == 0) {
     cascading_window_->ShowWindow(SW_HIDE);
     main_window_->ShowWindow(SW_HIDE);
     infolist_window_->DelayHide(0);
@@ -226,8 +227,9 @@ void WindowManager::UpdateLayout(
   // Currently, we do not use finger print.
   bool candidate_changed = true;
 
-  if (candidate_changed && (candidates.display_type() == commands::MAIN)) {
-    main_window_->UpdateLayout(candidates);
+  if (candidate_changed &&
+      (candidate_window.display_type() == commands::MAIN)) {
+    main_window_->UpdateLayout(candidate_window);
   }
   const Size main_window_size = main_window_->GetLayoutSize();
 
@@ -238,8 +240,8 @@ void WindowManager::UpdateLayout(
   Rect working_area;
   {
     CRect area;
-    if (GetWorkingAreaFromPoint(
-            CPoint(target_point.x, target_point.y), &area)) {
+    if (GetWorkingAreaFromPoint(CPoint(target_point.x, target_point.y),
+                                &area)) {
       working_area = Rect(area.left, area.top, area.Width(), area.Height());
     }
   }
@@ -283,22 +285,23 @@ void WindowManager::UpdateLayout(
 
   bool cascading_visible = false;
 
-  if (candidates.has_subcandidates() &&
-      candidates.subcandidates().display_type() == commands::CASCADE) {
-    (void)candidates.subcandidates();
+  if (candidate_window.has_sub_candidate_window() &&
+      candidate_window.sub_candidate_window().display_type() ==
+          commands::CASCADE) {
+    (void)candidate_window.sub_candidate_window();
     cascading_visible = true;
   }
 
   bool infolist_visible = false;
-  if (command.output().has_candidates() &&
-      command.output().candidates().has_usages() &&
-      command.output().candidates().usages().information_size() > 0) {
+  if (command.output().has_candidate_window() &&
+      command.output().candidate_window().has_usages() &&
+      command.output().candidate_window().usages().information_size() > 0) {
     infolist_visible = true;
   }
 
   if (infolist_visible && !cascading_visible) {
     if (candidate_changed) {
-      infolist_window_->UpdateLayout(candidates);
+      infolist_window_->UpdateLayout(candidate_window);
       infolist_window_->Invalidate();
     }
 
@@ -312,14 +315,15 @@ void WindowManager::UpdateLayout(
         HWND_TOPMOST, 0, 0, 0, 0,
         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-    if (candidates.has_focused_index() && candidates.candidate_size() > 0) {
-      const int focused_row =
-          candidates.focused_index() - candidates.candidate(0).index();
-      if (candidates.candidate_size() >= focused_row &&
-          candidates.candidate(focused_row).has_information_id()) {
+    if (candidate_window.has_focused_index() &&
+        candidate_window.candidate_size() > 0) {
+      const int focused_row = candidate_window.focused_index() -
+                              candidate_window.candidate(0).index();
+      if (candidate_window.candidate_size() >= focused_row &&
+          candidate_window.candidate(focused_row).has_information_id()) {
         const uint32_t delay =
             std::max(static_cast<uint32_t>(0),
-                     command.output().candidates().usages().delay());
+                     command.output().candidate_window().usages().delay());
         infolist_window_->DelayShow(delay);
       } else {
         infolist_window_->DelayHide(kHideWindowDelay);
@@ -333,10 +337,11 @@ void WindowManager::UpdateLayout(
   }
 
   if (cascading_visible) {
-    const commands::Candidates &subcandidates = candidates.subcandidates();
+    const commands::CandidateWindow& sub_candidate_window =
+        candidate_window.sub_candidate_window();
 
     if (candidate_changed) {
-      cascading_window_->UpdateLayout(subcandidates);
+      cascading_window_->UpdateLayout(sub_candidate_window);
     }
 
     // Put the cascading window right to the selected row of this candidate
@@ -386,13 +391,13 @@ bool WindowManager::IsAvailable() const {
 }
 
 void WindowManager::SetSendCommandInterface(
-    client::SendCommandInterface *send_command_interface) {
+    client::SendCommandInterface* send_command_interface) {
   main_window_->SetSendCommandInterface(send_command_interface);
   cascading_window_->SetSendCommandInterface(send_command_interface);
   infolist_window_->SetSendCommandInterface(send_command_interface);
 }
 
-void WindowManager::PreTranslateMessage(const MSG &message) {
+void WindowManager::PreTranslateMessage(const MSG& message) {
   if (message.message != WM_MOUSEMOVE) {
     return;
   }

@@ -41,12 +41,12 @@
 #include <string>
 #include <utility>
 
-#include "absl/strings/match.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "base/const.h"
 #include "base/cpu_stats.h"
-#include "base/logging.h"
 #include "base/singleton.h"
 #include "base/system_util.h"
 #include "base/util.h"
@@ -116,14 +116,19 @@ class IPCClientMutexBase {
                      ipc_channel_name, ".ipc");
     std::wstring wmutex_name = Utf8ToWide(mutex_name);
 
-    LPSECURITY_ATTRIBUTES security_attributes_ptr = nullptr;
-    SECURITY_ATTRIBUTES security_attributes;
-    if (!WinSandbox::MakeSecurityAttributes(WinSandbox::kSharableMutex,
-                                            &security_attributes)) {
-      LOG(ERROR) << "Cannot make SecurityAttributes";
-    } else {
-      security_attributes_ptr = &security_attributes;
+    wil::unique_hlocal_security_descriptor security_descriptor =
+        WinSandbox::MakeSecurityDescriptor(WinSandbox::kSharableMutex);
+    if (!security_descriptor) {
+      LOG(ERROR) << "Cannot make SecurityDescriptor";
     }
+
+    SECURITY_ATTRIBUTES security_attributes = {
+        .nLength = sizeof(SECURITY_ATTRIBUTES),
+        .lpSecurityDescriptor = security_descriptor.get(),
+        .bInheritHandle = FALSE,
+    };
+    LPSECURITY_ATTRIBUTES security_attributes_ptr =
+        (security_descriptor ? &security_attributes : nullptr);
 
     // http://msdn.microsoft.com/en-us/library/ms682411(VS.85).aspx:
     // Two or more processes can call CreateMutex to create the same named
@@ -137,9 +142,6 @@ class IPCClientMutexBase {
     // certain which process has initial ownership.
     ipc_mutex_.reset(
         ::CreateMutex(security_attributes_ptr, FALSE, wmutex_name.c_str()));
-    if (security_attributes_ptr != nullptr) {
-      ::LocalFree(security_attributes_ptr->lpSecurityDescriptor);
-    }
 
     const DWORD create_mutex_error = ::GetLastError();
     if (ipc_mutex_.get() == nullptr) {
@@ -183,10 +185,10 @@ class FallbackClientMutex : public IPCClientMutexBase {
 // "renderer" are expected.
 const wil::unique_mutex_nothrow &GetClientMutex(
     const absl::string_view ipc_name) {
-  if (absl::StartsWith(ipc_name, "session")) {
+  if (ipc_name.starts_with("session")) {
     return Singleton<ConverterClientMutex>::get()->mutex();
   }
-  if (absl::StartsWith(ipc_name, "renderer")) {
+  if (ipc_name.starts_with("renderer")) {
     return Singleton<RendererClientMutex>::get()->mutex();
   }
   LOG(WARNING) << "unexpected IPC name: " << ipc_name;
@@ -402,7 +404,6 @@ IPCErrorType RecvIpcMessage(HANDLE device_handle, HANDLE read_wait_handle,
       return IPC_READ_ERROR;
     }
     // Actually this is an async operation. Let's wait for its completion.
-    bool has_more_data = false;
     const IPCErrorType result = SafeWaitOverlappedResult(
         device_handle, nullptr, absl::ToInt64Milliseconds(timeout), &overlapped,
         &num_bytes_read, read_type_ack);
@@ -462,12 +463,18 @@ IPCServer::IPCServer(const std::string &name, int32_t num_connections,
   }
   DCHECK(!server_address.empty());
 
-  SECURITY_ATTRIBUTES security_attributes;
-  if (!WinSandbox::MakeSecurityAttributes(WinSandbox::kSharablePipe,
-                                          &security_attributes)) {
-    LOG(ERROR) << "Cannot make SecurityAttributes";
+  wil::unique_hlocal_security_descriptor security_descriptor =
+      WinSandbox::MakeSecurityDescriptor(WinSandbox::kSharablePipe);
+  if (!security_descriptor) {
+    LOG(ERROR) << "Cannot make SecurityDescriptor";
     return;
   }
+
+  SECURITY_ATTRIBUTES security_attributes = {
+      .nLength = sizeof(SECURITY_ATTRIBUTES),
+      .lpSecurityDescriptor = security_descriptor.get(),
+      .bInheritHandle = FALSE,
+  };
 
   // Create a named pipe.
   std::wstring wserver_address = Utf8ToWide(server_address);
@@ -480,7 +487,6 @@ IPCServer::IPCServer(const std::string &name, int32_t num_connections,
       IPC_INITIAL_READ_BUFFER_SIZE, IPC_INITIAL_READ_BUFFER_SIZE, 0,
       &security_attributes);
   const DWORD create_named_pipe_error = ::GetLastError();
-  ::LocalFree(security_attributes.lpSecurityDescriptor);
 
   if (INVALID_HANDLE_VALUE == handle) {
     LOG(FATAL) << "CreateNamedPipe failed" << create_named_pipe_error;

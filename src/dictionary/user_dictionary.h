@@ -30,18 +30,19 @@
 #ifndef MOZC_DICTIONARY_USER_DICTIONARY_H_
 #define MOZC_DICTIONARY_USER_DICTIONARY_H_
 
+#include <atomic>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/base/thread_annotations.h"
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "absl/synchronization/mutex.h"
+#include "base/thread.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_token.h"
 #include "dictionary/pos_matcher.h"
-#include "dictionary/suppression_dictionary.h"
-#include "dictionary/user_pos_interface.h"
+#include "dictionary/user_pos.h"
 #include "protocol/user_dictionary_storage.pb.h"
 #include "request/conversion_request.h"
 
@@ -50,12 +51,15 @@ namespace dictionary {
 
 class UserDictionary : public UserDictionaryInterface {
  public:
-  UserDictionary(std::unique_ptr<const UserPosInterface> user_pos,
-                 PosMatcher pos_matcher,
-                 SuppressionDictionary *suppression_dictionary);
+  UserDictionary(std::unique_ptr<const UserPos> user_pos,
+                 PosMatcher pos_matcher);
 
-  UserDictionary(const UserDictionary &) = delete;
-  UserDictionary &operator=(const UserDictionary &) = delete;
+  // Specify dictionary filename for testing.
+  UserDictionary(std::unique_ptr<const UserPos> user_pos,
+                 PosMatcher pos_matcher, std::string filename);
+
+  UserDictionary(const UserDictionary&) = delete;
+  UserDictionary& operator=(const UserDictionary&) = delete;
 
   ~UserDictionary() override;
 
@@ -65,28 +69,34 @@ class UserDictionary : public UserDictionaryInterface {
   // Lookup methods don't support kana modifier insensitive lookup, i.e.,
   // Callback::OnActualKey() is never called.
   void LookupPredictive(absl::string_view key,
-                        const ConversionRequest &conversion_request,
-                        Callback *callback) const override;
+                        const ConversionRequest& conversion_request,
+                        Callback* callback) const override;
   void LookupPrefix(absl::string_view key,
-                    const ConversionRequest &conversion_request,
-                    Callback *callback) const override;
+                    const ConversionRequest& conversion_request,
+                    Callback* callback) const override;
   void LookupExact(absl::string_view key,
-                   const ConversionRequest &conversion_request,
-                   Callback *callback) const override;
+                   const ConversionRequest& conversion_request,
+                   Callback* callback) const override;
   void LookupReverse(absl::string_view key,
-                     const ConversionRequest &conversion_request,
-                     Callback *callback) const override;
+                     const ConversionRequest& conversion_request,
+                     Callback* callback) const override;
 
   // Looks up a user comment from a pair of key and value.  When (key, value)
   // doesn't exist in this dictionary or user comment is empty, bool is
   // returned and string is kept as-is.
   bool LookupComment(absl::string_view key, absl::string_view value,
-                     const ConversionRequest &conversion_request,
-                     std::string *comment) const override;
+                     const ConversionRequest& conversion_request,
+                     std::string* comment) const override;
+
+  // Returns true if the word is registered as a suppression word.
+  bool IsSuppressedEntry(absl::string_view key,
+                         absl::string_view value) const override;
+
+  bool HasSuppressedEntries() const override;
 
   // Loads dictionary from UserDictionaryStorage.
   // mainly for unit testing
-  bool Load(const user_dictionary::UserDictionaryStorage &storage) override;
+  bool Load(const user_dictionary::UserDictionaryStorage& storage) override;
 
   // Reloads dictionary asynchronously
   bool Reload() override;
@@ -97,31 +107,47 @@ class UserDictionary : public UserDictionaryInterface {
   // Gets the user POS list.
   std::vector<std::string> GetPosList() const override;
 
-  // Sets user dictionary filename for unit testing
-  static void SetUserDictionaryName(absl::string_view filename);
-
   enum RequestType { PREFIX, PREDICTIVE, EXACT };
 
   // Populates Token from UserToken.
   // This method sets the actual cost and rewrites POS id depending
   // on the POS and attribute.
-  void PopulateTokenFromUserPosToken(
-      const UserPosInterface::Token &user_pos_token, RequestType request_type,
-      Token *token) const;
+  void PopulateTokenFromUserPosToken(const UserPos::Token& user_pos_token,
+                                     RequestType request_type,
+                                     Token* token) const;
 
  private:
   class TokensIndex;
   class UserDictionaryReloader;
 
-  // Swaps internal tokens index to |new_tokens|.
-  void Swap(std::unique_ptr<TokensIndex> new_tokens);
+  std::shared_ptr<const TokensIndex> GetTokens() const {
+    return tokens_.load();
+  }
+
+  void SetTokens(std::shared_ptr<TokensIndex> tokens) {
+    DCHECK(tokens);
+    tokens_.store(std::move(tokens));
+  }
+
+  std::string GetFileName() const;
 
   std::unique_ptr<UserDictionaryReloader> reloader_;
-  std::unique_ptr<const UserPosInterface> user_pos_;
+  std::unique_ptr<const UserPos> user_pos_;
   const PosMatcher pos_matcher_;
-  SuppressionDictionary *suppression_dictionary_;
-  std::unique_ptr<TokensIndex> tokens_ ABSL_GUARDED_BY(mutex_);
-  mutable absl::Mutex mutex_;
+
+  // Uses shared pointer to asynchronously update `tokens_`.
+  // `tokens_` are set in different thread.
+  // TODO(all): use std::atomic<std::shared_ptr> once it gets available.
+  AtomicSharedPtr<TokensIndex> tokens_;
+
+  // Signal variable to cancel the dictionary loading thread.
+  // We want to immediately cancel the loading thread in the detractor of
+  // UserDictionary. This variable is shared by the main thread and loader
+  // thread.
+  std::atomic<bool> canceled_signal_ = false;
+
+  // user dictionary filename.
+  const std::string filename_;
 
   friend class UserDictionaryTest;
 };

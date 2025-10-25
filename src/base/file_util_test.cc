@@ -29,12 +29,12 @@
 
 #include "base/file_util.h"
 
+#include <ios>
 #include <string>
 
 #include "absl/status/status.h"
-#include "absl/strings/str_format.h"
+#include "absl/status/statusor.h"
 #include "base/file/temp_dir.h"
-#include "base/logging.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
@@ -45,7 +45,7 @@
 #include "base/win32/wide_char.h"
 #endif  // _WIN32
 
-// Ad-hoc workadound against macro problem on Windows.
+// Ad-hoc workaround against macro problem on Windows.
 // On Windows, following macros, defined when you include <windows.h>,
 // should be removed here because they affects the method name definition of
 // Util class.
@@ -73,6 +73,15 @@ TEST(FileUtilTest, CreateDirectory) {
   // Create the directory.
   EXPECT_OK(FileUtil::CreateDirectory(dirpath));
   EXPECT_OK(FileUtil::DirectoryExists(dirpath));
+
+#if !defined(_WIN32)
+  // On Windows, CreateDirectory does not return OK if the directory already
+  // exists. See the implementation of CreateDirectory in file_util.cc.
+  // https://github.com/google/mozc/issues/1076
+  //
+  // Create the same directory again.
+  EXPECT_OK(FileUtil::CreateDirectory(dirpath));
+#endif  // !_WIN32
 
   // Delete the directory.
   ASSERT_OK(FileUtil::RemoveDirectory(dirpath));
@@ -275,7 +284,7 @@ TEST(FileUtilTest, CopyFile) {
     SCOPED_TRACE(test_label);
     CreateTestFile(from, test_label);
 
-    const TestData &kData = kTestDataList[i];
+    const TestData& kData = kTestDataList[i];
     const std::wstring wfrom = win32::Utf8ToWide(from);
     const std::wstring wto = win32::Utf8ToWide(to);
     EXPECT_NE(FALSE,
@@ -358,7 +367,7 @@ TEST(FileUtilTest, AtomicRename) {
     SCOPED_TRACE(test_label);
     CreateTestFile(from, test_label);
 
-    const TestData &kData = kTestDataList[i];
+    const TestData& kData = kTestDataList[i];
     const std::wstring wfrom = win32::Utf8ToWide(from);
     const std::wstring wto = win32::Utf8ToWide(to);
     EXPECT_NE(FALSE,
@@ -473,7 +482,7 @@ TEST(FileUtilTest, GetModificationTime) {
                    FileUtil::JoinPath(temp_dir.path(), "not_existent_file"))
                    .ok());
 
-  const std::string &path = FileUtil::JoinPath(temp_dir.path(), "testfile");
+  const std::string& path = FileUtil::JoinPath(temp_dir.path(), "testfile");
   CreateTestFile(path, "content");
   absl::StatusOr<FileTimeStamp> time_stamp1 =
       FileUtil::GetModificationTime(path);
@@ -537,20 +546,6 @@ TEST(FileUtilTest, FileUnlinker) {
     EXPECT_OK(FileUtil::FileExists(temp_file->path()));
   }
   EXPECT_FALSE(FileUtil::FileExists(temp_file->path()).ok());
-}
-
-TEST(FileUtilTest, LinkOrCopyFile) {
-  TempDirectory temp_dir = testing::MakeTempDirectoryOrDie();
-  const std::string from =
-      FileUtil::JoinPath(temp_dir.path(), "link_or_copy_test_from.txt");
-  const std::string to =
-      FileUtil::JoinPath(temp_dir.path(), "link_or_copy_test_to.txt");
-  EXPECT_TRUE(!FileUtil::LinkOrCopyFile(from, to).ok());
-  ASSERT_OK(FileUtil::SetContents(from, "test"));
-  EXPECT_OK(FileUtil::LinkOrCopyFile(from, to));
-  auto s = FileUtil::IsEqualFile(from, to);
-  EXPECT_OK(s);
-  EXPECT_TRUE(*s);
 }
 
 }  // namespace

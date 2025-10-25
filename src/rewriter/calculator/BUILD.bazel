@@ -36,35 +36,24 @@ load(
     "mozc_cc_test",
 )
 
-package(default_visibility = ["//:__subpackages__"])
+package(default_visibility = ["//visibility:private"])
 
 mozc_cc_library(
     name = "calculator",
     srcs = ["calculator.cc"],
-    hdrs = ["calculator_interface.h"],
+    hdrs = ["calculator.h"],
     textual_hdrs = ["parser.c.inc"],
+    visibility = ["//rewriter:__pkg__"],
     deps = [
         "//base:japanese_util",
-        "//base:logging",
         "//base:number_util",
-        "//base:singleton",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
     ],
     alwayslink = 1,
-)
-
-mozc_cc_library(
-    name = "calculator_mock",
-    testonly = True,
-    srcs = ["calculator_mock.cc"],
-    hdrs = ["calculator_mock.h"],
-    deps = [
-        ":calculator",
-        "//base:logging",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/strings",
-    ],
 )
 
 mozc_cc_test(
@@ -74,10 +63,10 @@ mozc_cc_test(
     data = ["//data/test/calculator:testset.txt"],
     deps = [
         ":calculator",
-        "//base:file_util",
-        "//base:logging",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )

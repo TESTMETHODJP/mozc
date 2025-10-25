@@ -30,38 +30,43 @@
 #ifndef MOZC_REWRITER_SINGLE_KANJI_REWRITER_H_
 #define MOZC_REWRITER_SINGLE_KANJI_REWRITER_H_
 
-#include <memory>
+#include <cstdint>
 #include <string>
-#include <vector>
 
 #include "absl/strings/string_view.h"
-#include "data_manager/data_manager_interface.h"
+#include "absl/types/span.h"
+#include "converter/candidate.h"
+#include "converter/segments.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/single_kanji_dictionary.h"
+#include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 
 class SingleKanjiRewriter : public RewriterInterface {
  public:
-  explicit SingleKanjiRewriter(const DataManagerInterface &data_manager);
+  SingleKanjiRewriter(
+      const dictionary::PosMatcher& pos_matcher,
+      const dictionary::SingleKanjiDictionary& single_kanji_dictionary);
   ~SingleKanjiRewriter() override;
 
-  int capability(const ConversionRequest &request) const override;
+  int capability(const ConversionRequest& request) const override;
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 
  private:
-  void AddDescriptionForExistingCandidates(Segment *segment) const;
+  void AddDescriptionForExistingCandidates(Segment* segment) const;
   bool InsertCandidate(bool is_single_segment, uint16_t single_kanji_id,
-                       const std::vector<std::string> &kanji_list,
-                       Segment *segment) const;
+                       absl::Span<const std::string> kanji_list,
+                       Segment* segment) const;
   void FillCandidate(absl::string_view key, absl::string_view value, int cost,
-                     uint16_t single_kanji_id, Segment::Candidate *cand) const;
+                     uint16_t single_kanji_id,
+                     converter::Candidate* cand) const;
 
-  const dictionary::PosMatcher pos_matcher_;
-  std::unique_ptr<dictionary::SingleKanjiDictionary> single_kanji_dictionary_;
+  const dictionary::PosMatcher& pos_matcher_;
+  const dictionary::SingleKanjiDictionary& single_kanji_dictionary_;
 };
 
 }  // namespace mozc

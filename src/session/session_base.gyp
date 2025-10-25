@@ -40,7 +40,7 @@
       'target_name': 'keymap',
       'type': 'static_library',
       'sources': [
-        'internal/keymap.cc',
+        'keymap.cc',
       ],
       'dependencies': [
         '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
@@ -68,20 +68,6 @@
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:config_proto',
         'keymap',
-      ],
-    },
-    {
-      'target_name': 'session_usage_stats_util',
-      'type': 'static_library',
-      'sources': [
-        'session_usage_stats_util.cc',
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
-        '<(mozc_oss_src_dir)/base/base.gyp:base',
-        '<(mozc_oss_src_dir)/protobuf/protobuf.gyp:protobuf',
-        '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_base.gyp:usage_stats',
       ],
     },
   ],

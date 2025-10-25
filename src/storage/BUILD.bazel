@@ -36,24 +36,32 @@ load(
     "mozc_cc_test",
 )
 
-package(default_visibility = ["//:__subpackages__"])
+package(default_visibility = ["//visibility:private"])
 
 mozc_cc_library(
     name = "lru_storage",
     srcs = ["lru_storage.cc"],
     hdrs = ["lru_storage.h"],
+    visibility = [
+        "//config:__pkg__",
+        "//rewriter:__pkg__",
+    ],
     deps = [
         "//base:bits",
         "//base:clock",
         "//base:file_stream",
         "//base:file_util",
         "//base:hash",
-        "//base:logging",
         "//base:mmap",
         "//base:vlog",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
@@ -62,9 +70,16 @@ mozc_cc_library(
 mozc_cc_library(
     name = "lru_cache",
     hdrs = ["lru_cache.h"],
+    visibility = [
+        "//prediction:__pkg__",
+        "//rewriter:__pkg__",
+        "//session:__pkg__",
+        "//unix/emacs:__pkg__",
+    ],
     deps = [
-        "//base:logging",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -81,14 +96,20 @@ mozc_cc_library(
     name = "existence_filter",
     srcs = ["existence_filter.cc"],
     hdrs = ["existence_filter.h"],
+    visibility = [
+        "//prediction:__pkg__",
+        "//rewriter:__pkg__",
+    ],
     deps = [
         "//base:bits",
-        "//base:logging",
+        "//base:hash",
         "//base:vlog",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
     ],
@@ -103,11 +124,11 @@ mozc_cc_test(
         ":lru_storage",
         "//base:clock_mock",
         "//base:file_util",
-        "//base:logging",
         "//base:random",
         "//base/file:temp_dir",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
     ],
@@ -120,81 +141,11 @@ mozc_cc_test(
     deps = [
         ":existence_filter",
         "//base:hash",
-        "//base:logging",
         "//testing:gunit_main",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-    ],
-)
-
-mozc_cc_library(
-    name = "storage_interaface",
-    hdrs = ["storage_interface.h"],
-    deps = ["//base:port"],
-)
-
-mozc_cc_library(
-    name = "tiny_storage",
-    srcs = ["tiny_storage.cc"],
-    hdrs = ["tiny_storage.h"],
-    deps = [
-        ":storage_interaface",
-        "//base:bits",
-        "//base:file_stream",
-        "//base:file_util",
-        "//base:logging",
-        "//base:mmap",
-        "//base:vlog",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-mozc_cc_test(
-    name = "tiny_storage_test",
-    size = "small",
-    srcs = ["tiny_storage_test.cc"],
-    deps = [
-        ":storage_interaface",
-        ":tiny_storage",
-        "//base/file:temp_dir",
-        "//testing:gunit_main",
-        "//testing:mozctest",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-mozc_cc_library(
-    name = "registry",
-    srcs = ["registry.cc"],
-    hdrs = ["registry.h"],
-    deps = [
-        ":storage_interaface",
-        ":tiny_storage",
-        "//base:bits",
-        "//base:file_util",
-        "//base:logging",
-        "//base:port",
-        "//base:singleton",
-        "//base:system_util",
-        "//base:vlog",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/synchronization",
-    ],
-)
-
-mozc_cc_test(
-    name = "registry_test",
-    size = "small",
-    srcs = ["registry_test.cc"],
-    deps = [
-        ":registry",
-        "//testing:gunit_main",
-        "//testing:mozctest",
     ],
 )
 
@@ -202,14 +153,16 @@ mozc_cc_library(
     name = "encrypted_string_storage",
     srcs = ["encrypted_string_storage.cc"],
     hdrs = ["encrypted_string_storage.h"],
+    visibility = ["//prediction:__pkg__"],
     deps = [
         "//base:encryptor",
         "//base:file_stream",
         "//base:file_util",
-        "//base:logging",
         "//base:mmap",
         "//base:random",
         "//base:vlog",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -220,12 +173,13 @@ mozc_cc_test(
     name = "encrypted_string_storage_test",
     size = "small",
     srcs = ["encrypted_string_storage_test.cc"],
-    tags = ["nowin"],  # TODO(yuryu): depends on //base:encryptor
+    tags = [
+        "nowin",
+    ],  # TODO(yuryu): depends on //base:encryptor
     deps = [
         ":encrypted_string_storage",
         "//base:file_stream",
         "//base:file_util",
-        "//base:logging",
         "//base:system_util",
         "//testing:gunit_main",
         "//testing:mozctest",

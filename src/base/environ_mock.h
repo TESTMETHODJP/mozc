@@ -34,6 +34,7 @@
 #include <string>
 
 #include "base/environ.h"
+#include "base/strings/zstring_view.h"
 
 namespace mozc {
 class EnvironMock : public EnvironInterface {
@@ -42,17 +43,15 @@ class EnvironMock : public EnvironInterface {
     env_vars_["HOME"] = "/home/mozcuser";
     Environ::SetMockForUnitTest(this);
   }
-  ~EnvironMock() override {
-    Environ::SetMockForUnitTest(nullptr);
-  }
+  ~EnvironMock() override { Environ::SetMockForUnitTest(nullptr); }
 
-  const char *GetEnv(const char *env_var) override {
-    auto it = env_vars_.find(env_var);
-    return it != env_vars_.end() ? it->second.c_str() : nullptr;
+  std::string GetEnv(zstring_view env_var) override {
+    auto it = env_vars_.find({env_var.data(), env_var.size()});
+    return it != env_vars_.end() ? it->second.c_str() : "";
   }
 
   // This is not an override function.
-  void SetEnv(const std::string &env_var, const std::string &value) {
+  void SetEnv(const std::string& env_var, const std::string& value) {
     env_vars_[env_var] = value;
   }
 

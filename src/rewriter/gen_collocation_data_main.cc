@@ -44,9 +44,9 @@
 #include <vector>
 
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
 #include "rewriter/gen_existence_data.h"
 
 ABSL_FLAG(std::string, collocation_data, "", "collocation data text");
@@ -68,7 +68,7 @@ void Convert() {
     entries.push_back(line);
   }
 
-  std::ostream *ofs = &std::cout;
+  std::ostream* ofs = &std::cout;
   if (!absl::GetFlag(FLAGS_output).empty()) {
     if (absl::GetFlag(FLAGS_binary_mode)) {
       ofs = new OutputFileStream(absl::GetFlag(FLAGS_output),
@@ -93,7 +93,7 @@ void Convert() {
 }  // namespace
 }  // namespace mozc
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   mozc::InitMozc(argv[0], &argc, &argv);
 
   if (absl::GetFlag(FLAGS_collocation_data).empty() && argc > 1) {

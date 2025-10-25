@@ -47,11 +47,11 @@
 #include <vector>
 
 #include "absl/flags/flag.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_split.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
-#include "base/util.h"
 #include "rewriter/gen_existence_data.h"
 
 ABSL_FLAG(std::string, suppression_data, "", "suppression data text");
@@ -84,7 +84,7 @@ void Convert() {
     }
   }
 
-  std::ostream *ofs = &std::cout;
+  std::ostream* ofs = &std::cout;
   if (!absl::GetFlag(FLAGS_output).empty()) {
     if (absl::GetFlag(FLAGS_binary_mode)) {
       ofs = new OutputFileStream(absl::GetFlag(FLAGS_output),
@@ -109,7 +109,7 @@ void Convert() {
 }  // namespace
 }  // namespace mozc
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   mozc::InitMozc(argv[0], &argc, &argv);
 
   LOG(INFO) << absl::GetFlag(FLAGS_suppression_data);

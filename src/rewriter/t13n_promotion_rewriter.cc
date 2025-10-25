@@ -31,16 +31,15 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <string>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "base/util.h"
 #include "composer/composer.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
-#include "request/request_util.h"
 #include "rewriter/rewriter_interface.h"
 #include "rewriter/rewriter_util.h"
 #include "transliteration/transliteration.h"
@@ -54,15 +53,13 @@ namespace {
 // keys) and katakana T13n candidates (Katakana variants for other keys) will
 // be promoted.
 constexpr size_t kLatinT13nOffset = 3;
-constexpr size_t kKatakanaT13nOffset = 5;
 
-bool IsLatinInputMode(const ConversionRequest &request) {
-  return (request.has_composer() &&
-          (request.composer().GetInputMode() == transliteration::HALF_ASCII ||
-           request.composer().GetInputMode() == transliteration::FULL_ASCII));
+bool IsLatinInputMode(const ConversionRequest& request) {
+  return request.composer().GetInputMode() == transliteration::HALF_ASCII ||
+         request.composer().GetInputMode() == transliteration::FULL_ASCII;
 }
 
-bool MaybeInsertLatinT13n(Segment *segment) {
+bool MaybeInsertLatinT13n(Segment* segment) {
   if (segment->meta_candidates_size() <=
       transliteration::FULL_ASCII_CAPITALIZED) {
     return false;
@@ -89,7 +86,7 @@ bool MaybeInsertLatinT13n(Segment *segment) {
 
   size_t pos = insert_pos;
   for (const auto t13n_type : kLatinT13nTypes) {
-    const Segment::Candidate &t13n_candidate =
+    const converter::Candidate& t13n_candidate =
         segment->meta_candidate(t13n_type);
     auto [it, inserted] = seen.insert(t13n_candidate.value);
     if (!inserted) {
@@ -101,54 +98,73 @@ bool MaybeInsertLatinT13n(Segment *segment) {
   return pos != insert_pos;
 }
 
-bool MaybePromoteKatakana(Segment *segment) {
-  if (segment->meta_candidates_size() <= transliteration::FULL_KATAKANA) {
-    return false;
-  }
-
-  const Segment::Candidate &katakana_candidate =
-      segment->meta_candidate(transliteration::FULL_KATAKANA);
-  const std::string &katakana_value = katakana_candidate.value;
-  if (!Util::IsScriptType(katakana_value, Util::KATAKANA)) {
-    return false;
-  }
-
-  for (size_t i = 0;
-       i < std::min(segment->candidates_size(), kKatakanaT13nOffset); ++i) {
-    if (segment->candidate(i).value == katakana_value) {
-      // No need to promote or insert.
-      return false;
-    }
-  }
-
-  Segment::Candidate insert_candidate = katakana_candidate;
-  size_t index = kKatakanaT13nOffset;
-  for (; index < segment->candidates_size(); ++index) {
-    if (segment->candidate(index).value == katakana_value) {
+// Inserts or promote Katakana candidate at `insert_pos`.
+// promotes Katakana candidate if `segment` already contains Katakana.
+// Katakana candidate is searched from `start_offset`.
+// When no Katakana is found, `katakana_candidate` is inserted.
+void InsertKatakana(int start_offset, int insert_pos,
+                    const converter::Candidate& katakana_candidate,
+                    Segment* segment) {
+  int katakana_index = -1;
+  for (int i = start_offset; i < segment->candidates_size(); ++i) {
+    if (segment->candidate(i).value == katakana_candidate.value) {
+      katakana_index = i;
       break;
     }
   }
 
-  const size_t insert_pos =
-      RewriterUtil::CalculateInsertPosition(*segment, kKatakanaT13nOffset);
-  if (index < segment->candidates_size()) {
-    const Segment::Candidate insert_candidate = segment->candidate(index);
-    *(segment->insert_candidate(insert_pos)) = insert_candidate;
+  if (katakana_index >= 0) {
+    segment->move_candidate(katakana_index, insert_pos);
   } else {
     *(segment->insert_candidate(insert_pos)) = katakana_candidate;
   }
+}
+
+bool MaybePromoteKatakanaWithStaticOffset(
+    const commands::DecoderExperimentParams& params,
+    const converter::Candidate& katakana_candidate, Segment* segment) {
+  if (params.katakana_promotion_offset() < 0) {
+    return false;
+  }
+
+  const int katakana_t13n_offset = params.katakana_promotion_offset();
+
+  // Katakana candidate already appears at lower than katakana_t13n_offset.
+  for (size_t i = 0;
+       i < std::min<int>(segment->candidates_size(), katakana_t13n_offset);
+       ++i) {
+    // No need to promote or insert.
+    if (segment->candidate(i).value == katakana_candidate.value) {
+      return false;
+    }
+  }
+
+  const size_t insert_pos =
+      RewriterUtil::CalculateInsertPosition(*segment, katakana_t13n_offset);
+
+  InsertKatakana(katakana_t13n_offset, insert_pos, katakana_candidate, segment);
 
   return true;
 }
 
-bool MaybePromoteT13n(const ConversionRequest &request, Segment *segment) {
+bool MaybePromoteKatakana(const ConversionRequest& request, Segment* segment) {
+  if (segment->meta_candidates_size() <= transliteration::FULL_KATAKANA) {
+    return false;
+  }
+
+  const auto& params = request.request().decoder_experiment_params();
+  const converter::Candidate& katakana_candidate =
+      segment->meta_candidate(transliteration::FULL_KATAKANA);
+
+  return MaybePromoteKatakanaWithStaticOffset(params, katakana_candidate,
+                                              segment);
+}
+
+bool MaybePromoteT13n(const ConversionRequest& request, Segment* segment) {
   if (IsLatinInputMode(request) || Util::IsAscii(segment->key())) {
     return MaybeInsertLatinT13n(segment);
   }
-  if (request_util::IsFindabilityOrientedOrderEnabled(request)) {
-    return false;
-  }
-  return MaybePromoteKatakana(segment);
+  return MaybePromoteKatakana(request, segment);
 }
 
 }  // namespace
@@ -157,7 +173,7 @@ T13nPromotionRewriter::T13nPromotionRewriter() = default;
 
 T13nPromotionRewriter::~T13nPromotionRewriter() = default;
 
-int T13nPromotionRewriter::capability(const ConversionRequest &request) const {
+int T13nPromotionRewriter::capability(const ConversionRequest& request) const {
   if (request.request().mixed_conversion()) {  // For mobile
     return RewriterInterface::ALL;
   } else {
@@ -165,10 +181,10 @@ int T13nPromotionRewriter::capability(const ConversionRequest &request) const {
   }
 }
 
-bool T13nPromotionRewriter::Rewrite(const ConversionRequest &request,
-                                    Segments *segments) const {
+bool T13nPromotionRewriter::Rewrite(const ConversionRequest& request,
+                                    Segments* segments) const {
   bool modified = false;
-  for (Segment &segment : segments->conversion_segments()) {
+  for (Segment& segment : segments->conversion_segments()) {
     modified |= MaybePromoteT13n(request, &segment);
   }
   return modified;

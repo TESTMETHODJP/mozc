@@ -32,12 +32,10 @@
 
 #include <windows.h>
 
+#include <concepts>
 #include <ostream>
 #include <string>
 #include <utility>
-
-#include "absl/base/attributes.h"
-#include "absl/base/optimization.h"
 
 namespace mozc::win32 {
 
@@ -92,9 +90,8 @@ class [[nodiscard]] HResult {
   //    // return hr;  // compile error
   //    return hr.Succeeded();
   // }
-  template <typename T,
-            std::enable_if_t<!std::is_same_v<T, HRESULT> && std::is_scalar_v<T>,
-                             std::nullptr_t> = nullptr>
+  template <typename T>
+    requires(!std::same_as<T, HRESULT> && std::convertible_to<T, bool>)
   operator T() = delete;
 
   // Returns the result of the SUCCEEDED macro.
@@ -172,12 +169,12 @@ constexpr HResult HResultWin32(const DWORD code) {
 
 // RETURN_IF_FAILED_HRESULT Runs the statement and returns from the current
 // function if FAILED(statement) is true.
-#define RETURN_IF_FAILED_HRESULT(...)                                   \
-  do {                                                                  \
-    const HResult hresultor_macro_impl_tmp_hr(__VA_ARGS__);             \
-    if (ABSL_PREDICT_FALSE(!hresultor_macro_impl_tmp_hr.Succeeded())) { \
-      return hresultor_macro_impl_tmp_hr;                               \
-    }                                                                   \
+#define RETURN_IF_FAILED_HRESULT(...)                            \
+  do {                                                           \
+    const HResult hresultor_macro_impl_tmp_hr(__VA_ARGS__);      \
+    if (!hresultor_macro_impl_tmp_hr.Succeeded()) [[unlikely]] { \
+      return hresultor_macro_impl_tmp_hr;                        \
+    }                                                            \
   } while (0)
 
 }  // namespace mozc::win32

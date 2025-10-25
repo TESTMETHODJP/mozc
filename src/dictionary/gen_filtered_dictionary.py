@@ -31,7 +31,7 @@
 r"""A tool to remove specified words from dictionary files.
 
 gen_filtered_dictionary.py --output filtered_dictionary.txt
---filter_tsv data/oss/dictionary_filter.tsv
+--filter_tsv data/dictionary_oss/dictionary_filter.tsv
 --dictionary_txts data/dictionary_oss/dictionary0*.txt
 
 ### Format of dictionary_filter.tsv
@@ -49,7 +49,7 @@ import argparse
 import re
 
 
-class Dictionary():
+class Dictionary:
   """Class for dictionary0*.txt."""
 
   def __init__(self):
@@ -82,7 +82,7 @@ class Dictionary():
     return False
 
   def WriteFile(self, output):
-    with open(output, 'w', encoding='utf-8') as file:
+    with open(output, 'w', encoding='utf-8', newline='\n') as file:
       for line in self.lines:
         file.write(line)
 

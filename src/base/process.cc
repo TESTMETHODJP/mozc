@@ -35,14 +35,14 @@
 #include <string>
 #include <vector>
 
-#include "absl/strings/match.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "base/const.h"
 #include "base/file_util.h"
-#include "base/logging.h"
+#include "base/strings/zstring_view.h"
 #include "base/system_util.h"
 #include "base/vlog.h"
 
@@ -50,6 +50,7 @@
 #include <wil/resource.h>
 #include <windows.h>
 
+#include "base/const.h"
 #include "base/win32/wide_char.h"
 #include "base/win32/win_util.h"
 #else  // _WIN32
@@ -77,20 +78,21 @@
 // in Mac Framework/dynamic libraries.  Instead call _NSGetEnviron().
 // See the "PROGRAMMING" section of http://goo.gl/4Hq0D for the
 // detailed information.
-static char **environ = *_NSGetEnviron();
+static char** environ = *_NSGetEnviron();
 #elif !defined(_WIN32)
 // Defined somewhere in libc. We can't pass nullptr as the 6th argument of
 // posix_spawn() since Qt applications use (at least) DISPLAY and QT_IM_MODULE
 // environment variables.
-extern char **environ;
+extern char** environ;
 #endif  // !__APPLE__ && !_WIN32
 
 namespace mozc {
 
-bool Process::OpenBrowser(const std::string &url) {
+bool Process::OpenBrowser(zstring_view url) {
   // url must start with http:// or https:// or file://
-  if (!absl::StartsWith(url, "http://") && !absl::StartsWith(url, "https://") &&
-      !absl::StartsWith(url, "file://")) {
+  if (!url.view().starts_with("http://") &&
+      !url.view().starts_with("https://") &&
+      !url.view().starts_with("file://")) {
     return false;
   }
 
@@ -116,8 +118,7 @@ bool Process::OpenBrowser(const std::string &url) {
   return false;
 }
 
-bool Process::SpawnProcess(const std::string &path, const std::string &arg,
-                           size_t *pid) {
+bool Process::SpawnProcess(zstring_view path, zstring_view arg, size_t* pid) {
 #ifdef _WIN32
   std::wstring wpath = win32::Utf8ToWide(path);
   wpath = L"\"" + wpath + L"\"";
@@ -165,8 +166,8 @@ bool Process::SpawnProcess(const std::string &path, const std::string &arg,
 #else  // __wasm__ || __ANDROID__
 
   const std::vector<std::string> arg_tmp =
-      absl::StrSplit(arg, ' ', absl::SkipEmpty());
-  auto argv = std::make_unique<const char *[]>(arg_tmp.size() + 2);
+      absl::StrSplit(arg.view(), ' ', absl::SkipEmpty());
+  auto argv = std::make_unique<const char*[]>(arg_tmp.size() + 2);
   argv[0] = path.c_str();
   for (size_t i = 0; i < arg_tmp.size(); ++i) {
     argv[i + 1] = arg_tmp[i].c_str();
@@ -182,7 +183,7 @@ bool Process::SpawnProcess(const std::string &path, const std::string &arg,
   // Check if the "path" is an application or not.  If it's an
   // application, do a special process using mac_process.mm.
   if (S_ISDIR(statbuf.st_mode) && path.size() > 4 &&
-      path.substr(path.size() - 4) == ".app") {
+      path.view().starts_with(".app")) {
     // In mac launchApplication cannot accept any arguments.
     return MacProcess::OpenApplication(path);
   }
@@ -221,7 +222,7 @@ bool Process::SpawnProcess(const std::string &path, const std::string &arg,
   // by the return value of fork().
   const int result =
       ::posix_spawn(&tmp_pid, path.c_str(), nullptr, nullptr,
-                    const_cast<char *const *>(argv.get()), environ);
+                    const_cast<char* const*>(argv.get()), environ);
   if (result == 0) {
     MOZC_VLOG(1) << "posix_spawn: child pid is " << tmp_pid;
   } else {
@@ -235,8 +236,8 @@ bool Process::SpawnProcess(const std::string &path, const std::string &arg,
 #endif  // !_WIN32
 }
 
-bool Process::SpawnMozcProcess(const std::string &filename,
-                               const std::string &arg, size_t *pid) {
+bool Process::SpawnMozcProcess(zstring_view filename, zstring_view arg,
+                               size_t* pid) {
   return Process::SpawnProcess(
       FileUtil::JoinPath(SystemUtil::GetServerDirectory(), filename), arg, pid);
 }
@@ -370,7 +371,7 @@ bool Process::IsThreadAlive(size_t thread_id, bool default_result) {
 #endif  // _WIN32
 }
 
-bool Process::LaunchErrorMessageDialog(const std::string &error_type) {
+bool Process::LaunchErrorMessageDialog(zstring_view error_type) {
 #ifdef __APPLE__
   if (!MacProcess::LaunchErrorMessageDialog(error_type)) {
     LOG(ERROR) << "cannot error message dialog";
@@ -380,7 +381,7 @@ bool Process::LaunchErrorMessageDialog(const std::string &error_type) {
 
 #ifdef _WIN32
   const std::string arg =
-      "--mode=error_message_dialog --error_type=" + error_type;
+      absl::StrCat("--mode=error_message_dialog --error_type=", error_type);
   size_t pid = 0;
   if (!Process::SpawnProcess(SystemUtil::GetToolPath(), arg, &pid)) {
     LOG(ERROR) << "cannot launch " << kMozcTool;
@@ -391,7 +392,7 @@ bool Process::LaunchErrorMessageDialog(const std::string &error_type) {
 #if defined(__linux__) && !defined(__ANDROID__)
   constexpr char kMozcTool[] = "mozc_tool";
   const std::string arg =
-      "--mode=error_message_dialog --error_type=" + error_type;
+      absl::StrCat("--mode=error_message_dialog --error_type=", error_type);
   size_t pid = 0;
   if (!Process::SpawnProcess(SystemUtil::GetToolPath(), arg, &pid)) {
     LOG(ERROR) << "cannot launch " << kMozcTool;

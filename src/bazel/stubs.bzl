@@ -29,6 +29,7 @@
 
 """Stub build rules."""
 
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 def android_cc_test(name, cc_test_name, **kwargs):
@@ -88,8 +89,3 @@ def cc_stub(name, tags = None, target_compatible_with = None, **kwargs):
         tags = tags,
         target_compatible_with = target_compatible_with,
     )
-
-lexan = struct(
-    resource_files = cc_stub,
-    cc_windows_dll = cc_stub,
-)

@@ -35,6 +35,7 @@
 #include <tuple>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
@@ -69,7 +70,7 @@ TEST_F(SingleKanjiDictionaryTest, LookupNounPrefixEntries) {
   {
     auto [begin, end] = dictionary.LookupNounPrefixEntries("ご");
     EXPECT_NE(begin, end);
-    for (auto &iter = begin; iter != end; ++iter) {
+    for (auto& iter = begin; iter != end; ++iter) {
       EXPECT_FALSE(iter.value().empty());
       EXPECT_TRUE(iter.cost() == 0 || iter.cost() == 1);
     }
@@ -92,10 +93,10 @@ TEST_F(SingleKanjiDictionaryTest, LookupKanjiEntries) {
     return it != entries.end();
   };
 
+  std::vector<std::string> entries;
   {
-    std::vector<std::string> entries;
-    dictionary.LookupKanjiEntries("かみ",
-                                  /* use_svs = */ true, &entries);
+    entries = dictionary.LookupKanjiEntries("かみ",
+                                            /* use_svs = */ true);
     EXPECT_FALSE(entries.empty());
     EXPECT_TRUE(contains(entries, "神"));
     // 神︀ SVS character.
@@ -104,9 +105,8 @@ TEST_F(SingleKanjiDictionaryTest, LookupKanjiEntries) {
     EXPECT_FALSE(contains(entries, "\uFA19"));
   }
   {
-    std::vector<std::string> entries;
-    dictionary.LookupKanjiEntries("かみ",
-                                  /* use_svs = */ false, &entries);
+    entries = dictionary.LookupKanjiEntries("かみ",
+                                            /* use_svs = */ false);
     EXPECT_FALSE(entries.empty());
     EXPECT_TRUE(contains(entries, "神"));
     // 神︀ SVS character.
@@ -115,12 +115,11 @@ TEST_F(SingleKanjiDictionaryTest, LookupKanjiEntries) {
     EXPECT_TRUE(contains(entries, "\uFA19"));
   }
   {
-    std::vector<std::string> entries;
-    dictionary.LookupKanjiEntries("",
-                                  /* use_svs = */ false, &entries);
+    entries = dictionary.LookupKanjiEntries("",
+                                            /* use_svs = */ false);
     EXPECT_TRUE(entries.empty());
     dictionary.LookupKanjiEntries("unknown reading",
-                                  /* use_svs = */ false, &entries);
+                                  /* use_svs = */ false);
     EXPECT_TRUE(entries.empty());
   }
 }

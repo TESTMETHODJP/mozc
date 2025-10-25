@@ -48,6 +48,7 @@
 #include "absl/strings/str_cat.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
+#include "base/protobuf/message.h"
 #include "base/protobuf/text_format.h"
 #include "base/win32/wide_char.h"
 #include "base/win32/win_font_test_helper.h"
@@ -82,7 +83,7 @@ using SubdivisionalPixelIterator =
 using TestSpec = ::mozc::test::renderer::win32::TestSpec;
 
 class BalloonImageTest : public ::testing::Test,
-                         public ::testing::WithParamInterface<const char *> {
+                         public ::testing::WithParamInterface<const char*> {
  public:
   static void SetUpTestCase() {
     InitGdiplus();
@@ -107,8 +108,8 @@ class BalloonImageTest : public ::testing::Test,
     using BalloonImage::CreateInternal;
   };
 
-  static void SaveTestImage(const BalloonImageInfo &info,
-                            const std::wstring &filename) {
+  static void SaveTestImage(const BalloonImageInfo& info,
+                            const std::wstring& filename) {
     CPoint tail_offset;
     CSize size;
     std::vector<ARGBColor> buffer;
@@ -132,14 +133,12 @@ class BalloonImageTest : public ::testing::Test,
     bitmap.Save(filename.c_str(), &clsid_png_);
 
     OutputFileStream os(absl::StrCat(WideToUtf8(filename), ".textproto"));
-    std::string textproto;
-    mozc::protobuf::TextFormat::PrintToString(spec, &textproto);
-    os << textproto;
+    os << ::mozc::protobuf::Utf8Format(spec);
   }
 
-  static void BalloonInfoToTextProto(const BalloonImageInfo &info,
-                                     TestSpec *spec) {
-    TestSpec::Input *input = spec->mutable_input();
+  static void BalloonInfoToTextProto(const BalloonImageInfo& info,
+                                     TestSpec* spec) {
+    TestSpec::Input* input = spec->mutable_input();
     input->set_frame_color(ColorToInteger(info.frame_color));
     input->set_inside_color(ColorToInteger(info.inside_color));
     input->set_label_color(ColorToInteger(info.label_color));
@@ -160,9 +159,9 @@ class BalloonImageTest : public ::testing::Test,
     input->set_blur_offset_y(info.blur_offset_y);
   }
 
-  static void TextProtoToBalloonInfo(const TestSpec &spec,
-                                     BalloonImageInfo *info) {
-    const TestSpec::Input &input = spec.input();
+  static void TextProtoToBalloonInfo(const TestSpec& spec,
+                                     BalloonImageInfo* info) {
+    const TestSpec::Input& input = spec.input();
     *info = BalloonImageInfo();
     info->frame_color = IntegerToColor(input.frame_color());
     info->inside_color = IntegerToColor(input.inside_color());
@@ -185,7 +184,7 @@ class BalloonImageTest : public ::testing::Test,
   }
 
  private:
-  static bool GetEncoderClsid(const std::wstring format, CLSID *clsid) {
+  static bool GetEncoderClsid(const std::wstring format, CLSID* clsid) {
     UINT num_codecs = 0;
     UINT codecs_buffer_size = 0;
     Gdiplus::GetImageEncodersSize(&num_codecs, &codecs_buffer_size);
@@ -194,12 +193,12 @@ class BalloonImageTest : public ::testing::Test,
     }
 
     std::unique_ptr<uint8_t[]> codesc_buffer(new uint8_t[codecs_buffer_size]);
-    Gdiplus::ImageCodecInfo *codecs =
-        reinterpret_cast<Gdiplus::ImageCodecInfo *>(codesc_buffer.get());
+    Gdiplus::ImageCodecInfo* codecs =
+        reinterpret_cast<Gdiplus::ImageCodecInfo*>(codesc_buffer.get());
 
     Gdiplus::GetImageEncoders(num_codecs, codecs_buffer_size, codecs);
     for (size_t i = 0; i < num_codecs; ++i) {
-      const Gdiplus::ImageCodecInfo &info = codecs[i];
+      const Gdiplus::ImageCodecInfo& info = codecs[i];
       if (format == info.MimeType) {
         *clsid = info.Clsid;
         return true;
@@ -276,7 +275,7 @@ CLSID BalloonImageTest::clsid_bmp_;
 ULONG_PTR BalloonImageTest::gdiplus_token_;
 
 // Tests should be passed.
-const char *kRenderingResultList[] = {
+const char* kRenderingResultList[] = {
     "balloon_blur_alpha_-1.png",
     "balloon_blur_alpha_0.png",
     "balloon_blur_alpha_10.png",
@@ -308,8 +307,8 @@ INSTANTIATE_TEST_CASE_P(BalloonImageParameters, BalloonImageTest,
                         ::testing::ValuesIn(kRenderingResultList));
 
 TEST_P(BalloonImageTest, TestImpl) {
-  const std::string &expected_image_path = mozc::testing::GetSourceFileOrDie(
-      {MOZC_DICT_DIR_COMPONENTS, "test", "renderer", "win32", GetParam()});
+  const std::string& expected_image_path = mozc::testing::GetSourceFileOrDie(
+      {"data", "test", "renderer", "win32", GetParam()});
   const std::string textproto_path = expected_image_path + ".textproto";
   ASSERT_OK(FileUtil::FileExists(textproto_path))
       << "Manifest file is not found: " << textproto_path;

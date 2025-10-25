@@ -34,9 +34,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "request/conversion_request.h"
 #include "testing/gunit.h"
@@ -46,27 +48,27 @@ namespace mozc {
 namespace {
 
 void AddCandidate(std::string value, const bool is_user_dictionary,
-                  Segments *segments) {
-  Segment *seg = nullptr;
+                  Segments* segments) {
+  Segment* seg = nullptr;
   if (segments->segments_size() == 0) {
     seg = segments->push_back_segment();
     seg->set_key("test");
   } else {
     seg = segments->mutable_segment(0);
   }
-  Segment::Candidate *candidate = seg->add_candidate();
+  converter::Candidate* candidate = seg->add_candidate();
   candidate->key = value;
   candidate->content_key = value;
   candidate->value = value;
   candidate->content_value = std::move(value);
   if (is_user_dictionary) {
-    candidate->attributes |= Segment::Candidate::USER_DICTIONARY;
+    candidate->attributes |= converter::Attribute::USER_DICTIONARY;
   }
 }
 
-std::string GetCandidates(const Segments &segments) {
+std::string GetCandidates(const Segments& segments) {
   CHECK_EQ(1, segments.segments_size());
-  const Segment &seg = segments.segment(0);
+  const Segment& seg = segments.segment(0);
   std::vector<std::string> results;
   for (size_t i = 0; i < seg.candidates_size(); ++i) {
     results.push_back(seg.candidate(i).value);

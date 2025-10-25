@@ -57,12 +57,12 @@
       'conditions': [
         ['OS=="mac"', {
           'sources': [
-            'GoogleJapaneseInputController.mm',
-            'GoogleJapaneseInputController_test.mm',
-            'GoogleJapaneseInputServer.mm',
-            'GoogleJapaneseInputServer_test.mm',
             'KeyCodeMap.mm',
             'KeyCodeMap_test.mm',
+            'mozc_imk_input_controller.mm',
+            'mozc_imk_input_controller_test.mm',
+            'renderer_receiver.mm',
+            'renderer_receiver_test.mm',
           ],
           'link_settings': {
             'libraries': [
@@ -267,17 +267,15 @@
           'type': 'executable',
           'mac_bundle': 1,
           'sources': [
-            'GoogleJapaneseInputController.mm',
-            'GoogleJapaneseInputServer.mm',
             'KeyCodeMap.mm',
             'main.mm',
+            'mozc_imk_input_controller.mm',
+            'renderer_receiver.mm',
           ],
           'product_name': '<(branding)',
           'dependencies': [
             '<(mozc_oss_src_dir)/base/absl.gyp:absl_base',
-            '<(mozc_oss_src_dir)/base/base.gyp:crash_report_handler',
             '<(mozc_oss_src_dir)/client/client.gyp:client',
-            '<(mozc_oss_src_dir)/config/config.gyp:stats_config_util',
             '<(mozc_oss_src_dir)/gui/gui.gyp:about_dialog_mac',
             '<(mozc_oss_src_dir)/gui/gui.gyp:config_dialog_mac',
             '<(mozc_oss_src_dir)/gui/gui.gyp:dictionary_tool_mac',
@@ -457,6 +455,32 @@
               ],
             },
             {
+              'action_name': 'copy_localization_en_file',
+              'inputs': [
+                'installer/Resources/en.lproj/Localizable.strings',
+              ],
+              'outputs': [
+                '<(gen_out_dir)/en.strings',
+              ],
+              'action': [
+                'cp', 'installer/Resources/en.lproj/Localizable.strings',
+                '<(gen_out_dir)/en.strings',
+              ],
+            },
+            {
+              'action_name': 'copy_localization_ja_file',
+              'inputs': [
+                'installer/Resources/ja.lproj/Localizable.strings',
+              ],
+              'outputs': [
+                '<(gen_out_dir)/ja.strings',
+              ],
+              'action': [
+                'cp', 'installer/Resources/ja.lproj/Localizable.strings',
+                '<(gen_out_dir)/ja.strings',
+              ],
+            },
+            {
               'action_name': 'tweak_pkgproj',
               'inputs': [ 'installer/<(branding)_template.pkgproj', ],
               'outputs': [ '<(gen_out_dir)/<(branding).pkgproj' ],
@@ -487,6 +511,8 @@
                 '<(PRODUCT_DIR)/<(branding).app',
                 '<(PRODUCT_DIR)/Uninstall<(branding).app',
                 '<(gen_out_dir)/<(branding).pkgproj',
+                '<(gen_out_dir)/en.strings',
+                '<(gen_out_dir)/ja.strings',
               ],
               'outputs': [
                 '<(PRODUCT_DIR)/<(branding).pkg',
@@ -518,7 +544,6 @@
             ['branding=="GoogleJapaneseInput"', {
               'dependencies': [
                 'DevConfirmPane',
-                'codesign_client',
               ],
             }],
           ],

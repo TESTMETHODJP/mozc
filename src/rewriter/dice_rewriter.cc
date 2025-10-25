@@ -30,11 +30,15 @@
 #include "rewriter/dice_rewriter.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 
+#include "absl/log/log.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_format.h"
-#include "base/logging.h"
+#include "absl/strings/string_view.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "request/conversion_request.h"
 
@@ -50,21 +54,21 @@ constexpr size_t kLastCandidateIndex = 8;
 // Insert a dice number into the |segment|
 // The number indicated by |top_face_number| is inserted at
 // |insert_pos|. Return false if insersion is failed.
-bool InsertCandidate(int top_face_number, size_t insert_pos, Segment *segment) {
+bool InsertCandidate(int top_face_number, size_t insert_pos, Segment* segment) {
   if (segment->candidates_size() == 0) {
     LOG(WARNING) << "candidates_size is 0";
     return false;
   }
 
-  const Segment::Candidate &base_candidate = segment->candidate(0);
+  const converter::Candidate& base_candidate = segment->candidate(0);
   size_t offset = std::min(insert_pos, segment->candidates_size());
 
-  Segment::Candidate *c = segment->insert_candidate(offset);
+  converter::Candidate* c = segment->insert_candidate(offset);
   if (c == nullptr) {
     LOG(ERROR) << "cannot insert candidate at " << offset;
     return false;
   }
-  const Segment::Candidate &trigger_c = segment->candidate(offset - 1);
+  const converter::Candidate& trigger_c = segment->candidate(offset - 1);
 
   c->lid = trigger_c.lid;
   c->rid = trigger_c.rid;
@@ -73,8 +77,8 @@ bool InsertCandidate(int top_face_number, size_t insert_pos, Segment *segment) {
   c->content_value = c->value;
   c->key = base_candidate.key;
   c->content_key = base_candidate.content_key;
-  c->attributes |= Segment::Candidate::NO_LEARNING;
-  c->attributes |= Segment::Candidate::NO_VARIANTS_EXPANSION;
+  c->attributes |= converter::Attribute::NO_LEARNING;
+  c->attributes |= converter::Attribute::NO_VARIANTS_EXPANSION;
   c->description = "出た目の数";
   return true;
 }
@@ -85,14 +89,14 @@ DiceRewriter::DiceRewriter() = default;
 
 DiceRewriter::~DiceRewriter() = default;
 
-bool DiceRewriter::Rewrite(const ConversionRequest &request,
-                           Segments *segments) const {
+bool DiceRewriter::Rewrite(const ConversionRequest& request,
+                           Segments* segments) const {
   if (segments->conversion_segments_size() != 1) {
     return false;
   }
 
-  const Segment &segment = segments->conversion_segment(0);
-  const std::string &key = segment.key();
+  const Segment& segment = segments->conversion_segment(0);
+  absl::string_view key = segment.key();
   if (key.empty()) {
     LOG(ERROR) << "key is empty";
     return false;
@@ -108,8 +112,9 @@ bool DiceRewriter::Rewrite(const ConversionRequest &request,
 
   // Get a random number whose range is [1, kDiceFaces]
   // Insert the number at |insert_pos|
+  absl::BitGen bitgen;
   return InsertCandidate(
-      absl::Uniform(absl::IntervalClosed, bitgen_, 1, kDiceFaces), insert_pos,
+      absl::Uniform(absl::IntervalClosed, bitgen, 1, kDiceFaces), insert_pos,
       segments->mutable_conversion_segment(0));
 }
 

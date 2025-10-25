@@ -35,10 +35,10 @@
 #include <string>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "base/file_stream.h"
-#include "base/logging.h"
 
 namespace mozc {
 
@@ -54,7 +54,7 @@ InputMultiFile::InputMultiFile(const absl::string_view filenames,
   }
 }
 
-bool InputMultiFile::ReadLine(std::string *line) {
+bool InputMultiFile::ReadLine(std::string* line) {
   if (ifs_ == nullptr) {
     return false;
   }

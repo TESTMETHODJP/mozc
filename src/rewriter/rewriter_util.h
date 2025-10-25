@@ -30,6 +30,8 @@
 #ifndef MOZC_REWRITER_REWRITER_UTIL_H_
 #define MOZC_REWRITER_REWRITER_UTIL_H_
 
+#include <cstddef>
+
 #include "converter/segments.h"
 
 namespace mozc {
@@ -41,7 +43,7 @@ class RewriterUtil {
   // Note:
   // Rewriters can be called not only after converter, but also after
   // predictors.
-  static size_t CalculateInsertPosition(const Segment &segment, size_t offset);
+  static size_t CalculateInsertPosition(const Segment& segment, size_t offset);
 
  private:
   RewriterUtil() = delete;

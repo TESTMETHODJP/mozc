@@ -44,41 +44,58 @@
 
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 
 namespace mozc {
 namespace {
 
+using ::testing::ElementsAre;
 using ::testing::ElementsAreArray;
+
+template <typename T>
+class TypedUtilTest : public ::testing::Test {};
+
+using StrTypes = ::testing::Types<std::string, absl::string_view>;
+TYPED_TEST_SUITE(TypedUtilTest, StrTypes);
+
+TYPED_TEST(TypedUtilTest, AppendUtf8Chars) {
+  using StrType = TypeParam;
+  {
+    std::vector<StrType> output;
+    Util::AppendUtf8Chars("", output);
+    EXPECT_EQ(output.size(), 0);
+  }
+  {
+    constexpr absl::string_view kInputs[] = {
+        "a", "あ", "亜", "\n", "a",
+    };
+    const std::string joined_string = absl::StrJoin(kInputs, "");
+
+    std::vector<StrType> output = {"x", "y", "z"};
+    Util::AppendUtf8Chars(joined_string, output);
+    EXPECT_THAT(output, ElementsAre("x", "y", "z", "a", "あ", "亜", "\n", "a"));
+  }
+}
 
 TEST(UtilTest, SplitStringToUtf8Chars) {
   {
-    std::vector<std::string> output;
-    Util::SplitStringToUtf8Chars("", &output);
+    const std::vector<std::string> output = Util::SplitStringToUtf8Chars("");
     EXPECT_EQ(output.size(), 0);
   }
-
   {
     const std::string kInputs[] = {
         "a", "あ", "亜", "\n", "a",
     };
     const std::string joined_string = absl::StrJoin(kInputs, "");
 
-    std::vector<std::string> output;
-    Util::SplitStringToUtf8Chars(joined_string, &output);
+    const std::vector<std::string> output =
+        Util::SplitStringToUtf8Chars(joined_string);
     EXPECT_THAT(output, ElementsAreArray(kInputs));
   }
 }
 
 TEST(UtilTest, SplitStringToUtf8Graphemes) {
-  {
-    std::vector<std::string> output;
-    Util::SplitStringToUtf8Chars("", &output);
-    EXPECT_EQ(output.size(), 0);
-  }
-
   {  // Single codepoint characters.
     const std::string kInputs[] = {
         "a", "あ", "亜", "\n", "a",
@@ -166,52 +183,52 @@ TEST(UtilTest, SplitCSV) {
 
   Util::SplitCSV("Google,x,\"Buchheit, Paul\",\"string with \"\" quote in it\"",
                  &answer_vector);
-  CHECK_EQ(answer_vector.size(), 4);
-  CHECK_EQ(answer_vector[0], "Google");
-  CHECK_EQ(answer_vector[1], "x");
-  CHECK_EQ(answer_vector[2], "Buchheit, Paul");
-  CHECK_EQ(answer_vector[3], "string with \" quote in it");
+  EXPECT_EQ(answer_vector.size(), 4);
+  EXPECT_EQ(answer_vector[0], "Google");
+  EXPECT_EQ(answer_vector[1], "x");
+  EXPECT_EQ(answer_vector[2], "Buchheit, Paul");
+  EXPECT_EQ(answer_vector[3], "string with \" quote in it");
 
   Util::SplitCSV("Google,hello,", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 3);
-  CHECK_EQ(answer_vector[0], "Google");
-  CHECK_EQ(answer_vector[1], "hello");
-  CHECK_EQ(answer_vector[2], "");
+  EXPECT_EQ(answer_vector.size(), 3);
+  EXPECT_EQ(answer_vector[0], "Google");
+  EXPECT_EQ(answer_vector[1], "hello");
+  EXPECT_EQ(answer_vector[2], "");
 
   Util::SplitCSV("Google rocks,hello", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 2);
-  CHECK_EQ(answer_vector[0], "Google rocks");
-  CHECK_EQ(answer_vector[1], "hello");
+  EXPECT_EQ(answer_vector.size(), 2);
+  EXPECT_EQ(answer_vector[0], "Google rocks");
+  EXPECT_EQ(answer_vector[1], "hello");
 
   Util::SplitCSV(",,\"\",,", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 5);
-  CHECK_EQ(answer_vector[0], "");
-  CHECK_EQ(answer_vector[1], "");
-  CHECK_EQ(answer_vector[2], "");
-  CHECK_EQ(answer_vector[3], "");
-  CHECK_EQ(answer_vector[4], "");
+  EXPECT_EQ(answer_vector.size(), 5);
+  EXPECT_EQ(answer_vector[0], "");
+  EXPECT_EQ(answer_vector[1], "");
+  EXPECT_EQ(answer_vector[2], "");
+  EXPECT_EQ(answer_vector[3], "");
+  EXPECT_EQ(answer_vector[4], "");
 
   // Test a string containing a comma.
   Util::SplitCSV("\",\",hello", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 2);
-  CHECK_EQ(answer_vector[0], ",");
-  CHECK_EQ(answer_vector[1], "hello");
+  EXPECT_EQ(answer_vector.size(), 2);
+  EXPECT_EQ(answer_vector[0], ",");
+  EXPECT_EQ(answer_vector[1], "hello");
 
   // Invalid CSV
   Util::SplitCSV("\"no,last,quote", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 1);
-  CHECK_EQ(answer_vector[0], "no,last,quote");
+  EXPECT_EQ(answer_vector.size(), 1);
+  EXPECT_EQ(answer_vector[0], "no,last,quote");
 
   Util::SplitCSV("backslash\\,is,no,an,\"escape\"", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 5);
-  CHECK_EQ(answer_vector[0], "backslash\\");
-  CHECK_EQ(answer_vector[1], "is");
-  CHECK_EQ(answer_vector[2], "no");
-  CHECK_EQ(answer_vector[3], "an");
-  CHECK_EQ(answer_vector[4], "escape");
+  EXPECT_EQ(answer_vector.size(), 5);
+  EXPECT_EQ(answer_vector[0], "backslash\\");
+  EXPECT_EQ(answer_vector[1], "is");
+  EXPECT_EQ(answer_vector[2], "no");
+  EXPECT_EQ(answer_vector[3], "an");
+  EXPECT_EQ(answer_vector[4], "escape");
 
   Util::SplitCSV("", &answer_vector);
-  CHECK_EQ(answer_vector.size(), 0);
+  EXPECT_EQ(answer_vector.size(), 0);
 }
 
 TEST(UtilTest, LowerString) {
@@ -303,8 +320,8 @@ TEST(UtilTest, Utf32ToUtf8) {
 
 void VerifyUtf8ToCodepoint(absl::string_view text, char32_t expected_codepoint,
                            size_t expected_len) {
-  const char *begin = text.data();
-  const char *end = begin + text.size();
+  const char* begin = text.data();
+  const char* end = begin + text.size();
   size_t mblen = 0;
   char32_t result = Util::Utf8ToCodepoint(begin, end, &mblen);
   EXPECT_EQ(result, expected_codepoint)
@@ -541,7 +558,7 @@ TEST(UtilTest, BracketTest) {
   }};
 
   absl::string_view pair;
-  for (const BracketPair &bracket : kBracketType) {
+  for (const BracketPair& bracket : kBracketType) {
     EXPECT_TRUE(Util::IsOpenBracket(bracket.first, &pair));
     EXPECT_EQ(pair, bracket.second);
     EXPECT_TRUE(Util::IsCloseBracket(bracket.second, &pair));
@@ -727,6 +744,15 @@ TEST(UtilTest, ScriptType) {
   EXPECT_EQ(Util::GetScriptType("モズあク"), Util::UNKNOWN_SCRIPT);
   EXPECT_EQ(Util::GetFirstScriptType("モズあク"), Util::KATAKANA);
 
+  // Numbers with period
+  EXPECT_EQ(Util::GetScriptType("25.4"), Util::NUMBER);
+  EXPECT_EQ(Util::GetScriptType("."), Util::UNKNOWN_SCRIPT);
+  EXPECT_EQ(Util::GetScriptType(".123"), Util::UNKNOWN_SCRIPT);
+  // The following are limitations of the current implementation.
+  // It's nice to be treated as UNKNOWN_SCRIPT.
+  EXPECT_EQ(Util::GetScriptType("1..9"), Util::NUMBER);
+  EXPECT_EQ(Util::GetScriptType("42."), Util::NUMBER);
+
   EXPECT_EQ(Util::GetScriptType("モあズクﾓｽﾞｸ"), Util::UNKNOWN_SCRIPT);
   EXPECT_EQ(Util::GetScriptType("012あ"), Util::UNKNOWN_SCRIPT);
   EXPECT_EQ(Util::GetFirstScriptType("012あ"), Util::NUMBER);
@@ -736,6 +762,11 @@ TEST(UtilTest, ScriptType) {
   EXPECT_EQ(Util::GetScriptType("ＡＢあＣＤ"), Util::UNKNOWN_SCRIPT);
   EXPECT_EQ(Util::GetScriptType("ぐーぐるグ"), Util::UNKNOWN_SCRIPT);
   EXPECT_EQ(Util::GetScriptType("グーグルぐ"), Util::UNKNOWN_SCRIPT);
+  EXPECT_EQ(Util::GetScriptType("@012"), Util::UNKNOWN_SCRIPT);
+  // ・ (U+30FB, KATAKANA MIDDLE DOT) + numbers
+  EXPECT_EQ(Util::GetScriptType("・012"), Util::UNKNOWN_SCRIPT);
+  // ー (U+30FC, KATAKANA-HIRAGANA PROLONGED SOUND MARK) + numbers
+  EXPECT_EQ(Util::GetScriptType("ー012"), Util::UNKNOWN_SCRIPT);
 
   // "龦" U+9FA6
   EXPECT_EQ(Util::GetScriptType("\xE9\xBE\xA6"), Util::KANJI);
@@ -838,42 +869,6 @@ TEST(UtilTest, IsAscii) {
   EXPECT_TRUE(Util::IsAscii(""));
   EXPECT_TRUE(Util::IsAscii("\x7F"));
   EXPECT_FALSE(Util::IsAscii("\x80"));
-}
-
-TEST(UtilTest, IsJisX0208) {
-  EXPECT_TRUE(Util::IsJisX0208("\u007F"));
-  EXPECT_FALSE(Util::IsJisX0208("\u0080"));
-
-  EXPECT_TRUE(Util::IsJisX0208("あいうえお"));
-  EXPECT_TRUE(Util::IsJisX0208("abc"));
-  EXPECT_TRUE(Util::IsJisX0208("abcあいう"));
-
-  // half width katakana
-  EXPECT_TRUE(Util::IsJisX0208("ｶﾀｶﾅ"));
-  EXPECT_TRUE(Util::IsJisX0208("ｶﾀｶﾅカタカナ"));
-
-  // boundary edges
-  EXPECT_TRUE(Util::IsJisX0208("ﾟ"));  // U+FF9F, the last char of JIS X 0208
-  EXPECT_TRUE(Util::IsJisX0208("\uFF9F"));   // U+FF9F
-  EXPECT_FALSE(Util::IsJisX0208("\uFFA0"));  // U+FF9F + 1
-  EXPECT_FALSE(Util::IsJisX0208("\uFFFF"));
-  EXPECT_FALSE(Util::IsJisX0208("\U00010000"));
-
-  // JIS X 0213
-  EXPECT_FALSE(Util::IsJisX0208("Ⅰ"));
-  EXPECT_FALSE(Util::IsJisX0208("①"));
-  EXPECT_FALSE(Util::IsJisX0208("㊤"));
-
-  // only in CP932
-  EXPECT_FALSE(Util::IsJisX0208("凬"));
-
-  // only in Unicode
-  EXPECT_FALSE(Util::IsJisX0208("￦"));
-
-  // SIP range (U+20000 - U+2FFFF)
-  EXPECT_FALSE(Util::IsJisX0208("𠮟"));  // U+20B9F
-  EXPECT_FALSE(Util::IsJisX0208("𪚲"));  // U+2A6B2
-  EXPECT_FALSE(Util::IsJisX0208("𠮷"));  // U+20BB7
 }
 
 TEST(UtilTest, IsKanaSymbolContained) {
@@ -1229,7 +1224,7 @@ TEST(UtilTest, IsAcceptableCharacterAsCandidate) {
 
 TEST(UtilTest, SerializeAndDeserializeUint64) {
   struct {
-    const char *str;
+    const char* str;
     uint64_t value;
   } kCorrectPairs[] = {
       {"\x00\x00\x00\x00\x00\x00\x00\x00", 0},
@@ -1254,7 +1249,7 @@ TEST(UtilTest, SerializeAndDeserializeUint64) {
   }
 
   // Invalid patterns for DeserializeUint64.
-  const char *kFalseCases[] = {
+  const char* kFalseCases[] = {
       "",
       "abc",
       "helloworld",

@@ -37,17 +37,17 @@
 #include <vector>
 
 #include "absl/base/optimization.h"
+#include "absl/log/check.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "base/protobuf/descriptor.h"
 #include "base/util.h"
 #include "composer/key_parser.h"
-#include "protocol/candidates.pb.h"
+#include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
 
 namespace mozc {
@@ -200,10 +200,11 @@ void PrintMessage(const protobuf::Message &message,
 // Normalizes a symbol with the following rules:
 // - all alphabets are converted to lowercase
 // - underscore('_') is converted to dash('-')
-std::string NormalizeSymbol(std::string symbol) {
-  Util::LowerString(&symbol);
-  std::replace(symbol.begin(), symbol.end(), '_', '-');
-  return symbol;
+std::string NormalizeSymbol(absl::string_view symbol) {
+  std::string normalized(symbol);
+  Util::LowerString(&normalized);
+  std::replace(normalized.begin(), normalized.end(), '_', '-');
+  return normalized;
 }
 
 // Returns a quoted string as a string literal in S-expression.
@@ -378,13 +379,13 @@ void ErrorExit(absl::string_view error, absl::string_view message) {
 }
 
 bool RemoveUsageData(commands::Output *output) {
-  if (!output->has_candidates()) {
+  if (!output->has_candidate_window()) {
     return false;
   }
-  if (!output->candidates().has_usages()) {
+  if (!output->candidate_window().has_usages()) {
     return false;
   }
-  output->mutable_candidates()->mutable_usages()->Clear();
+  output->mutable_candidate_window()->mutable_usages()->Clear();
   return true;
 }
 

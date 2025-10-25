@@ -30,8 +30,11 @@
 #ifndef MOZC_CONVERTER_KEY_CORRECTOR_H_
 #define MOZC_CONVERTER_KEY_CORRECTOR_H_
 
+#include <cstddef>
 #include <string>
 #include <vector>
+
+#include "absl/strings/string_view.h"
 
 namespace mozc {
 
@@ -42,25 +45,23 @@ class KeyCorrector final {
     KANA,
   };
 
-  KeyCorrector() : available_(false), mode_(ROMAN) {}
-  KeyCorrector(const std::string &key, InputMode mode, size_t history_size)
+  KeyCorrector() = delete;
+  KeyCorrector(absl::string_view key, InputMode mode, size_t history_size)
       : available_(false), mode_(mode) {
-    CorrectKey(key, mode, history_size);
+    Init(key, mode, history_size);
   }
 
   // Movable
-  KeyCorrector(KeyCorrector &&other) = default;
-  KeyCorrector &operator=(KeyCorrector &&other) = default;
+  KeyCorrector(KeyCorrector&& other) = default;
+  KeyCorrector& operator=(KeyCorrector&& other) = default;
 
   InputMode mode() const { return mode_; }
 
-  bool CorrectKey(const std::string &key, InputMode mode, size_t history_size);
-
   // return corrected key;
-  const std::string &corrected_key() const { return corrected_key_; }
+  absl::string_view corrected_key() const { return corrected_key_; }
 
   // return original key;
-  const std::string &original_key() const { return original_key_; }
+  absl::string_view original_key() const { return original_key_; }
 
   // return true key correction was done successfully
   bool IsAvailable() const { return available_; }
@@ -87,11 +88,8 @@ class KeyCorrector final {
   static size_t InvalidPosition() { return kInvalidPos; }
 
   // return new prefix of string corresponding to
-  // the prefix of the original key at "original_key_pos"
-  // if new prefix and original prefix are the same, return nullptr.
-  // Note that return value won't be nullptr terminated.
-  // "length" stores the length of return value.
-  // We don't allow empty matching (see GetPrefix(15) below)
+  // the prefix of the original key at `original_key_pos`.
+  // if new prefix and original prefix are the same, return empty string.
   //
   // More formally, this function can be defined as:
   // GetNewPrefix(original_key_pos) ==
@@ -106,18 +104,18 @@ class KeyCorrector final {
   //  GetPrefix(3) = "かいじゅうのはっぱ"
   //  GetPrefix(9) = "じゅうのはっぱ"
   //  GetPrefix(12) = "ゅうのはっぱ"
-  //  GetPrefix(15) = nullptr (not "うのはっぱ")
+  //  GetPrefix(15) = "" (not "うのはっぱ")
   //                  "う" itself doesn't correspond to the original key,
   //                   so, we don't make a new prefix
-  //  GetPrefix(18) = nullptr (same as original)
+  //  GetPrefix(18) = "" (same as original)
   //
   // Example2:
   //  original: "みんあのほん"
   //  GetPrefix(0) = "みんなのほん"
   //  GetPrefix(3) = "んなのほん"
   //  GetPrefix(9) = "なのほん"
-  //  GetPrefix(12) = nullptr
-  const char *GetCorrectedPrefix(size_t original_key_pos, size_t *length) const;
+  //  GetPrefix(12) = ""
+  absl::string_view GetCorrectedPrefix(size_t original_key_pos) const;
 
   // This is a helper function for CommonPrefixSearch in Converter.
   // Basically it is equivalent to
@@ -125,8 +123,7 @@ class KeyCorrector final {
   //                     + new_key_offset) - original_key_pos;
   //
   // Usage:
-  // const char *corrected_prefix = GetCorrectedPrefix(original_key_pos,
-  //                                                   &length);
+  // absl::string_view corrected_prefix = GetCorrectedPrefix(original_key_pos);
   // Node *nodes = Lookup(corrected_prefix, length);
   // for node in nodes {
   //   original_offset = GetOriginalOffset(original_key_pos, node->length);
@@ -148,12 +145,11 @@ class KeyCorrector final {
 
   // return the cost penalty for the corrected key.
   // The return value is added to the original cost as a penalty.
-  static int GetCorrectedCostPenalty(const std::string &key);
-
-  // clear internal data
-  void Clear();
+  static int GetCorrectedCostPenalty(absl::string_view key);
 
  private:
+  bool Init(absl::string_view key, InputMode mode, size_t history_size);
+
   // maximum key length KeyCorrector can handle
   // if key is too long, we don't do key correction
   static constexpr size_t kMaxSize = 128;
@@ -161,8 +157,8 @@ class KeyCorrector final {
   // invalid alignment marker
   static constexpr size_t kInvalidPos = static_cast<size_t>(-1);
 
-  bool available_;
-  InputMode mode_;
+  bool available_ = false;
+  InputMode mode_ = ROMAN;
   std::string corrected_key_;
   std::string original_key_;
   std::vector<size_t> alignment_;

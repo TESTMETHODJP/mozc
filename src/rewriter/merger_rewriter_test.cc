@@ -29,13 +29,16 @@
 
 #include "rewriter/merger_rewriter.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "converter/segments.h"
+#include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
+#include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
 
@@ -46,40 +49,45 @@ namespace {
 // and what value should be returned.
 class TestRewriter : public RewriterInterface {
  public:
-  TestRewriter(std::string *buffer, const absl::string_view name,
+  TestRewriter(std::string* buffer, const absl::string_view name,
                bool return_value)
       : buffer_(buffer),
         name_(name),
         return_value_(return_value),
         capability_(RewriterInterface::CONVERSION) {}
 
-  TestRewriter(std::string *buffer, const absl::string_view name,
+  TestRewriter(std::string* buffer, const absl::string_view name,
                bool return_value, int capability)
       : buffer_(buffer),
         name_(name),
         return_value_(return_value),
         capability_(capability) {}
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override {
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override {
     buffer_->append(name_ + ".Rewrite();");
     return return_value_;
   }
 
   virtual void set_capability(int capability) { capability_ = capability; }
 
-  int capability(const ConversionRequest &request) const override {
+  int capability(const ConversionRequest& request) const override {
     return capability_;
   }
 
-  bool Focus(Segments *segments, size_t segment_index,
+  bool Focus(Segments* segments, size_t segment_index,
              int candidate_index) const override {
     buffer_->append(name_ + ".Focus();");
     return return_value_;
   }
 
-  void Finish(const ConversionRequest &request, Segments *segments) override {
+  void Finish(const ConversionRequest& request,
+              const Segments& segments) override {
     buffer_->append(name_ + ".Finish();");
+  }
+
+  void Revert(const Segments& segments) override {
+    buffer_->append(name_ + ".Revert();");
   }
 
   bool Sync() override {
@@ -95,13 +103,17 @@ class TestRewriter : public RewriterInterface {
   void Clear() override { buffer_->append(name_ + ".Clear();"); }
 
  private:
-  std::string *buffer_;
+  std::string* buffer_;
   const std::string name_;
   const bool return_value_;
   int capability_;
 };
 
 class MergerRewriterTest : public testing::TestWithTempUserProfile {};
+
+ConversionRequest ConvReq(ConversionRequest::RequestType request_type) {
+  return ConversionRequestBuilder().SetRequestType(request_type).Build();
+}
 
 TEST_F(MergerRewriterTest, Rewrite) {
   std::string call_result;
@@ -131,14 +143,13 @@ TEST_F(MergerRewriterTest, RewriteSuggestion) {
   std::string call_result;
   MergerRewriter merger;
   Segments segments;
-  ConversionRequest request;
-  request.set_request_type(ConversionRequest::SUGGESTION);
+  const ConversionRequest request = ConvReq(ConversionRequest::SUGGESTION);
 
   merger.AddRewriter(std::make_unique<TestRewriter>(
       &call_result, "a", true, RewriterInterface::SUGGESTION));
 
   EXPECT_EQ(segments.conversion_segments_size(), 0);
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   EXPECT_EQ(segments.conversion_segments_size(), 1);
 
   EXPECT_EQ(segment->candidates_size(), 0);
@@ -164,16 +175,18 @@ TEST_F(MergerRewriterTest, RewriteSuggestionWithMixedConversion) {
   // should result that the merger rewriter does not trim exceeded suggestions.
   commands::Request commands_request;
   commands_request.set_mixed_conversion(true);
-  ConversionRequest request;
-  request.set_request(&commands_request);
-  request.set_request_type(ConversionRequest::SUGGESTION);
+  const ConversionRequest request =
+      ConversionRequestBuilder()
+          .SetRequest(commands_request)
+          .SetRequestType(ConversionRequest::SUGGESTION)
+          .Build();
   EXPECT_TRUE(request.request().mixed_conversion());
 
   merger.AddRewriter(std::make_unique<TestRewriter>(
       &call_result, "a", true, RewriterInterface::SUGGESTION));
 
   EXPECT_EQ(segments.conversion_segments_size(), 0);
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   EXPECT_EQ(segments.conversion_segments_size(), 1);
 
   EXPECT_EQ(segment->candidates_size(), 0);
@@ -195,7 +208,6 @@ TEST_F(MergerRewriterTest, RewriteCheckTest) {
   std::string call_result;
   MergerRewriter merger;
   Segments segments;
-  ConversionRequest request;
   merger.AddRewriter(std::make_unique<TestRewriter>(
       &call_result, "a", false, RewriterInterface::CONVERSION));
   merger.AddRewriter(std::make_unique<TestRewriter>(
@@ -208,8 +220,9 @@ TEST_F(MergerRewriterTest, RewriteCheckTest) {
   merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "e", false,
                                                     RewriterInterface::ALL));
 
-  request.set_request_type(ConversionRequest::CONVERSION);
-  EXPECT_FALSE(merger.Rewrite(request, &segments));
+  const ConversionRequest request_conversion =
+      ConvReq(ConversionRequest::CONVERSION);
+  EXPECT_FALSE(merger.Rewrite(request_conversion, &segments));
   EXPECT_EQ(
       "a.Rewrite();"
       "d.Rewrite();"
@@ -217,30 +230,34 @@ TEST_F(MergerRewriterTest, RewriteCheckTest) {
       call_result);
   call_result.clear();
 
-  request.set_request_type(ConversionRequest::PREDICTION);
-  EXPECT_FALSE(merger.Rewrite(request, &segments));
+  const ConversionRequest request_prediction =
+      ConvReq(ConversionRequest::PREDICTION);
+  EXPECT_FALSE(merger.Rewrite(request_prediction, &segments));
   EXPECT_EQ(call_result,
             "c.Rewrite();"
             "d.Rewrite();"
             "e.Rewrite();");
   call_result.clear();
 
-  request.set_request_type(ConversionRequest::SUGGESTION);
-  EXPECT_FALSE(merger.Rewrite(request, &segments));
+  const ConversionRequest request_suggestion =
+      ConvReq(ConversionRequest::SUGGESTION);
+  EXPECT_FALSE(merger.Rewrite(request_suggestion, &segments));
   EXPECT_EQ(call_result,
             "b.Rewrite();"
             "e.Rewrite();");
   call_result.clear();
 
-  request.set_request_type(ConversionRequest::PARTIAL_SUGGESTION);
-  EXPECT_FALSE(merger.Rewrite(request, &segments));
+  const ConversionRequest request_partial_suggestion =
+      ConvReq(ConversionRequest::PARTIAL_SUGGESTION);
+  EXPECT_FALSE(merger.Rewrite(request_partial_suggestion, &segments));
   EXPECT_EQ(call_result,
             "b.Rewrite();"
             "e.Rewrite();");
   call_result.clear();
 
-  request.set_request_type(ConversionRequest::PARTIAL_PREDICTION);
-  EXPECT_FALSE(merger.Rewrite(request, &segments));
+  const ConversionRequest request_partial_prediction =
+      ConvReq(ConversionRequest::PARTIAL_PREDICTION);
+  EXPECT_FALSE(merger.Rewrite(request_partial_prediction, &segments));
   EXPECT_EQ(call_result,
             "c.Rewrite();"
             "d.Rewrite();"
@@ -272,15 +289,31 @@ TEST_F(MergerRewriterTest, Focus) {
 TEST_F(MergerRewriterTest, Finish) {
   std::string call_result;
   const ConversionRequest request;
+  const Segments segments;
   MergerRewriter merger;
   merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "a", false));
   merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "b", false));
   merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "c", false));
-  merger.Finish(request, nullptr);
+  merger.Finish(request, segments);
   EXPECT_EQ(call_result,
             "a.Finish();"
             "b.Finish();"
             "c.Finish();");
+}
+
+TEST_F(MergerRewriterTest, Revert) {
+  std::string call_result;
+  const ConversionRequest request;
+  const Segments segments;
+  MergerRewriter merger;
+  merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "a", false));
+  merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "b", false));
+  merger.AddRewriter(std::make_unique<TestRewriter>(&call_result, "c", false));
+  merger.Revert(segments);
+  EXPECT_EQ(call_result,
+            "a.Revert();"
+            "b.Revert();"
+            "c.Revert();");
 }
 
 TEST_F(MergerRewriterTest, Sync) {

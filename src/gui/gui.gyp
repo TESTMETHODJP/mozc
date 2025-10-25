@@ -470,8 +470,8 @@
         '<(mozc_oss_src_dir)/base/base.gyp:base',
         '<(mozc_oss_src_dir)/client/client.gyp:client',
         '<(mozc_oss_src_dir)/data_manager/data_manager.gyp:pos_list_provider',
-        '<(mozc_oss_src_dir)/dictionary/dictionary_base.gyp:pos_matcher',
         '<(mozc_oss_src_dir)/dictionary/dictionary_base.gyp:user_dictionary',
+        '<(mozc_oss_src_dir)/dictionary/pos_matcher.gyp:pos_matcher',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:user_dictionary_storage_proto',
         'gen_word_register_dialog_files',
@@ -600,7 +600,6 @@
         '<(mozc_oss_src_dir)/base/base.gyp:base',
         '<(mozc_oss_src_dir)/ipc/ipc.gyp:ipc',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_base.gyp:usage_stats',
         'gen_post_install_dialog_files',
         'qrc_post_install_dialog',
       ],
@@ -649,8 +648,6 @@
         'tool/mozc_tool_libmain.cc',
       ],
       'dependencies': [
-        '<(mozc_oss_src_dir)/base/base.gyp:crash_report_handler',
-        '<(mozc_oss_src_dir)/config/config.gyp:stats_config_util',
         'about_dialog_lib',
         'administration_dialog_lib',
         'config_dialog_lib',
@@ -679,6 +676,7 @@
           'dependencies': [
             'gen_mozc_tool_lib_info_plist',
             'prelauncher_lib',
+            '<(mozc_oss_src_dir)/base/base.gyp:base_core',
             '<(mozc_oss_src_dir)/base/base.gyp:breakpad',
           ],
           'link_settings': {

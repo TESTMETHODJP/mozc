@@ -29,49 +29,37 @@
 
 #include "converter/connector.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <new>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/algorithm/container.h"
-#include "absl/base/attributes.h"
-#include "absl/base/const_init.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/escaping.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "storage/louds/simple_succinct_bit_vector_index.h"
-
 
 namespace mozc {
 namespace {
 
-constexpr uint32_t kInvalidCacheKey = 0xFFFFFFFF;
 constexpr uint16_t kConnectorMagicNumber = 0xCDAB;
 constexpr uint8_t kInvalid1ByteCostValue = 255;
+constexpr uint32_t kCacheSize = 1024;
+constexpr uint32_t kCacheHashMask = kCacheSize - 1;
 
-inline uint32_t GetHashValue(uint16_t rid, uint16_t lid, uint32_t hash_mask) {
-  return (3 * static_cast<uint32_t>(rid) + lid) & hash_mask;
-  // Note: The above value is equivalent to
-  //   return (3 * rid + lid) % cache_size_
-  // because cache_size_ is the power of 2.
-  // Multiplying '3' makes the conversion speed faster.
-  // The result hash value becomes reasonably random.
-}
+static_assert((kCacheSize & kCacheHashMask) == 0,
+              "kCacheSize must be power of 2.");
 
-inline uint32_t EncodeKey(uint16_t rid, uint16_t lid) {
-  return (static_cast<uint32_t>(rid) << 16) | lid;
-}
-
-absl::Status IsMemoryAligned32(const void *ptr) {
+absl::Status IsMemoryAligned32(const void* ptr) {
   const auto addr = reinterpret_cast<std::uintptr_t>(ptr);
   const auto alignment = addr % 4;
   if (alignment != 0) {
@@ -110,7 +98,7 @@ struct Metadata {
   }
 };
 
-absl::StatusOr<Metadata> ParseMetadata(const char *connection_data,
+absl::StatusOr<Metadata> ParseMetadata(const char* connection_data,
                                        size_t connection_size) {
   if (connection_size < Metadata::kByteSize) {
     const std::string data =
@@ -119,7 +107,7 @@ absl::StatusOr<Metadata> ParseMetadata(const char *connection_data,
         "connector.cc: At least ", Metadata::kByteSize,
         " bytes expected.  Bytes: '", data, "' (", connection_size, " bytes)"));
   }
-  const uint16_t *data = reinterpret_cast<const uint16_t *>(connection_data);
+  const uint16_t* data = reinterpret_cast<const uint16_t*>(connection_data);
   Metadata metadata;
   metadata.magic = data[0];
   metadata.resolution = data[1];
@@ -140,9 +128,9 @@ absl::StatusOr<Metadata> ParseMetadata(const char *connection_data,
 
 }  // namespace
 
-void Connector::Row::Init(const uint8_t *chunk_bits, size_t chunk_bits_size,
-                          const uint8_t *compact_bits, size_t compact_bits_size,
-                          const uint8_t *values, bool use_1byte_value) {
+void Connector::Row::Init(const uint8_t* chunk_bits, size_t chunk_bits_size,
+                          const uint8_t* compact_bits, size_t compact_bits_size,
+                          const uint8_t* values, bool use_1byte_value) {
   chunk_bits_index_.Init(chunk_bits, chunk_bits_size);
   compact_bits_index_.Init(compact_bits, compact_bits_size);
   values_ = values;
@@ -168,63 +156,44 @@ std::optional<uint16_t> Connector::Row::GetValue(uint16_t index) const {
     }
   } else {
     value = std::launder(
-        reinterpret_cast<const uint16_t *>(values_))[value_position];
+        reinterpret_cast<const uint16_t*>(values_))[value_position];
   }
   return value;
 }
 
 absl::StatusOr<Connector> Connector::CreateFromDataManager(
-    const DataManagerInterface &data_manager) {
-#ifdef __ANDROID__
-  constexpr int kCacheSize = 256;
-#else   // __ANDROID__
-  constexpr int kCacheSize = 1024;
-#endif  // __ANDROID__
-  const char *connection_data = nullptr;
-  size_t connection_data_size = 0;
-  data_manager.GetConnectorData(&connection_data, &connection_data_size);
-  return Create(connection_data, connection_data_size, kCacheSize);
+    const DataManager& data_manager) {
+  return Create(data_manager.GetConnectorData());
 }
 
-absl::StatusOr<Connector> Connector::Create(const char *connection_data,
-                                            size_t connection_size,
-                                            int cache_size) {
+absl::StatusOr<Connector> Connector::Create(absl::string_view connection_data) {
   Connector connector;
-  absl::Status status =
-      connector.Init(connection_data, connection_size, cache_size);
+  absl::Status status = connector.Init(connection_data);
   if (!status.ok()) {
     return status;
   }
   return connector;
 }
 
-absl::Status Connector::Init(const char *connection_data,
-                             size_t connection_size, int cache_size) {
-  // Check if the cache_size is the power of 2.
-  if ((cache_size & (cache_size - 1)) != 0) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "connector.cc: Cache size must be 2^n: size=", cache_size));
-  }
-  cache_hash_mask_ = cache_size - 1;
-  cache_key_.resize(cache_size);
-  cache_value_.resize(cache_size);
+absl::Status Connector::Init(absl::string_view connection_data) {
+  cache_ = std::make_unique<cache_t>(kCacheSize);
 
   absl::StatusOr<Metadata> metadata =
-      ParseMetadata(connection_data, connection_size);
+      ParseMetadata(connection_data.data(), connection_data.size());
   if (!metadata.ok()) {
     return std::move(metadata).status();
   }
   resolution_ = metadata->resolution;
 
   // Set the read location to the metadata end.
-  auto *ptr = connection_data + Metadata::kByteSize;
-  const auto *data_end = connection_data + connection_size;
+  const char* ptr = connection_data.data() + Metadata::kByteSize;
+  const char* data_end = connection_data.data() + connection_data.size();
 
-  const auto &gen_debug_info = [connection_data, connection_size,
-                                &metadata](const char *ptr) -> std::string {
+  const auto& gen_debug_info = [connection_data,
+                                &metadata](const char* ptr) -> std::string {
     return absl::StrCat(metadata->DebugString(),
-                        ", Reader{location: ", ptr - connection_data,
-                        ", datasize: ", connection_size, "}");
+                        ", Reader{location: ", ptr - connection_data.data(),
+                        ", datasize: ", connection_data.size(), "}");
   };
 
   // A helper macro to check if the array is aligned at 32-bit boundary.  If
@@ -244,7 +213,7 @@ absl::Status Connector::Init(const char *connection_data,
   // out-of-range.
 #define VALIDATE_SIZE(ptr, num_bytes, ...)                               \
   do {                                                                   \
-    const auto *p = reinterpret_cast<const char *>(ptr);                 \
+    const auto* p = reinterpret_cast<const char*>(ptr);                  \
     const std::ptrdiff_t remaining = data_end - p;                       \
     if (remaining >= num_bytes) {                                        \
       break;                                                             \
@@ -256,7 +225,7 @@ absl::Status Connector::Init(const char *connection_data,
   } while (false)
 
   // Read default cost array and move the read pointer.
-  default_cost_ = reinterpret_cast<const uint16_t *>(ptr);
+  default_cost_ = reinterpret_cast<const uint16_t*>(ptr);
   // Each element of default cost array is 2 bytes.
   const size_t default_cost_size = metadata->DefaultCostArraySize() * 2;
   VALIDATE_SIZE(default_cost_, default_cost_size, "Default cost");
@@ -276,26 +245,26 @@ absl::Status Connector::Init(const char *connection_data,
     // |ptr| points to here now.  Every uint8_t[] block needs to be aligned at
     // 32-bit boundary.
     VALIDATE_SIZE(ptr, 2, "Compact bits size of row ", i, "/", rsize);
-    const uint16_t compact_bits_size = *reinterpret_cast<const uint16_t *>(ptr);
+    const uint16_t compact_bits_size = *reinterpret_cast<const uint16_t*>(ptr);
     ptr += 2;
 
     VALIDATE_SIZE(ptr, 2, "Values size of row ", i, "/", rsize);
-    const uint16_t values_size = *reinterpret_cast<const uint16_t *>(ptr);
+    const uint16_t values_size = *reinterpret_cast<const uint16_t*>(ptr);
     ptr += 2;
 
     VALIDATE_SIZE(ptr, chunk_bits_size, "Chunk bits of row ", i, "/", rsize);
-    const uint8_t *chunk_bits = reinterpret_cast<const uint8_t *>(ptr);
+    const uint8_t* chunk_bits = reinterpret_cast<const uint8_t*>(ptr);
     VALIDATE_ALIGNMENT(chunk_bits);
     ptr += chunk_bits_size;
 
     VALIDATE_SIZE(ptr, compact_bits_size, "Compact bits of row ", i, "/",
                   rsize);
-    const uint8_t *compact_bits = reinterpret_cast<const uint8_t *>(ptr);
+    const uint8_t* compact_bits = reinterpret_cast<const uint8_t*>(ptr);
     VALIDATE_ALIGNMENT(compact_bits);
     ptr += compact_bits_size;
 
     VALIDATE_SIZE(ptr, values_size, "Values of row ", i, "/", rsize);
-    const uint8_t *values = reinterpret_cast<const uint8_t *>(ptr);
+    const uint8_t* values = reinterpret_cast<const uint8_t*>(ptr);
     VALIDATE_ALIGNMENT(values);
     ptr += values_size;
 
@@ -303,27 +272,38 @@ absl::Status Connector::Init(const char *connection_data,
                   values, metadata->Use1ByteValue());
   }
   VALIDATE_SIZE(ptr, 0, "Data end");
-  ClearCache();
   return absl::Status();
 
 #undef VALIDATE_ALIGNMENT
 #undef VALIDATE_SIZE
 }
 
-
 int Connector::GetTransitionCost(uint16_t rid, uint16_t lid) const {
-  const uint32_t index = EncodeKey(rid, lid);
-  const uint32_t bucket = GetHashValue(rid, lid, cache_hash_mask_);
-  if (cache_key_[bucket] == index) {
-    return cache_value_[bucket];
+  // Note:
+  // This function is called very frequently and has a significant impact on
+  // execution time. When making any modifications, please conduct a performance
+  // analysis.
+
+  const uint32_t index = (static_cast<uint32_t>(rid) << 16) | lid;
+  const uint32_t bucket =
+      (3 * static_cast<uint32_t>(rid) + lid) & kCacheHashMask;
+  // The above value is equivalent to (3 * rid + lid) % kCacheSize;
+  // because cache_size_ is the power of 2.
+  // Multiplying '3' makes the conversion speed faster.
+  // The result hash value becomes reasonably random.
+
+  // don't care the memory order. atomic access is only required.
+  // Upper 32bits stores the value-cost, lower 32 bits the index.
+  const uint64_t cv = (*cache_)[bucket].load(std::memory_order_relaxed);
+  if (static_cast<uint32_t>(cv) == index) {
+    return static_cast<int>(cv >> 32);
   }
   const int value = LookupCost(rid, lid);
-  cache_key_[bucket] = index;
-  cache_value_[bucket] = value;
+  (*cache_)[bucket].store(static_cast<uint64_t>(value) << 32 | index,
+                          std::memory_order_relaxed);
+
   return value;
 }
-
-void Connector::ClearCache() { absl::c_fill(cache_key_, kInvalidCacheKey); }
 
 int Connector::LookupCost(uint16_t rid, uint16_t lid) const {
   std::optional<uint16_t> value = rows_[rid].GetValue(lid);

@@ -36,36 +36,54 @@
 #include <string>
 #include <vector>
 
-#include "base/logging.h"
+#include "absl/base/nullability.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/vlog.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/candidate_filter.h"
 #include "converter/connector.h"
+#include "converter/inner_segment.h"
 #include "converter/lattice.h"
 #include "converter/node.h"
 #include "converter/segmenter.h"
 #include "converter/segments.h"
+#include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
-#include "dictionary/suppression_dictionary.h"
 #include "prediction/suggestion_filter.h"
 #include "request/conversion_request.h"
 
 namespace mozc {
 namespace {
 
+using ::mozc::converter::Attribute;
+using ::mozc::converter::Candidate;
 using ::mozc::converter::CandidateFilter;
 using ::mozc::dictionary::PosMatcher;
-using ::mozc::dictionary::SuppressionDictionary;
+using ::mozc::dictionary::UserDictionaryInterface;
 
 constexpr int kFreeListSize = 512;
 constexpr int kCostDiff = 3453;  // log prob of 1/1000
 
+bool IsBetweenAlphabetKeys(const Node& left, const Node& right) {
+  return !left.key.empty() && !right.key.empty() &&
+         absl::ascii_isalpha(left.key.back()) &&
+         absl::ascii_isalpha(right.key.front());
+}
+
 }  // namespace
 
-const NBestGenerator::QueueElement *NBestGenerator::CreateNewElement(
-    const Node *node, const QueueElement *next, int32_t fx, int32_t gx,
-    int32_t structure_gx, int32_t w_gx) {
-  QueueElement *elm = freelist_.Alloc();
-  DCHECK(elm);
+const NBestGenerator::QueueElement* absl_nonnull
+NBestGenerator::CreateNewElement(const Node* absl_nonnull node,
+                                 const QueueElement* absl_nullable next,
+                                 int32_t fx, int32_t gx, int32_t structure_gx,
+                                 int32_t w_gx) {
+  QueueElement* absl_nonnull elm = freelist_.Alloc();
   elm->node = node;
   elm->next = next;
   elm->fx = fx;
@@ -75,50 +93,42 @@ const NBestGenerator::QueueElement *NBestGenerator::CreateNewElement(
   return elm;
 }
 
-bool NBestGenerator::QueueElement::Comparator(
-    const NBestGenerator::QueueElement *q1,
-    const NBestGenerator::QueueElement *q2) {
-  return (q1->fx > q2->fx);
-}
-
-inline void NBestGenerator::Agenda::Push(
-    const NBestGenerator::QueueElement *element) {
+void NBestGenerator::Agenda::Push(
+    const NBestGenerator::QueueElement* absl_nonnull element) {
   priority_queue_.push_back(element);
   std::push_heap(priority_queue_.begin(), priority_queue_.end(),
                  QueueElement::Comparator);
 }
 
-inline void NBestGenerator::Agenda::Pop() {
+void NBestGenerator::Agenda::Pop() {
   DCHECK(!priority_queue_.empty());
   std::pop_heap(priority_queue_.begin(), priority_queue_.end(),
                 QueueElement::Comparator);
   priority_queue_.pop_back();
 }
 
-NBestGenerator::NBestGenerator(const SuppressionDictionary *suppression_dic,
-                               const Segmenter *segmenter,
-                               const Connector &connector,
-                               const PosMatcher *pos_matcher,
-                               const Lattice *lattice,
-                               const SuggestionFilter &suggestion_filter)
-    : suppression_dictionary_(suppression_dic),
+NBestGenerator::NBestGenerator(const UserDictionaryInterface& user_dictionary,
+                               const Segmenter& segmenter,
+                               const Connector& connector,
+                               const PosMatcher& pos_matcher,
+                               const Lattice& lattice,
+                               const SuggestionFilter& suggestion_filter)
+    : user_dictionary_(user_dictionary),
       segmenter_(segmenter),
       connector_(connector),
       pos_matcher_(pos_matcher),
       lattice_(lattice),
       freelist_(kFreeListSize),
-      filter_(suppression_dic, pos_matcher, suggestion_filter) {
-  DCHECK(suppression_dictionary_);
-  DCHECK(segmenter);
-  if (lattice_ == nullptr || !lattice_->has_lattice()) {
+      filter_(user_dictionary_, pos_matcher, suggestion_filter) {
+  if (!lattice_.has_lattice()) {
     LOG(ERROR) << "lattice is not available";
     return;
   }
-
   agenda_.Reserve(kFreeListSize);
 }
 
-void NBestGenerator::Reset(const Node *begin_node, const Node *end_node,
+void NBestGenerator::Reset(const Node* absl_nonnull begin_node,
+                           const Node* absl_nonnull end_node,
                            const Options options) {
   agenda_.Clear();
   freelist_.Free();
@@ -130,8 +140,7 @@ void NBestGenerator::Reset(const Node *begin_node, const Node *end_node,
   begin_node_ = begin_node;
   end_node_ = end_node;
 
-  for (Node *node = lattice_->begin_nodes(end_node_->begin_pos);
-       node != nullptr; node = node->bnext) {
+  for (const Node* node : lattice_.begin_nodes(end_node_->begin_pos)) {
     if (node == end_node_ ||
         (node->lid != end_node_->lid &&
          // node->cost can be smaller than end_node_->cost
@@ -147,29 +156,28 @@ void NBestGenerator::Reset(const Node *begin_node, const Node *end_node,
 }
 
 void NBestGenerator::MakeCandidate(
-    Segment::Candidate *candidate, int32_t cost, int32_t structure_cost,
-    int32_t wcost, const std::vector<const Node *> &nodes) const {
+    Candidate& candidate, int32_t cost, int32_t structure_cost, int32_t wcost,
+    absl::Span<const Node* absl_nonnull const> nodes) const {
   DCHECK(!nodes.empty());
 
-  candidate->Clear();
-  candidate->lid = nodes.front()->lid;
-  candidate->rid = nodes.back()->rid;
-  candidate->cost = cost;
-  candidate->structure_cost = structure_cost;
-  candidate->wcost = wcost;
+  candidate.Clear();
+  candidate.lid = nodes.front()->lid;
+  candidate.rid = nodes.back()->rid;
+  candidate.cost = cost;
+  candidate.structure_cost = structure_cost;
+  candidate.wcost = wcost;
 
   bool is_functional = false;
   for (size_t i = 0; i < nodes.size(); ++i) {
-    const Node *node = nodes[i];
-    DCHECK(node != nullptr);
-    if (!is_functional && !pos_matcher_->IsFunctional(node->lid)) {
-      candidate->content_key += node->key;
-      candidate->content_value += node->value;
+    const Node* absl_nonnull node = nodes[i];
+    if (!is_functional && !pos_matcher_.IsFunctional(node->lid)) {
+      absl::StrAppend(&candidate.content_key, node->key);
+      absl::StrAppend(&candidate.content_value, node->value);
     } else {
       is_functional = true;
     }
-    candidate->key += node->key;
-    candidate->value += node->value;
+    absl::StrAppend(&candidate.key, node->key);
+    absl::StrAppend(&candidate.value, node->value);
 
     if (node->constrained_prev != nullptr ||
         (node->next != nullptr && node->next->constrained_prev == node)) {
@@ -177,28 +185,31 @@ void NBestGenerator::MakeCandidate(
       // If a node has constrained node, the node is generated by
       //  a) compound node and resegmented via personal name resegmentation
       //  b) compound-based reranking.
-      candidate->attributes |= Segment::Candidate::CONTEXT_SENSITIVE;
+      candidate.attributes |= Attribute::CONTEXT_SENSITIVE;
     }
     if (node->attributes & Node::SPELLING_CORRECTION) {
-      candidate->attributes |= Segment::Candidate::SPELLING_CORRECTION;
+      candidate.attributes |= Attribute::SPELLING_CORRECTION;
     }
     if (node->attributes & Node::NO_VARIANTS_EXPANSION) {
-      candidate->attributes |= Segment::Candidate::NO_VARIANTS_EXPANSION;
+      candidate.attributes |= Attribute::NO_VARIANTS_EXPANSION;
     }
     if (node->attributes & Node::USER_DICTIONARY) {
-      candidate->attributes |= Segment::Candidate::USER_DICTIONARY;
+      candidate.attributes |= Attribute::USER_DICTIONARY;
     }
     if (node->attributes & Node::SUFFIX_DICTIONARY) {
-      candidate->attributes |= Segment::Candidate::SUFFIX_DICTIONARY;
+      candidate.attributes |= Attribute::SUFFIX_DICTIONARY;
+    }
+    if (node->attributes & Node::KEY_EXPANDED) {
+      candidate.attributes |= Attribute::KEY_EXPANDED_IN_DICTIONARY;
     }
   }
 
-  if (candidate->content_key.empty() || candidate->content_value.empty()) {
-    candidate->content_key = candidate->key;
-    candidate->content_value = candidate->value;
+  if (candidate.content_key.empty() || candidate.content_value.empty()) {
+    candidate.content_key = candidate.key;
+    candidate.content_value = candidate.value;
   }
 
-  candidate->inner_segment_boundary.clear();
+  candidate.inner_segment_boundary.clear();
   // For realtime conversion.
   if (options_.candidate_mode & CandidateMode::FILL_INNER_SEGMENT_INFO) {
     FillInnerSegmentInfo(nodes, candidate);
@@ -206,28 +217,30 @@ void NBestGenerator::MakeCandidate(
 }
 
 void NBestGenerator::FillInnerSegmentInfo(
-    const std::vector<const Node *> &nodes,
-    Segment::Candidate *candidate) const {
+    absl::Span<const Node* absl_nonnull const> nodes,
+    Candidate& candidate) const {
   size_t key_len = nodes[0]->key.size(), value_len = nodes[0]->value.size();
   size_t content_key_len = key_len, content_value_len = value_len;
   bool is_content_boundary = false;
-  if (pos_matcher_->IsFunctional(nodes[0]->rid)) {
+  if (pos_matcher_.IsFunctional(nodes[0]->rid)) {
     is_content_boundary = true;
     content_key_len = 0;
     content_value_len = 0;
   }
+
+  converter::InnerSegmentBoundaryBuilder builder;
+
   for (size_t i = 1; i < nodes.size(); ++i) {
-    const Node *lnode = nodes[i - 1];
-    const Node *rnode = nodes[i];
+    const Node* absl_nonnull lnode = nodes[i - 1];
+    const Node* absl_nonnull rnode = nodes[i];
     constexpr bool kMultipleSegments = false;
-    if (segmenter_->IsBoundary(*lnode, *rnode, kMultipleSegments)) {
-      // Keep the consistency with the above logic for candidate->content_*.
+    if (segmenter_.IsBoundary(*lnode, *rnode, kMultipleSegments)) {
+      // Keep the consistency with the above logic for candidate.content_*.
       if (content_key_len == 0 || content_value_len == 0) {
         content_key_len = key_len;
         content_value_len = value_len;
       }
-      candidate->PushBackInnerSegmentBoundary(
-          key_len, value_len, content_key_len, content_value_len);
+      builder.Add(key_len, value_len, content_key_len, content_value_len);
       key_len = 0;
       value_len = 0;
       content_key_len = 0;
@@ -243,9 +256,9 @@ void NBestGenerator::FillInnerSegmentInfo(
     // "走った" is formed as
     //     "走っ" (content word) + "た" (functional).
     // Since the content word is incomplete, we don't want to learn "走っ".
-    if ((pos_matcher_->IsContentNoun(lnode->rid) ||
-         pos_matcher_->IsPronoun(lnode->rid)) &&
-        pos_matcher_->IsFunctional(rnode->lid)) {
+    if ((pos_matcher_.IsContentNoun(lnode->rid) ||
+         pos_matcher_.IsPronoun(lnode->rid)) &&
+        pos_matcher_.IsFunctional(rnode->lid)) {
       is_content_boundary = true;
     } else {
       content_key_len += rnode->key.size();
@@ -253,75 +266,80 @@ void NBestGenerator::FillInnerSegmentInfo(
     }
   }
 
-  // Keep the consistency with the above logic for candidate->content_*.
+  // Keep the consistency with the above logic for candidate.content_*.
   if (content_key_len == 0 || content_value_len == 0) {
     content_key_len = key_len;
     content_value_len = value_len;
   }
-  candidate->PushBackInnerSegmentBoundary(key_len, value_len, content_key_len,
-                                          content_value_len);
+
+  builder.Add(key_len, value_len, content_key_len, content_value_len);
+  candidate.inner_segment_boundary =
+      builder.Build(candidate.key, candidate.value);
 }
 
 CandidateFilter::ResultType NBestGenerator::MakeCandidateFromElement(
-    const ConversionRequest &request, const std::string &original_key,
-    const NBestGenerator::QueueElement *element,
-    Segment::Candidate *candidate) {
-  std::vector<const Node *> nodes;
+    const ConversionRequest& request, absl::string_view original_key,
+    const NBestGenerator::QueueElement& element, Candidate& candidate) {
+  std::vector<const Node* absl_nonnull> nodes;
 
+  if (element.next == nullptr) {
+    return CandidateFilter::BAD_CANDIDATE;
+  }
   if (options_.candidate_mode &
       CandidateMode::BUILD_FROM_ONLY_FIRST_INNER_SEGMENT) {
-    const QueueElement *elm = element->next;
+    const QueueElement* absl_nonnull elm = element.next;
     for (; elm->next != nullptr; elm = elm->next) {
       nodes.push_back(elm->node);
-      if (segmenter_->IsBoundary(*elm->node, *elm->next->node, false)) {
+      if (IsBetweenAlphabetKeys(*elm->node, *elm->next->node)) {
+        return CandidateFilter::BAD_CANDIDATE;
+      }
+      if (segmenter_.IsBoundary(*elm->node, *elm->next->node, false)) {
         break;
       }
     }
-
-    if (elm == nullptr) {
-      return CandidateFilter::BAD_CANDIDATE;
-    }
+    DCHECK_NE(elm, nullptr);
 
     // Does not contain the transition cost to the right
-    const int cost = element->gx - elm->gx;
-    const int structure_cost = element->structure_gx - elm->structure_gx;
-    const int wcost = element->w_gx - elm->w_gx;
+    const int cost = element.gx - elm->gx;
+    const int structure_cost = element.structure_gx - elm->structure_gx;
+    const int wcost = element.w_gx - elm->w_gx;
     MakeCandidate(candidate, cost, structure_cost, wcost, nodes);
   } else {
-    for (const QueueElement *elm = element->next; elm->next != nullptr;
-         elm = elm->next) {
+    for (const QueueElement* absl_nonnull elm = element.next;
+         elm->next != nullptr; elm = elm->next) {
       nodes.push_back(elm->node);
     }
 
     DCHECK(!nodes.empty());
     DCHECK(!top_nodes_.empty());
 
-    MakeCandidate(candidate, element->gx, element->structure_gx, element->w_gx,
+    MakeCandidate(candidate, element.gx, element.structure_gx, element.w_gx,
                   nodes);
   }
 
-  return filter_.FilterCandidate(request, original_key, candidate, top_nodes_,
+  return filter_.FilterCandidate(request, original_key, &candidate, top_nodes_,
                                  nodes);
 }
 
 // Set candidates.
-void NBestGenerator::SetCandidates(const ConversionRequest &request,
-                                   const std::string &original_key,
-                                   const size_t expand_size, Segment *segment) {
+void NBestGenerator::SetCandidates(const ConversionRequest& request,
+                                   absl::string_view original_key,
+                                   const size_t expand_size,
+                                   Segment* absl_nonnull segment) {
   DCHECK(begin_node_);
   DCHECK(end_node_);
 
-  if (lattice_ == nullptr || !lattice_->has_lattice()) {
+  if (!lattice_.has_lattice()) {
     LOG(ERROR) << "Must create lattice in advance";
     return;
   }
 
   while (segment->candidates_size() < expand_size) {
-    Segment::Candidate *candidate = segment->push_back_candidate();
+    Candidate* candidate = segment->push_back_candidate();
     DCHECK(candidate);
 
     // if Next() returns false, no more entries are generated.
-    if (!Next(request, original_key, candidate)) {
+    if (!Next(request, original_key, *candidate)) {
       segment->pop_back_candidate();
       break;
     }
@@ -336,9 +354,9 @@ void NBestGenerator::SetCandidates(const ConversionRequest &request,
 #endif  // MOZC_CANDIDATE_DEBUG
 }
 
-bool NBestGenerator::Next(const ConversionRequest &request,
-                          const std::string &original_key,
-                          Segment::Candidate *candidate) {
+bool NBestGenerator::Next(const ConversionRequest& request,
+                          absl::string_view original_key,
+                          Candidate& candidate) {
   // |cost| and |structure_cost| are calculated as follows:
   //
   // Example:
@@ -378,7 +396,7 @@ bool NBestGenerator::Next(const ConversionRequest &request,
         // Viterbi best result was tried to be inserted but reverted.
       case CandidateFilter::BAD_CANDIDATE:
 #ifdef MOZC_CANDIDATE_DEBUG
-        bad_candidates_.push_back(*candidate);
+        bad_candidates_.push_back(candidate);
         break;
 #endif  // MOZC_CANDIDATE_DEBUG
       default:
@@ -391,11 +409,9 @@ bool NBestGenerator::Next(const ConversionRequest &request,
   int num_trials = 0;
 
   while (!agenda_.IsEmpty()) {
-    const QueueElement *top = agenda_.Top();
-    DCHECK(top);
+    const QueueElement* absl_nonnull top = agenda_.Top();
     agenda_.Pop();
-    const Node *rnode = top->node;
-    DCHECK(rnode);
+    const Node* absl_nonnull rnode = top->node;
 
     if (num_trials++ > KMaxTrial) {  // too many trials
       MOZC_VLOG(2) << "too many trials: " << num_trials;
@@ -405,7 +421,7 @@ bool NBestGenerator::Next(const ConversionRequest &request,
     // reached to the goal.
     if (rnode->end_pos == begin_node_->end_pos) {
       const CandidateFilter::ResultType filter_result =
-          MakeCandidateFromElement(request, original_key, top, candidate);
+          MakeCandidateFromElement(request, original_key, *top, candidate);
 
       switch (filter_result) {
         case CandidateFilter::GOOD_CANDIDATE:
@@ -414,7 +430,7 @@ bool NBestGenerator::Next(const ConversionRequest &request,
           return false;
         case CandidateFilter::BAD_CANDIDATE:
 #ifdef MOZC_CANDIDATE_DEBUG
-          bad_candidates_.push_back(*candidate);
+          bad_candidates_.push_back(candidate);
           break;
 #endif  // MOZC_CANDIDATE_DEBUG
         default:
@@ -426,7 +442,7 @@ bool NBestGenerator::Next(const ConversionRequest &request,
 
     DCHECK_NE(rnode->end_pos, begin_node_->end_pos);
 
-    const QueueElement *best_left_elm = nullptr;
+    const QueueElement* best_left_elm = nullptr;
     const bool is_right_edge = rnode->begin_pos == end_node_->begin_pos;
     const bool is_left_edge = rnode->begin_pos == begin_node_->end_pos;
     DCHECK(!(is_right_edge && is_left_edge));
@@ -435,8 +451,7 @@ bool NBestGenerator::Next(const ConversionRequest &request,
     // begin/end node regardless of its value.
     const bool is_edge = (is_right_edge || is_left_edge);
 
-    for (Node *lnode = lattice_->end_nodes(rnode->begin_pos); lnode != nullptr;
-         lnode = lnode->enext) {
+    for (const Node* lnode : lattice_.end_nodes(rnode->begin_pos)) {
       // is_invalid_position is true if the lnode's location is invalid
       //  1.   |<-- begin_node_-->|
       //                    |<--lnode-->|  <== overlapped.
@@ -473,13 +488,13 @@ bool NBestGenerator::Next(const ConversionRequest &request,
       }
 
       const BoundaryCheckResult boundary_result =
-          BoundaryCheck(lnode, rnode, is_edge);
+          BoundaryCheck(*lnode, *rnode, is_edge);
       if (boundary_result == INVALID) {
         continue;
       }
 
       // We can expand candidates from |rnode| to |lnode|.
-      const int transition_cost = GetTransitionCost(lnode, rnode);
+      const int transition_cost = GetTransitionCost(*lnode, *rnode);
 
       // How likely the costs get increased after expanding rnode.
       int cost_diff = 0;
@@ -543,11 +558,17 @@ bool NBestGenerator::Next(const ConversionRequest &request,
 }
 
 NBestGenerator::BoundaryCheckResult NBestGenerator::BoundaryCheck(
-    const Node *lnode, const Node *rnode, bool is_edge) const {
+    const Node& lnode, const Node& rnode, bool is_edge) const {
   // Special case, no boundary check
-  if (rnode->node_type == Node::CON_NODE ||
-      lnode->node_type == Node::CON_NODE) {
+  if (rnode.node_type == Node::CON_NODE || lnode.node_type == Node::CON_NODE) {
     return VALID;
+  }
+
+  // We don't want to connect alphabet keys.
+  // If "eupho" is not in the dictionary, "eupho" as an as-is fallback is
+  // expected rather than "EUpho" (EU + pho).
+  if (IsBetweenAlphabetKeys(lnode, rnode)) {
+    return INVALID;
   }
 
   switch (options_.boundary_mode) {
@@ -564,11 +585,11 @@ NBestGenerator::BoundaryCheckResult NBestGenerator::BoundaryCheck(
 }
 
 NBestGenerator::BoundaryCheckResult NBestGenerator::CheckOnlyMid(
-    const Node *lnode, const Node *rnode, bool is_edge) const {
+    const Node& lnode, const Node& rnode, bool is_edge) const {
   // is_boundary is true if there is a grammar-based boundary
   // between lnode and rnode
-  const bool is_boundary = (lnode->node_type == Node::HIS_NODE ||
-                            segmenter_->IsBoundary(*lnode, *rnode, false));
+  const bool is_boundary = (lnode.node_type == Node::HIS_NODE ||
+                            segmenter_.IsBoundary(lnode, rnode, false));
   if (!is_edge && is_boundary) {
     // There is a boundary within the segment.
     return INVALID;
@@ -584,11 +605,11 @@ NBestGenerator::BoundaryCheckResult NBestGenerator::CheckOnlyMid(
 }
 
 NBestGenerator::BoundaryCheckResult NBestGenerator::CheckOnlyEdge(
-    const Node *lnode, const Node *rnode, bool is_edge) const {
+    const Node& lnode, const Node& rnode, bool is_edge) const {
   // is_boundary is true if there is a grammar-based boundary
   // between lnode and rnode
-  const bool is_boundary = (lnode->node_type == Node::HIS_NODE ||
-                            segmenter_->IsBoundary(*lnode, *rnode, true));
+  const bool is_boundary = (lnode.node_type == Node::HIS_NODE ||
+                            segmenter_.IsBoundary(lnode, rnode, true));
   if (is_edge != is_boundary) {
     // on the edge, have a boundary.
     // not on the edge, not the case.
@@ -599,11 +620,11 @@ NBestGenerator::BoundaryCheckResult NBestGenerator::CheckOnlyEdge(
 }
 
 NBestGenerator::BoundaryCheckResult NBestGenerator::CheckStrict(
-    const Node *lnode, const Node *rnode, bool is_edge) const {
+    const Node& lnode, const Node& rnode, bool is_edge) const {
   // is_boundary is true if there is a grammar-based boundary
   // between lnode and rnode
-  const bool is_boundary = (lnode->node_type == Node::HIS_NODE ||
-                            segmenter_->IsBoundary(*lnode, *rnode, false));
+  const bool is_boundary = (lnode.node_type == Node::HIS_NODE ||
+                            segmenter_.IsBoundary(lnode, rnode, false));
 
   if (is_edge != is_boundary) {
     // on the edge, have a boundary.
@@ -614,15 +635,20 @@ NBestGenerator::BoundaryCheckResult NBestGenerator::CheckStrict(
   }
 }
 
-void NBestGenerator::MakeCandidateFromBestPath(Segment::Candidate *candidate) {
+bool NBestGenerator::MakeCandidateFromBestPath(Candidate& candidate) {
   top_nodes_.clear();
   int total_wcost = 0;
-  for (const Node *node = begin_node_->next; node != end_node_;
+  DCHECK(begin_node_);
+  DCHECK(end_node_);
+  for (const Node* node = begin_node_->next; node != end_node_;
        node = node->next) {
-    top_nodes_.push_back(node);
     if (node != begin_node_->next) {
+      if (IsBetweenAlphabetKeys(*top_nodes_.back(), *node)) {
+        return false;
+      }
       total_wcost += node->wcost;
     }
+    top_nodes_.push_back(node);
   }
   DCHECK(!top_nodes_.empty());
 
@@ -636,17 +662,19 @@ void NBestGenerator::MakeCandidateFromBestPath(Segment::Candidate *candidate) {
                     begin_node_->next->wcost;
 
   MakeCandidate(candidate, cost, structure_cost, wcost, top_nodes_);
+  return true;
 }
 
-void NBestGenerator::MakePrefixCandidateFromBestPath(
-    Segment::Candidate *candidate) {
+void NBestGenerator::MakePrefixCandidateFromBestPath(Candidate& candidate) {
   top_nodes_.clear();
   int total_extra_wcost = 0;  // wcost sum excepting the first node
-  const Node *prev_node = begin_node_;
-  for (const Node *node = begin_node_->next; node != end_node_;
+  DCHECK(begin_node_);
+  DCHECK(end_node_);
+  const Node* prev_node = begin_node_;
+  for (const Node* node = begin_node_->next; node != end_node_;
        node = node->next) {
     if (prev_node != begin_node_ &&
-        segmenter_->IsBoundary(*prev_node, *node, false)) {
+        segmenter_.IsBoundary(*prev_node, *node, false)) {
       break;
     }
     top_nodes_.push_back(node);
@@ -671,31 +699,33 @@ void NBestGenerator::MakePrefixCandidateFromBestPath(
   MakeCandidate(candidate, cost, structure_cost, wcost, top_nodes_);
 }
 
-int NBestGenerator::InsertTopResult(const ConversionRequest &request,
-                                    const std::string &original_key,
-                                    Segment::Candidate *candidate) {
+int NBestGenerator::InsertTopResult(const ConversionRequest& request,
+                                    absl::string_view original_key,
+                                    Candidate& candidate) {
   if (options_.candidate_mode &
       CandidateMode::BUILD_FROM_ONLY_FIRST_INNER_SEGMENT) {
     MakePrefixCandidateFromBestPath(candidate);
   } else {
-    MakeCandidateFromBestPath(candidate);
+    if (!MakeCandidateFromBestPath(candidate)) {
+      return CandidateFilter::STOP_ENUMERATION;
+    }
   }
   if (request.request_type() == ConversionRequest::SUGGESTION) {
-    candidate->attributes |= Segment::Candidate::REALTIME_CONVERSION;
+    candidate.attributes |= Attribute::REALTIME_CONVERSION;
   }
 
-  const int result = filter_.FilterCandidate(request, original_key, candidate,
+  const int result = filter_.FilterCandidate(request, original_key, &candidate,
                                              top_nodes_, top_nodes_);
   return result;
 }
 
-int NBestGenerator::GetTransitionCost(const Node *lnode,
-                                      const Node *rnode) const {
+int NBestGenerator::GetTransitionCost(const Node& lnode,
+                                      const Node& rnode) const {
   constexpr int kInvalidPenaltyCost = 100000;
-  if (rnode->constrained_prev != nullptr && lnode != rnode->constrained_prev) {
+  if (rnode.constrained_prev != nullptr && &lnode != rnode.constrained_prev) {
     return kInvalidPenaltyCost;
   }
-  return connector_.GetTransitionCost(lnode->rid, rnode->lid);
+  return connector_.GetTransitionCost(lnode.rid, rnode.lid);
 }
 
 }  // namespace mozc

@@ -41,16 +41,16 @@ import sys
 
 def RunOrDie(command):
   """Run the command, or die if it failed."""
-  print("Running: " + command)
   try:
     output = subprocess.check_output(command, shell=True)
     print("==========", file=sys.stderr)
-    print("COMMAND: " + command, file=sys.stderr)
     print(output.decode("utf-8"), file=sys.stderr)
   except subprocess.CalledProcessError as e:
     print("==========", file=sys.stderr)
-    print("ERROR: " + command, file=sys.stderr)
-    print(e.output, file=sys.stderr)
+    output = e.output
+    if isinstance(output, bytes):
+      output = output.decode("utf-8")
+    print(output, file=sys.stderr)
     print("==========", file=sys.stderr)
     sys.exit(1)
 
@@ -131,6 +131,8 @@ def ParseOption():
                     default=False)
   parser.add_option("--verify", dest="verify", action="store_true",
                     default=False)
+  parser.add_option("--notarize_only", dest="notarize_only",
+                    action="store_true", default=False)
   parser.add_option("--output", dest="output")
   (options, unused_args) = parser.parse_args()
 
@@ -161,14 +163,16 @@ def main():
 
   DumpEnviron()
 
-  # Call Codesign with the release keychain.
-  keychain = GetKeychain(opts.keychain)
-  RunOrDie(" ".join(["/usr/bin/security", "find-identity", keychain]))
+  if not opts.notarize_only:
+    # Call Codesign with the release keychain.
+    keychain = GetKeychain(opts.keychain)
+    RunOrDie(" ".join(["/usr/bin/security", "find-identity", keychain]))
 
-  # Unlock Keychain for codesigning.
-  UnlockKeychain(keychain, opts.password)
+    # Unlock Keychain for codesigning.
+    UnlockKeychain(keychain, opts.password)
 
-  Codesign(opts.target, keychain=keychain)
+    Codesign(opts.target, keychain=keychain)
+
   Notarize(opts.target)
 
   # Output something to make the processes trackable.

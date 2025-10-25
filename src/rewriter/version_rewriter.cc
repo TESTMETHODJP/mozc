@@ -34,9 +34,12 @@
 #include <string>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/const.h"
 #include "base/version.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "request/conversion_request.h"
 
@@ -71,23 +74,23 @@ VersionRewriter::VersionRewriter(absl::string_view data_version) {
   std::string version_string =
       absl::StrCat(kVersionRewriterVersionPrefix, Version::GetMozcVersion(),
                    "+", data_version);
-  for (const auto &[key, base_candidate] : kKeyCandList) {
+  for (const auto& [key, base_candidate] : kKeyCandList) {
     entries_.emplace(
         key, VersionEntry{std::string(base_candidate), version_string, 9});
   }
 }
 
-bool VersionRewriter::Rewrite(const ConversionRequest &request,
-                              Segments *segments) const {
+bool VersionRewriter::Rewrite(const ConversionRequest& request,
+                              Segments* segments) const {
   bool result = false;
-  for (Segment &segment : segments->conversion_segments()) {
+  for (Segment& segment : segments->conversion_segments()) {
     const auto it = entries_.find(segment.key());
     if (it != entries_.end()) {
       for (size_t j = 0; j < segment.candidates_size(); ++j) {
-        const VersionEntry &ent = it->second;
-        const Segment::Candidate &c = segment.candidate(static_cast<int>(j));
+        const VersionEntry& ent = it->second;
+        const converter::Candidate& c = segment.candidate(static_cast<int>(j));
         if (c.value == ent.base_candidate) {
-          Segment::Candidate *new_cand = segment.insert_candidate(
+          converter::Candidate* new_cand = segment.insert_candidate(
               std::min<int>(segment.candidates_size(), ent.rank));
           if (new_cand != nullptr) {
             new_cand->lid = c.lid;
@@ -98,7 +101,7 @@ bool VersionRewriter::Rewrite(const ConversionRequest &request,
             new_cand->key = segment.key();
             new_cand->content_key = segment.key();
             // we don't learn version
-            new_cand->attributes |= Segment::Candidate::NO_LEARNING;
+            new_cand->attributes |= converter::Attribute::NO_LEARNING;
             result = true;
           }
           break;

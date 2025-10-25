@@ -30,15 +30,16 @@
 # Visibility:  please choose a more appropriate default for the package,
 # and update any rules that should be different.
 
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 load(
     "//:build_defs.bzl",
-    "mozc_cc_binary",
     "mozc_cc_library",
     "mozc_cc_test",
     "mozc_select",
 )
 
-package(default_visibility = ["//:__subpackages__"])
+package(default_visibility = ["//visibility:private"])
 
 mozc_cc_library(
     name = "ipc",
@@ -49,17 +50,27 @@ mozc_cc_library(
         "win32_ipc.cc",
     ],
     hdrs = ["ipc.h"],
+    visibility = [
+        "//client:__pkg__",
+        "//gui:__subpackages__",
+        "//mac:__pkg__",
+        "//renderer:__subpackages__",
+        "//session:__pkg__",
+        "//win32:__subpackages__",
+    ],
     deps = [
         ":ipc_path_manager",
         "//base:const",
         "//base:cpu_stats",
         "//base:file_util",
-        "//base:logging",
         "//base:singleton",
         "//base:system_util",
         "//base:thread",
         "//base:util",
         "//base:vlog",
+        "//base/strings:zstring_view",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
@@ -79,7 +90,6 @@ mozc_cc_library(
 proto_library(
     name = "ipc_proto",
     srcs = ["ipc.proto"],
-    visibility = ["//visibility:private"],
 )
 
 cc_proto_library(
@@ -97,7 +107,6 @@ mozc_cc_library(
         "//base:const",
         "//base:file_stream",
         "//base:file_util",
-        "//base:logging",
         "//base:obfuscator_support",
         "//base:port",
         "//base:process_mutex",
@@ -107,8 +116,9 @@ mozc_cc_library(
         "//base:util",
         "//base:version",
         "//base:vlog",
-        "//testing:friend_test",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
@@ -120,18 +130,6 @@ mozc_cc_library(
             "@com_microsoft_wil//:wil",
         ],
     ),
-)
-
-mozc_cc_binary(
-    name = "ipc_path_manager_main",
-    srcs = ["ipc_path_manager_main.cc"],
-    deps = [
-        ":ipc_path_manager",
-        "//base:init_mozc_buildtool",
-        "//base:logging",
-        "@com_google_absl//absl/flags:flag",
-        "@com_google_absl//absl/time",
-    ],
 )
 
 mozc_cc_test(
@@ -150,6 +148,7 @@ mozc_cc_test(
         "//base:version",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "//testing:test_peer",
         "@com_google_absl//absl/time",
     ],
 )
@@ -159,9 +158,14 @@ mozc_cc_library(
     testonly = True,
     srcs = ["ipc_mock.cc"],
     hdrs = ["ipc_mock.h"],
+    visibility = [
+        "//client:__pkg__",
+        "//win32/base:__pkg__",
+    ],
     deps = [
         ":ipc",
         "//base:version",
+        "//base/strings:zstring_view",
         "@com_google_absl//absl/time",
     ],
 )
@@ -170,9 +174,11 @@ mozc_cc_library(
     name = "ipc_test_util",
     srcs = ["ipc_test_util.cc"],
     hdrs = ["ipc_test_util.h"],
+    visibility = ["//renderer:__subpackages__"],
     deps = [
         ":ipc",
-        "//base:logging",
+        "//base/strings:zstring_view",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
@@ -192,31 +198,21 @@ mozc_cc_test(
     ],
 )
 
-mozc_cc_binary(
-    name = "ipc_main",
-    srcs = ["ipc_main.cc"],
-    copts = ["$(STACK_FRAME_UNLIMITED)"],  # ipc_main.cc
-    deps = [
-        ":ipc",
-        "//base:init_mozc_buildtool",
-        "//base:logging",
-        "//base:thread",
-        "@com_google_absl//absl/flags:flag",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/time",
-    ],
-)
-
 mozc_cc_library(
     name = "named_event",
     srcs = ["named_event.cc"],
     hdrs = ["named_event.h"],
+    visibility = [
+        "//client:__pkg__",
+        "//renderer:__subpackages__",
+        "//session:__pkg__",
+    ],
     deps = [
         "//base:const",
         "//base:hash",
-        "//base:logging",
         "//base:system_util",
         "//base:vlog",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
@@ -224,20 +220,9 @@ mozc_cc_library(
         windows = [
             "//base/win32:win_sandbox",
             "//base/win32:wide_char",
+            "@com_microsoft_wil//:wil",
         ],
     ),
-)
-
-mozc_cc_binary(
-    name = "named_event_main",
-    srcs = ["named_event_main.cc"],
-    deps = [
-        ":named_event",
-        "//base:init_mozc_buildtool",
-        "//base:logging",
-        "@com_google_absl//absl/flags:flag",
-        "@com_google_absl//absl/time",
-    ],
 )
 
 mozc_cc_test(
@@ -258,17 +243,18 @@ mozc_cc_library(
     name = "process_watch_dog",
     srcs = ["process_watch_dog.cc"],
     hdrs = ["process_watch_dog.h"],
+    visibility = ["//renderer:__subpackages__"],
     deps = [
-        "//base:logging",
         "//base:port",
         "//base:thread",
-        "//base:vlog",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
     ] + mozc_select(
         windows = [
+            "//base:vlog",
             "//base/win32:hresult",
             "@com_microsoft_wil//:wil",
         ],
@@ -283,9 +269,9 @@ mozc_cc_library(
 mozc_cc_library(
     name = "ipc_hdr",
     textual_hdrs = ["ipc.h"],
-    visibility = ["//visibility:private"],
     deps = [
         "//base:thread",
+        "//base/strings:zstring_view",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
@@ -304,8 +290,8 @@ mozc_cc_test(
     deps = [
         ":process_watch_dog",
         "//base:clock",
-        "//base:logging",
         "//testing:gunit_main",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/time",
     ],
 )
@@ -313,10 +299,10 @@ mozc_cc_test(
 proto_library(
     name = "window_info_proto",
     srcs = ["window_info.proto"],
-    visibility = ["//visibility:private"],
 )
 
 cc_proto_library(
     name = "window_info_cc_proto",
+    visibility = ["//gui:__subpackages__"],
     deps = [":window_info_proto"],
 )

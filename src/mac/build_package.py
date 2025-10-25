@@ -47,6 +47,13 @@ def ParseArguments():
   parser.add_argument('--input')
   parser.add_argument('--output')
   parser.add_argument('--oss', action='store_true')
+  parser.add_argument(
+      '--codesign_identity',
+      default='-',
+      # Note: '-' is used as a pseudo identity for /usr/bin/codesign.
+      help='Code signing identity. Use "-" to skip codesigning.',
+  )
+  parser.add_argument('--keychain')
   return parser.parse_args()
 
 
@@ -55,8 +62,10 @@ def main():
 
   if args.oss:
     identifier = 'org.mozc.pkg.JapaneseInput'
+    pkg_name = 'Mozc.pkg'
   else:
     identifier = 'com.google.pkg.GoogleJapaneseInput'
+    pkg_name = 'GoogleJapaneseInput.pkg'
 
   output_path = os.path.abspath(args.output)
 
@@ -65,21 +74,45 @@ def main():
     util.RunOrDie(['unzip', '-q', args.input, '-d', tmp_dir])
     os.chdir(os.path.join(tmp_dir, 'installer'))
     pkgbuild_commands = [
-        'pkgbuild',
-        '--root', 'root',
-        '--identifier', identifier,
-        '--scripts', 'scripts/',
-        'Mozc.pkg',  # the name "Mozc.pkg" is configured in distribution.xml.
+        '/usr/bin/pkgbuild',
+        '--root',
+        'root',
+        '--identifier',
+        identifier,
+        '--scripts',
+        'scripts/',
+        pkg_name,  # pkg_name is configured in distribution.xml.
     ]
     util.RunOrDie(pkgbuild_commands)
     productbuild_commands = [
-        'productbuild',
-        '--distribution', 'distribution.xml',
-        '--plugins', 'Plugins/',
+        '/usr/bin/productbuild',
+        '--distribution',
+        'distribution.xml',
+        '--plugins',
+        'Plugins/',
+        '--resources',
+        'Resources/',
         'package.pkg',  # this name is only used within this script.
     ]
     util.RunOrDie(productbuild_commands)
-    shutil.copyfile('package.pkg', output_path)
+
+    # codesign the package and copy it to the output path.
+    if args.codesign_identity == '-':
+      shutil.copyfile('package.pkg', output_path)
+    else:
+      keychain_path = os.path.join(
+          os.getenv('HOME'), 'Library/Keychains', args.keychain
+      )
+      codesign_commands = [
+          '/usr/bin/productsign',
+          '--sign',
+          args.codesign_identity,
+          '--keychain',
+          keychain_path,
+          'package.pkg',
+          output_path,
+      ]
+      util.RunOrDie(codesign_commands)
 
 
 if __name__ == '__main__':

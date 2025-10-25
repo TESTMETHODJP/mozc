@@ -34,6 +34,7 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "protocol/user_dictionary_storage.pb.h"
 #include "testing/gunit.h"
 #include "testing/testing_util.h"
 
@@ -78,8 +79,8 @@ struct UserDictionaryEntryData {
   absl::string_view comment;
 };
 
-void ConvertUserDictionaryEntry(const UserDictionaryEntryData &input,
-                                UserDictionary::Entry *output) {
+void ConvertUserDictionaryEntry(const UserDictionaryEntryData& input,
+                                UserDictionary::Entry* output) {
   output->set_key(input.key);
   output->set_value(input.value);
   output->set_pos(input.pos);

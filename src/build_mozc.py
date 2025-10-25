@@ -62,6 +62,7 @@ from build_tools.util import RemoveDirectoryRecursively
 from build_tools.util import RemoveFile
 from build_tools.util import RunOrDie
 from build_tools.util import RunOrDieError
+from build_tools.vs_util import get_vs_env_vars
 
 SRC_DIR = '.'
 OSS_SRC_DIR = '.'
@@ -194,15 +195,6 @@ def AddTargetPlatformOption(parser):
                           'should be done.'))
 
 
-def GetDefaultWixPath():
-  """Returns the default Wix directory.."""
-  possible_wix_path = pathlib.Path(ABS_SCRIPT_DIR).joinpath(
-      'third_party', 'wix')
-  if possible_wix_path.exists():
-    return possible_wix_path
-  return ''
-
-
 def GetDefaultQtPath():
   """Returns the default Qt directory.."""
   qtdir_env = os.getenv('QTDIR', None)
@@ -261,9 +253,8 @@ def ParseGypOptions(args):
     parser.add_option('--msvs_version', dest='msvs_version',
                       default='2022',
                       help='Version of the Visual Studio.')
-    parser.add_option('--wix_dir', dest='wix_dir',
-                      default=GetDefaultWixPath(),
-                      help='A path to the binary directory of wix.')
+    parser.add_option('--vcvarsall_path', help='Path of vcvarsall.bat',
+                      default=None)
 
   if IsWindows() or IsMac():
     parser.add_option('--qtdir', dest='qtdir',
@@ -358,6 +349,27 @@ def ParseCleanOptions(args):
   return parser.parse_args(args)
 
 
+def ReadEnvironmentFile(path):
+  nul = chr(0)
+  with open(path, 'rb') as f:
+    content = f.read()
+  entries = content.decode('utf-8').split(nul)
+  env = dict()
+  for e in entries:
+    if '=' in e:
+      key, value = e.split('=', 1)
+      env[key] = value
+  return env
+
+
+def WriteEnvironmentFile(path, env):
+  nul = chr(0)
+  entries = [f'{key}={value}' for (key, value) in env.items()]
+  entries.extend(['', ''])
+  with open(path, 'wb') as f:
+    f.write(nul.join(entries).encode('utf-8'))
+
+
 def UpdateEnvironmentFilesForWindows(out_dir):
   """Add required environment variables for Ninja build."""
   python_path_root = MOZC_ROOT
@@ -365,26 +377,27 @@ def UpdateEnvironmentFilesForWindows(out_dir):
   original_python_paths = os.environ.get('PYTHONPATH', '')
   if original_python_paths:
     python_path = os.pathsep.join([original_python_paths, python_path])
-  nul = chr(0)
-  additional_content = nul.join([
-      'PYTHONPATH=' + python_path,
-      'VSLANG=1033',  # 1033 == MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)
-      nul]).encode('utf-8')
   for d in os.listdir(out_dir):
     abs_dir = os.path.abspath(os.path.join(out_dir, d))
-    with open(os.path.join(abs_dir, 'environment.x86'), 'rb') as x86_file:
-      x86_content = x86_file.read()[:-1] + additional_content
-    with open(os.path.join(abs_dir, 'environment.x86'), 'wb') as x86_file:
-      x86_file.write(x86_content)
-    with open(os.path.join(abs_dir, 'environment.x64'), 'rb') as x64_file:
-      x64_content = x64_file.read()[:-1] + additional_content
-    with open(os.path.join(abs_dir, 'environment.x64'), 'wb') as x64_file:
-      x64_file.write(x64_content)
-
+    for arch in ['x86', 'x64']:
+      env_file = os.path.join(abs_dir, f'environment.{arch}')
+      env = ReadEnvironmentFile(env_file)
+      env['PYTHONPATH'] = python_path
+      env['VSLANG'] = '1033' # == MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)
+      WriteEnvironmentFile(env_file, env)
 
 
 def GypMain(options, unused_args):
   """The main function for the 'gyp' command."""
+  if IsWindows():
+    # GYP captures environment variables while running so setting them up as if
+    # the developer manually executed 'vcvarsall.bat' command. Otherwise we end
+    # up having to explain how to do that for both cmd.exe and PowerShell.
+    # See https://github.com/google/mozc/pull/923
+    env_vars = get_vs_env_vars('x64', options.vcvarsall_path)
+    for (key, value) in env_vars.items():
+      os.environ[key] = value
+
   # Generate a version definition file.
   logging.info('Generating version definition file...')
   template_path = '%s/%s' % (OSS_SRC_DIR, options.version_file)
@@ -497,9 +510,8 @@ def GypMain(options, unused_args):
   gyp_options.extend(['-D', 'qt_dir=' + (qt_dir or '')])
   gyp_options.extend(['-D', 'qt_ver=' + str(qt_ver or '')])
 
-  if target_platform == 'Windows' and options.wix_dir:
+  if target_platform == 'Windows':
     gyp_options.extend(['-D', 'use_wix=YES'])
-    gyp_options.extend(['-D', 'wix_dir="%s"' % options.wix_dir])
   else:
     gyp_options.extend(['-D', 'use_wix=NO'])
 
@@ -875,11 +887,6 @@ def main():
 
   command = sys.argv[1]
   args = sys.argv[2:]
-
-  if IsWindows() and (not os.environ.get('VCToolsRedistDir', '')):
-    print('VCToolsRedistDir is not defined.')
-    print('Please use Developer Command Prompt or run vcvarsamd64_x86.bat')
-    return 1
 
   if command == 'gyp':
     (cmd_opts, cmd_args) = ParseGypOptions(args)

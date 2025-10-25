@@ -65,8 +65,6 @@
           'GTEST_LANG_CXX11=1',
           'GTEST_HAS_TR1_TUPLE=0',  # disable tr1 tuple in favor of C++11 tuple.
         ],
-        'gtest_dir': '<(third_party_dir)/gtest/googletest',
-        'gmock_dir': '<(third_party_dir)/gtest/googlemock',
       },
       'sources': [
         '<(gmock_dir)/src/gmock-cardinalities.cc',
@@ -137,18 +135,6 @@
       ],
     },
     {
-      'target_name': 'googletest_lib',
-      'type': 'static_library',
-      'sources': [
-        'googletest.cc',
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/base/base.gyp:base',
-        'gen_mozc_data_dir_header#host',
-        'testing',
-      ],
-    },
-    {
       'target_name': 'gtest_main',
       'type': 'static_library',
       'sources': [
@@ -157,7 +143,6 @@
       'dependencies': [
         '<(mozc_oss_src_dir)/base/base.gyp:base',
         'gen_mozc_data_dir_header#host',
-        'googletest_lib',
         'testing',
       ],
       'link_settings': {
@@ -215,7 +200,8 @@
         '<(mozc_oss_src_dir)/base/absl.gyp:absl_status',
         '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
         '<(mozc_oss_src_dir)/base/base.gyp:base_core',
-        'googletest_lib',
+        'gen_mozc_data_dir_header#host',
+        'testing',
       ],
     },
   ],

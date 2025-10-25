@@ -36,8 +36,8 @@ namespace mozc {
 
 // Registers an `absl::LogSink` tied to a file at `path`.
 //
-// This function becomes no-op when MOZC_NO_LOGGING or __ANDROID__ is defined.
-void RegisterLogFileSink(const std::string &path);
+// This function becomes no-op when NDEBUG or __ANDROID__ is defined.
+void RegisterLogFileSink(const std::string& path);
 
 }  // namespace mozc
 

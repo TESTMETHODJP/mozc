@@ -33,7 +33,6 @@
 #include <string>
 
 #include "absl/strings/string_view.h"
-#include "base/random.h"
 
 namespace mozc {
 namespace storage {
@@ -42,27 +41,28 @@ class StringStorageInterface {
  public:
   virtual ~StringStorageInterface() = default;
 
-  virtual bool Load(std::string *output) const = 0;
-  virtual bool Save(const std::string &input) const = 0;
+  virtual bool Load(std::string* output) const = 0;
+  virtual bool Save(const std::string& input) const = 0;
 };
 
 class EncryptedStringStorage : public StringStorageInterface {
  public:
   explicit EncryptedStringStorage(const absl::string_view filename)
       : filename_(filename) {}
-  EncryptedStringStorage(const EncryptedStringStorage &) = delete;
-  EncryptedStringStorage &operator=(const EncryptedStringStorage &) = delete;
+  EncryptedStringStorage(const EncryptedStringStorage&) = delete;
+  EncryptedStringStorage& operator=(const EncryptedStringStorage&) = delete;
 
-  bool Load(std::string *output) const override;
-  bool Save(const std::string &input) const override;
+  bool Load(std::string* output) const override;
+  bool Save(const std::string& input) const override;
+
+  const std::string& filename() const { return filename_; }
 
  protected:
-  virtual bool Encrypt(const std::string &salt, std::string *data) const;
-  virtual bool Decrypt(const std::string &salt, std::string *data) const;
+  virtual bool Encrypt(const std::string& salt, std::string* data) const;
+  virtual bool Decrypt(const std::string& salt, std::string* data) const;
 
  private:
   std::string filename_;
-  mutable mozc::Random random_;
 };
 
 }  // namespace storage

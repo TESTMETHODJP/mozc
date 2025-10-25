@@ -29,18 +29,25 @@
 
 #include "rewriter/small_letter_rewriter.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/util.h"
-#include "converter/converter_interface.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
+#include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 namespace {
@@ -48,7 +55,7 @@ namespace {
 // mapping can be extended for other letters like '+' or 'a', implementation
 // based on array will not work in the future. In order to avoid that,
 // std::map is chosen.
-const auto *kSuperscriptTable =
+const auto* kSuperscriptTable =
     new absl::flat_hash_map<char, absl::string_view>({
         {'0', "⁰"},
         {'1', "¹"},
@@ -67,7 +74,7 @@ const auto *kSuperscriptTable =
         {')', "⁾"},
     });
 
-const auto *kSubscriptTable = new absl::flat_hash_map<char, absl::string_view>({
+const auto* kSubscriptTable = new absl::flat_hash_map<char, absl::string_view>({
     {'0', "₀"},
     {'1', "₁"},
     {'2', "₂"},
@@ -105,7 +112,7 @@ enum ParserState : char {
 // This function allows conversion of digits sequence. For example, _123 will be
 // converted into ₁₂₃. Other symbols requires prefix as `^+` or `_(` for each
 // occurrence. `^()` does not mean ⁽⁾ but means ⁽).
-bool ConvertExpressions(const absl::string_view input, std::string *value) {
+bool ConvertExpressions(const absl::string_view input, std::string* value) {
   // Check preconditions
   if (input.empty()) {
     return false;
@@ -191,39 +198,15 @@ bool ConvertExpressions(const absl::string_view input, std::string *value) {
   return input != *value;
 }
 
-// Resizes the segment size if not previously modified. Returns true if the
-// segment size is 1 after resize.
-bool EnsureSingleSegment(const ConversionRequest &request, Segments *segments,
-                         const ConverterInterface *parent_converter,
-                         const absl::string_view key) {
-  if (segments->conversion_segments_size() == 1) {
-    return true;
-  }
-
-  if (segments->resized()) {
-    // The given segments are resized by user so don't modify anymore.
-    return false;
-  }
-
-  const uint32_t resize_len =
-      Util::CharsLen(key) -
-      Util::CharsLen(segments->conversion_segment(0).key());
-  if (!parent_converter->ResizeSegment(segments, request, 0, resize_len)) {
-    return false;
-  }
-  DCHECK_EQ(1, segments->conversion_segments_size());
-  return true;
-}
-
 void AddCandidate(std::string key, std::string description, std::string value,
-                  int index, Segment *segment) {
+                  int index, Segment* segment) {
   DCHECK(segment);
 
   if (index < 0 || index > segment->candidates_size()) {
     index = segment->candidates_size();
   }
 
-  Segment::Candidate *candidate = segment->insert_candidate(index);
+  converter::Candidate* candidate = segment->insert_candidate(index);
   DCHECK(candidate);
 
   segment->set_key(key);
@@ -231,50 +214,74 @@ void AddCandidate(std::string key, std::string description, std::string value,
   candidate->value = value;
   candidate->content_value = std::move(value);
   candidate->description = std::move(description);
-  candidate->attributes |= (Segment::Candidate::NO_LEARNING |
-                            Segment::Candidate::NO_VARIANTS_EXPANSION);
+  candidate->attributes |= (converter::Attribute::NO_LEARNING |
+                            converter::Attribute::NO_VARIANTS_EXPANSION);
 }
 
+std::optional<std::string> GetValue(absl::string_view key) {
+  std::string value;
+  if (!ConvertExpressions(key, &value)) {
+    return std::nullopt;
+  }
+
+  if (value.empty()) {
+    return std::nullopt;
+  }
+  return value;
+}
 }  // namespace
 
-SmallLetterRewriter::SmallLetterRewriter(
-    const ConverterInterface *parent_converter)
-    : parent_converter_(parent_converter) {
-  DCHECK(parent_converter_);
-}
-
-int SmallLetterRewriter::capability(const ConversionRequest &request) const {
+int SmallLetterRewriter::capability(const ConversionRequest& request) const {
   if (request.request().mixed_conversion()) {
     return RewriterInterface::ALL;
   }
   return RewriterInterface::CONVERSION;
 }
 
-bool SmallLetterRewriter::Rewrite(const ConversionRequest &request,
-                                  Segments *segments) const {
-  std::string key;
-  for (const Segment &segment : segments->conversion_segments()) {
-    key += segment.key();
+std::optional<RewriterInterface::ResizeSegmentsRequest>
+SmallLetterRewriter::CheckResizeSegmentsRequest(
+    const ConversionRequest& request, const Segments& segments) const {
+  if (segments.resized() || segments.conversion_segments_size() <= 1) {
+    return std::nullopt;
   }
 
-  std::string value;
-  if (!ConvertExpressions(key, &value)) {
+  absl::string_view key = request.key();
+  const size_t key_len = Util::CharsLen(key);
+  if (key_len > std::numeric_limits<uint8_t>::max()) {
+    return std::nullopt;
+  }
+  const uint8_t segment_size = static_cast<uint8_t>(key_len);
+
+  std::optional<std::string> value = GetValue(key);
+  if (!value.has_value()) {
+    return std::nullopt;
+  }
+
+  ResizeSegmentsRequest resize_request = {
+      .segment_index = 0,
+      .segment_sizes = {segment_size, 0, 0, 0, 0, 0, 0, 0},
+  };
+  return resize_request;
+}
+
+bool SmallLetterRewriter::Rewrite(const ConversionRequest& request,
+                                  Segments* segments) const {
+  if (segments->conversion_segments_size() != 1) {
     return false;
   }
 
-  if (value.empty()) {
+  absl::string_view key = request.key();
+  std::optional<std::string> value = GetValue(key);
+  if (!value.has_value()) {
     return false;
   }
 
-  if (!EnsureSingleSegment(request, segments, parent_converter_, key)) {
-    return false;
-  }
-
-  Segment *segment = segments->mutable_conversion_segment(0);
+  Segment* segment = segments->mutable_conversion_segment(0);
 
   // Candidates from this function should not be on high position. -1 will
   // overwritten with the last index of candidates.
-  AddCandidate(std::move(key), "上下付き文字", std::move(value), -1, segment);
+  AddCandidate(std::string(key), "上下付き文字", std::move(value.value()), -1,
+               segment);
   return true;
 }
 

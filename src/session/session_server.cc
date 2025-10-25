@@ -36,16 +36,15 @@
 #include <memory>
 #include <string>
 
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "base/logging.h"
 #include "base/vlog.h"
 #include "engine/engine_factory.h"
 #include "ipc/ipc.h"
 #include "ipc/named_event.h"
 #include "protocol/commands.pb.h"
 #include "session/session_handler.h"
-#include "session/session_usage_observer.h"
 
 namespace {
 
@@ -68,12 +67,10 @@ namespace mozc {
 
 SessionServer::SessionServer()
     : IPCServer(kSessionName, kNumConnections, kTimeOut),
-      usage_observer_(std::make_unique<session::SessionUsageObserver>()),
       session_handler_(
           std::make_unique<SessionHandler>(EngineFactory::Create().value())) {
   // start session watch dog timer
   session_handler_->StartWatchDog();
-  session_handler_->AddObserver(usage_observer_.get());
 
   // Send a notification event to the UI.
   NamedEventNotifier notifier(kEventName);
@@ -87,7 +84,7 @@ bool SessionServer::Connected() const {
           IPCServer::Connected());
 }
 
-bool SessionServer::Process(absl::string_view request, std::string *response) {
+bool SessionServer::Process(absl::string_view request, std::string* response) {
   if (!session_handler_) {
     LOG(WARNING) << "handler is not available";
     return false;  // shutdown the server if handler doesn't exist

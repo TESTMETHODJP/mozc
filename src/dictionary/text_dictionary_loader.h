@@ -36,8 +36,8 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "dictionary/dictionary_token.h"
-#include "testing/friend_test.h"
 
 namespace mozc {
 namespace dictionary {
@@ -47,11 +47,11 @@ class PosMatcher;
 class TextDictionaryLoader {
  public:
   // TODO(noriyukit): Better to pass the pointer of pos_matcher.
-  explicit TextDictionaryLoader(const PosMatcher &pos_matcher);
+  explicit TextDictionaryLoader(const PosMatcher& pos_matcher);
   TextDictionaryLoader(uint16_t zipcode_id, uint16_t isolated_word_id);
 
-  TextDictionaryLoader(const TextDictionaryLoader &) = delete;
-  TextDictionaryLoader &operator=(const TextDictionaryLoader &) = delete;
+  TextDictionaryLoader(const TextDictionaryLoader&) = delete;
+  TextDictionaryLoader& operator=(const TextDictionaryLoader&) = delete;
 
   virtual ~TextDictionaryLoader() = default;
 
@@ -77,17 +77,19 @@ class TextDictionaryLoader {
     tokens_.push_back(std::move(token));
   }
 
-  const std::vector<std::unique_ptr<Token>> &tokens() const { return tokens_; }
+  absl::Span<const std::unique_ptr<Token>> tokens() const { return tokens_; }
 
   // Appends the tokens owned by this instance to |res|.  Note that the appended
   // tokens are still owned by this instance and deleted on destruction of this
   // instance or when Clear() is called.
-  void CollectTokens(std::vector<Token *> *res) const;
+  void CollectTokens(std::vector<Token*>* res) const;
 
  private:
+  friend class TextDictionaryLoaderTestPeer;
+
   static std::vector<std::unique_ptr<Token>> LoadReadingCorrectionTokens(
       absl::string_view reading_correction_filename,
-      const std::vector<std::unique_ptr<Token>> &ref_sorted_tokens, int *limit);
+      absl::Span<const std::unique_ptr<Token>> ref_sorted_tokens, int* limit);
 
   // Encodes special information into |token| with the |label|.
   // Currently, label must be:
@@ -96,17 +98,15 @@ class TextDictionaryLoader {
   //   - "ZIP_CODE", or
   //   - "ENGLISH".
   // Otherwise, the method returns false.
-  bool RewriteSpecialToken(Token *token, absl::string_view label) const;
+  bool RewriteSpecialToken(Token* token, absl::string_view label) const;
 
   std::unique_ptr<Token> ParseTSVLine(absl::string_view line) const;
   std::unique_ptr<Token> ParseTSV(
-      const std::vector<absl::string_view> &columns) const;
+      absl::Span<const absl::string_view> columns) const;
 
   const uint16_t zipcode_id_;
   const uint16_t isolated_word_id_;
   std::vector<std::unique_ptr<Token>> tokens_;
-
-  FRIEND_TEST(TextDictionaryLoaderTest, RewriteSpecialTokenTest);
 };
 
 }  // namespace dictionary

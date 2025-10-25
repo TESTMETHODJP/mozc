@@ -30,16 +30,19 @@
 #ifndef MOZC_BASE_STRINGS_ZSTRING_VIEW_H_
 #define MOZC_BASE_STRINGS_ZSTRING_VIEW_H_
 
+#include <compare>
+#include <concepts>
 #include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
-#include <type_traits>
 
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
+#include "absl/log/check.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "base/strings/pfchar.h"
 
 namespace mozc {
@@ -69,6 +72,7 @@ namespace mozc {
 template <typename StringViewT>
 class basic_zstring_view {
  public:
+  using traits_type = typename StringViewT::traits_type;
   using value_type = typename StringViewT::value_type;
   using reference = typename StringViewT::reference;
   using const_reference = typename StringViewT::const_reference;
@@ -76,30 +80,31 @@ class basic_zstring_view {
   using const_pointer = typename StringViewT::const_pointer;
   using iterator = typename StringViewT::iterator;
   using const_iterator = typename StringViewT::const_iterator;
-  using difference_type = typename StringViewT::difference_type;
   using size_type = typename StringViewT::size_type;
+  using difference_type = typename StringViewT::difference_type;
 
   // Default constructor initializes basic_zstring_view with nullptr.
   constexpr basic_zstring_view() noexcept = default;
 
-  // Implicit constructor from const CharT * (C-style null-terminated string).
+  // Implicit constructor from const CharT* (C-style null-terminated string).
   // Unlike absl::string_view (when ABSL_OPTION_USE_STD_STRING_VIEW is set to
   // 0), passing nullptr is an undefined behavior. Note that absl::string_view
   // is just an alias of std::string_view in most cases, so passing a nullptr is
   // probably a bad idea anyway.
   //
-  // NOLINTNEXTLINE(runtime/explicit)
+  // NOLINTNEXTLINE(runtime/explicit, google-explicit-constructor)
   constexpr basic_zstring_view(
-      const const_pointer p ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      const absl_nonnull const_pointer p ABSL_ATTRIBUTE_LIFETIME_BOUND)
       // This std::basic_string_view constructor overload is not noexcept.
       : sv_(p) {}
 
-  // Constructs basic_zstring_view from a const CharT * and length of the
+  // Constructs basic_zstring_view from a const CharT* and length of the
   // string, not including the null-terminated character.
   //
   // REQUIRES: p[n] is the null-terminated character.
-  constexpr basic_zstring_view(
-      const const_pointer p ABSL_ATTRIBUTE_LIFETIME_BOUND, const size_type n)
+  constexpr basic_zstring_view(const absl_nonnull const_pointer p
+                                   ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                               const size_type n)
       : sv_(p, n) {
     DCHECK_EQ(p[n], 0);
   }
@@ -109,8 +114,8 @@ class basic_zstring_view {
   // is necessary to accept basic_string as zstring_view because we can't add
   // an operator to std::basic_string.
   //
-  // NOLINTNEXTLINE(runtime/explicit)
-  constexpr basic_zstring_view(const std::basic_string<value_type> &str
+  // NOLINTNEXTLINE(runtime/explicit, google-explicit-constructor)
+  constexpr basic_zstring_view(const std::basic_string<value_type>& str
                                    ABSL_ATTRIBUTE_LIFETIME_BOUND) noexcept
       // Implicitly converts to std::basic_string::operator basic_string_view(),
       // which is noexcept. operator basic_string_view() is equivalent to
@@ -122,31 +127,41 @@ class basic_zstring_view {
   constexpr basic_zstring_view(std::nullptr_t) = delete;
 
   // Allow copies.
-  constexpr basic_zstring_view(const basic_zstring_view &) noexcept = default;
-  constexpr basic_zstring_view &operator=(const basic_zstring_view &) noexcept =
+  constexpr basic_zstring_view(const basic_zstring_view&) noexcept = default;
+  constexpr basic_zstring_view& operator=(const basic_zstring_view&) noexcept =
       default;
 
   // Access the underlying StringViewT through the arrow operator.
   // basic_zstring_view doesn't now implement a non-const operator->() to not
   // allow operations that could break the null-termination guarantee.
-  constexpr const StringViewT *operator->() const noexcept {
+  constexpr const StringViewT* absl_nonnull operator->() const noexcept {
     return std::addressof(sv_);
   }
 
   // Returns the underlying string_view.
-  constexpr const StringViewT &view() const noexcept { return sv_; }
+  constexpr const StringViewT& view() const noexcept { return sv_; }
 
   // Allow implicit conversion to StringViewT.
-  // NOLINTNEXTLINE(runtime/explicit)
+  // NOLINTNEXTLINE(runtime/explicit, google-explicit-constructor)
   constexpr operator StringViewT() const noexcept { return sv_; }
+
+  // Allow implicit conversion to absl::AlphaNum to use with absl::StrCat().
+  // This method only works for zstring_view (not zwstring_view) because
+  // absl::AlphaNum doesn't support wide characters.
+  // NOLINTNEXTLINE(runtime/explicit, google-explicit-constructor)
+  operator absl::AlphaNum() const noexcept { return sv_; }
 
   // c_str() and data() return a pointer to the null-terminated StringViewT.
   // The returned pointer is guaranteed to be null-terminated because this class
   // only constructs from null-terminated strings.
   // Use these functions instead of the underlying StringViewT when calling
   // C functions.
-  constexpr const_pointer c_str() const noexcept { return sv_.data(); }
-  constexpr const_pointer data() const noexcept { return sv_.data(); }
+  constexpr absl_nonnull const_pointer c_str() const noexcept {
+    return sv_.data();
+  }
+  constexpr absl_nonnull const_pointer data() const noexcept {
+    return sv_.data();
+  }
 
   // Returns true if the string is empty.
   constexpr bool empty() const noexcept { return sv_.empty(); }
@@ -164,24 +179,26 @@ class basic_zstring_view {
   constexpr const_iterator end() const noexcept { return sv_.end(); }
   constexpr const_iterator cend() const noexcept { return end(); }
 
-  constexpr void swap(basic_zstring_view &other) noexcept {
+  constexpr void swap(basic_zstring_view& other) noexcept {
     sv_.swap(other.sv_);
   }
 
-  // Comparison operators for basic_zstring_view. Currently only ==, !=, <
-  // are implemented because the other comparisons are not very common.
-  // TODO(yuryu): use operator <=> when C++20 is allowed.
+  // Comparison operators for basic_zstring_view and anything that converts
+  // to StringViewT.
+  template <typename StringViewLike>
   friend constexpr bool operator==(const basic_zstring_view lhs,
-                                   const basic_zstring_view rhs) noexcept {
-    return lhs.sv_ == rhs.sv_;
+                                   const StringViewLike& rhs) {
+    return lhs.view() == rhs;
   }
-  friend constexpr bool operator!=(const basic_zstring_view lhs,
-                                   const basic_zstring_view rhs) noexcept {
-    return lhs.sv_ != rhs.sv_;
-  }
-  friend constexpr bool operator<(const basic_zstring_view lhs,
-                                  const basic_zstring_view rhs) noexcept {
-    return lhs.sv_ < rhs.sv_;
+  template <typename StringViewLike>
+    requires std::same_as<
+        typename StringViewLike::traits_type::comparison_category,
+        std::strong_ordering>
+  friend constexpr std::strong_ordering operator<=>(
+      const basic_zstring_view lhs, const StringViewLike& rhs) {
+    // In some environments, absl::string_view isn't an alias of
+    // std::string_view and doesn't implement operator <=> .
+    return lhs.view().compare(rhs) <=> 0;
   }
 
   template <typename H>
@@ -193,52 +210,12 @@ class basic_zstring_view {
   StringViewT sv_;
 };
 
-// Comparison operators for basic_zstring_view and anything that converts
-// to StringViewT.
-// TODO(yuryu): use operator <=> when C++20 is allowed.
-template <typename StringViewT, typename StringViewLike>
-constexpr bool operator==(const basic_zstring_view<StringViewT> lhs,
-                          const StringViewLike &rhs) {
-  return lhs.view() == rhs;
-}
-
-template <typename StringViewT, typename StringViewLike>
-constexpr bool operator==(const StringViewLike &lhs,
-                          const basic_zstring_view<StringViewT> rhs) {
-  return lhs == rhs.view();
-}
-
-template <typename StringViewT, typename StringViewLike>
-constexpr bool operator!=(const basic_zstring_view<StringViewT> lhs,
-                          const StringViewLike &rhs) {
-  return lhs.view() != rhs;
-}
-
-template <typename StringViewT, typename StringViewLike>
-constexpr bool operator!=(const StringViewLike &lhs,
-                          const basic_zstring_view<StringViewT> rhs) {
-  return lhs != rhs.view();
-}
-
-template <typename StringViewT, typename StringViewLike>
-constexpr bool operator<(const basic_zstring_view<StringViewT> lhs,
-                         const StringViewLike &rhs) {
-  return lhs.view() < rhs;
-}
-
-template <typename StringViewT, typename StringViewLike>
-constexpr bool operator<(const StringViewLike &lhs,
-                         const basic_zstring_view<StringViewT> rhs) {
-  return lhs < rhs.view();
-}
-
 // Outputs the value of the underlying StringViewT.
 template <typename StringViewT>
-std::basic_ostream<typename basic_zstring_view<StringViewT>::value_type> &
-operator<<(
-    std::basic_ostream<typename basic_zstring_view<StringViewT>::value_type>
-        &os,
-    const basic_zstring_view<StringViewT> str) {
+std::basic_ostream<typename basic_zstring_view<StringViewT>::value_type>&
+operator<<(std::basic_ostream<
+               typename basic_zstring_view<StringViewT>::value_type>& os,
+           const basic_zstring_view<StringViewT> str) {
   os << str.view();
   return os;
 }
@@ -247,7 +224,7 @@ using zstring_view = basic_zstring_view<absl::string_view>;
 using zwstring_view = basic_zstring_view<std::wstring_view>;
 using zpfstring_view = basic_zstring_view<pfstring_view>;
 
-static_assert(std::is_convertible_v<zstring_view, absl::string_view>);
+static_assert(std::convertible_to<zstring_view, absl::string_view>);
 
 }  // namespace mozc
 

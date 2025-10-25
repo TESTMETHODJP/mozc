@@ -32,7 +32,7 @@
 
 #include <cstdint>
 
-#include "absl/base/attributes.h"
+#include "absl/types/span.h"
 
 namespace mozc {
 namespace dictionary {
@@ -42,11 +42,10 @@ namespace dictionary {
 // value like string_view.
 class PosGroup {
  public:
-  explicit PosGroup(const uint8_t *lid_group ABSL_ATTRIBUTE_LIFETIME_BOUND)
+  explicit PosGroup(absl::Span<const uint8_t> lid_group)
       : lid_group_(lid_group) {}
 
-  PosGroup(const PosGroup &) = default;
-  PosGroup &operator=(const PosGroup &) = default;
+  PosGroup(const PosGroup&) = default;
 
   // Returns grouped pos id based on an array pre-generated from
   // data/rules/user_segment_history_pos_group.def.
@@ -55,7 +54,7 @@ class PosGroup {
   }
 
  private:
-  const uint8_t *lid_group_;
+  const absl::Span<const uint8_t> lid_group_;
 };
 
 }  // namespace dictionary

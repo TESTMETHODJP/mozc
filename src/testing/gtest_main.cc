@@ -34,10 +34,9 @@
 
 #include "absl/flags/flag.h"
 #include "base/init_mozc.h"
-#include "testing/googletest.h"
 #include "testing/gunit.h"
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   // TODO(yukawa, team): Implement b/2805528 so that you can specify any option
   // given by gunit.
 #ifdef GTEST_HAS_ABSL
@@ -48,7 +47,6 @@ int main(int argc, char **argv) {
   const char* usage = argv[0];
 #endif  // GTEST_HAS_ABSL
   mozc::InitMozc(usage, &argc, &argv);
-  mozc::InitTestFlags();
   testing::InitGoogleTest(&argc, argv);
 
 #ifdef _WIN32

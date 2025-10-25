@@ -29,8 +29,6 @@
 
 #include "base/run_level.h"
 
-#include "base/logging.h"
-
 #ifdef __linux__
 #include <sys/types.h>
 #endif  // __linux__
@@ -215,7 +213,7 @@ RunLevel::RunLevelType RunLevel::GetRunLevel(RunLevel::RequestType type) {
         // is removed by sandboxing so we should recover the permission here.
         // See http://b/2317718 for details.
         WinSandbox::AddKnownSidToKernelObject(
-            dir_handle.get(), static_cast<SID *>(ptoken_user->User.Sid),
+            dir_handle.get(), static_cast<SID*>(ptoken_user->User.Sid),
             SUB_CONTAINERS_AND_OBJECTS_INHERIT, GENERIC_ALL);
       }
     }
@@ -278,32 +276,6 @@ RunLevel::RunLevelType RunLevel::GetRunLevel(RunLevel::RequestType type) {
 #endif  // _WIN32
 }
 
-bool RunLevel::IsProcessInJob() {
-#ifdef _WIN32
-  // Check to see if we're in a job where
-  // we can't create a child in our sandbox
-
-  JOBOBJECT_EXTENDED_LIMIT_INFORMATION JobExtLimitInfo;
-  // Get the job information of the current process
-  if (!::QueryInformationJobObject(nullptr, JobObjectExtendedLimitInformation,
-                                   &JobExtLimitInfo, sizeof(JobExtLimitInfo),
-                                   nullptr)) {
-    return false;
-  }
-
-  // Check to see if we can break away from the current job
-  if (JobExtLimitInfo.BasicLimitInformation.LimitFlags &
-      (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)) {
-    // We're in a job, but it allows to break away.
-    return false;
-  }
-
-  return true;
-#else   // _WIN32
-  return false;
-#endif  // _WIN32
-}
-
 bool RunLevel::IsElevatedByUAC() {
 #ifdef _WIN32
   // Get process token
@@ -334,7 +306,7 @@ bool RunLevel::SetElevatedProcessDisabled(bool disable) {
   const DWORD value = disable ? 1 : 0;
   result =
       ::RegSetValueExW(key, kElevatedProcessDisabledName, 0, REG_DWORD,
-                       reinterpret_cast<const BYTE *>(&value), sizeof(value));
+                       reinterpret_cast<const BYTE*>(&value), sizeof(value));
   ::RegCloseKey(key);
 
   return ERROR_SUCCESS == result;
@@ -357,7 +329,7 @@ bool RunLevel::GetElevatedProcessDisabled() {
   DWORD value_type = 0;
   result =
       ::RegQueryValueEx(key, kElevatedProcessDisabledName, nullptr, &value_type,
-                        reinterpret_cast<BYTE *>(&value), &value_size);
+                        reinterpret_cast<BYTE*>(&value), &value_size);
   ::RegCloseKey(key);
 
   if (ERROR_SUCCESS != result || value_type != REG_DWORD ||

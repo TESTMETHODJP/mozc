@@ -38,12 +38,13 @@
 #include <string>
 #include <utility>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "base/clock.h"
 #include "base/cpu_stats.h"
-#include "base/logging.h"
 #include "base/system_util.h"
 #include "base/thread.h"
 #include "base/vlog.h"
@@ -186,7 +187,7 @@ void SessionWatchDog::ThreadMain() {
         MOZC_VLOG(1) << "Parent thread is already terminated";
         return;
       }
-#ifndef MOZC_NO_LOGGING
+#ifndef NDEBUG
       // We have received crash dumps caused by the following LOG(FATAL).
       // Unfortunately, we cannot investigate the cause of this error,
       // as the crash dump doesn't contain any logging information.
@@ -196,7 +197,7 @@ void SessionWatchDog::ThreadMain() {
       const std::string tmp = SystemUtil::GetUserNameAsString();
       strncpy(user_name, tmp.c_str(), sizeof(user_name));
       MOZC_VLOG(1) << "user_name: " << user_name;
-#endif  // !MOZC_NO_LOGGING
+#endif  // !NDEBUG
       LOG(FATAL) << "Cleanup commands failed. Rasing exception...";
     }
   }

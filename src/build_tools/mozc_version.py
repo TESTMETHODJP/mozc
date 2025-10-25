@@ -141,7 +141,9 @@ def _ParseVersionTemplateFile(template_path, target_platform, version_override):
   if version_override:
     nums = version_override.split('.')
     if len(nums) == 1:
-      template_dict['BUILD'] = nums[0]
+      # On Windows, BUILD number must be within 16-bit range.
+      if target_platform != 'Windows' or int(nums[0]) <= 0xffff:
+        template_dict['BUILD'] = nums[0]
     if len(nums) == 4:
       template_dict['MAJOR'] = nums[0]
       template_dict['MINOR'] = nums[1]
@@ -343,6 +345,17 @@ def main():
   parser = optparse.OptionParser(usage='Usage: %prog ')
   parser.add_option('--template_path', dest='template_path',
                     help='Path to a template version file.')
+  parser.add_option(
+      '--use_mozc_version_env',
+      dest='use_mozc_version_env',
+      action='store_true',
+      help=(
+          'If true and MOZC_VERSION environment variable is set, the variable'
+          ' is used as the version string. Otherwise the template file is used.'
+          ' The value is a four-digit number (e.g. 2.31.5840.0) or a single'
+          ' build number (e.g. 5840).'
+      ),
+  )
   parser.add_option('--output', dest='output',
                     help='Path to the output version file.')
   parser.add_option('--target_platform', dest='target_platform',
@@ -357,13 +370,18 @@ def main():
   assert options.output, 'No --output was specified.'
   assert options.target_platform, 'No --target_platform was specified.'
 
-  cl_number = _GetChangelistNumber(options.build_override,
-                                   options.build_changelist_file)
+  mozc_version_env = os.getenv('MOZC_VERSION')
+  if options.use_mozc_version_env and mozc_version_env:
+    version_override = mozc_version_env
+  else:
+    version_override = _GetChangelistNumber(
+        options.build_override, options.build_changelist_file
+    )
   GenerateVersionFile(
       version_template_path=options.template_path,
       version_path=options.output,
       target_platform=options.target_platform,
-      version_override=cl_number)
+      version_override=version_override)
 
 if __name__ == '__main__':
   main()

@@ -29,15 +29,15 @@
 
 #include "unix/ibus/message_translator.h"
 
+#include <cstddef>
 #include <iterator>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "absl/strings/str_split.h"
-#include "base/logging.h"
-#include "base/port.h"
 #include "base/util.h"
 
 namespace {
@@ -71,9 +71,9 @@ const TranslationMap kUTF8JapaneseMap[] = {
 namespace mozc {
 namespace ibus {
 
-MessageTranslatorInterface::~MessageTranslatorInterface() {}
+MessageTranslatorInterface::~MessageTranslatorInterface() = default;
 
-NullMessageTranslator::NullMessageTranslator() {}
+NullMessageTranslator::NullMessageTranslator() = default;
 
 std::string NullMessageTranslator::MaybeTranslate(
     const std::string &message) const {

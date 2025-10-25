@@ -35,21 +35,20 @@
 
 #undef StrCat  // b/328804050
 
+#include <bit>
 #include <cstdint>
 #include <memory>
 
-#include "absl/base/casts.h"
-#include "base/logging.h"
 #include "protocol/commands.pb.h"
 #include "protocol/renderer_command.pb.h"
 #include "testing/gunit.h"
 
 // Following functions should be placed in global namespace for Koenig look-up
 // trick used in GTest.
-void PrintTo(const POINT &point, ::std::ostream *os) {
+void PrintTo(const POINT& point, ::std::ostream* os) {
   *os << "(" << point.x << ", " << point.y << ")";
 }
-void PrintTo(const RECT &rect, ::std::ostream *os) {
+void PrintTo(const RECT& rect, ::std::ostream* os) {
   *os << "(" << rect.left << ", " << rect.top << ", " << rect.right << ", "
       << rect.bottom << ")";
 }
@@ -71,7 +70,7 @@ namespace {
 // uint32_t as 64-bit Windows still uses 32-bit handles.
 // https://learn.microsoft.com/en-us/windows/win32/winprog64/interprocess-communication
 inline uint32_t HwndToUint32(HWND hwnd) {
-  return static_cast<uint32_t>(absl::bit_cast<uintptr_t>(hwnd));
+  return static_cast<uint32_t>(std::bit_cast<uintptr_t>(hwnd));
 }
 
 #define EXPECT_EXCLUDE_CANDIDATE_WINDOW_LAYOUT(                     \
@@ -85,14 +84,13 @@ inline uint32_t HwndToUint32(HWND hwnd) {
               (layout).exclude_region());                           \
   } while (false)
 
-static CPoint ToCPoint(const POINT &point) { return CPoint(point.x, point.y); }
-static CRect ToCRect(const RECT &rect) {
+static CRect ToCRect(const RECT& rect) {
   return CRect(rect.left, rect.top, rect.right, rect.bottom);
 }
 
 std::unique_ptr<WindowPositionEmulator> CreateWindowEmulator(
-    const RECT &window_rect, const POINT &client_area_offset,
-    const SIZE &client_area_size, double scale_factor, HWND *hwnd) {
+    const RECT& window_rect, const POINT& client_area_offset,
+    const SIZE& client_area_size, double scale_factor, HWND* hwnd) {
   std::unique_ptr<WindowPositionEmulator> emulator =
       WindowPositionEmulator::Create();
   *hwnd = emulator->RegisterWindow(window_rect, client_area_offset,
@@ -103,9 +101,9 @@ std::unique_ptr<WindowPositionEmulator> CreateWindowEmulator(
 class AppInfoUtil {
  public:
   AppInfoUtil() = delete;
-  AppInfoUtil(const AppInfoUtil &) = delete;
-  AppInfoUtil &operator=(const AppInfoUtil &) = delete;
-  static void SetBasicApplicationInfo(ApplicationInfo *app_info, HWND hwnd,
+  AppInfoUtil(const AppInfoUtil&) = delete;
+  AppInfoUtil& operator=(const AppInfoUtil&) = delete;
+  static void SetBasicApplicationInfo(ApplicationInfo* app_info, HWND hwnd,
                                       int visibility,
                                       InputFrameworkType framework_type) {
     app_info->set_ui_visibilities(visibility);
@@ -115,15 +113,15 @@ class AppInfoUtil {
     app_info->set_input_framework(framework_type);
   }
 
-  static void SetCompositionTarget(ApplicationInfo *app_info, int position,
+  static void SetCompositionTarget(ApplicationInfo* app_info, int position,
                                    int x, int y, uint32_t line_height, int left,
                                    int top, int right, int bottom) {
-    CharacterPosition *char_pos = app_info->mutable_composition_target();
+    CharacterPosition* char_pos = app_info->mutable_composition_target();
     char_pos->set_position(position);
     char_pos->mutable_top_left()->set_x(x);
     char_pos->mutable_top_left()->set_y(y);
     char_pos->set_line_height(line_height);
-    Rectangle *area = char_pos->mutable_document_area();
+    Rectangle* area = char_pos->mutable_document_area();
     area->set_left(left);
     area->set_top(top);
     area->set_right(right);

@@ -31,13 +31,15 @@
 #   Declaration of package_group for visibility managing.
 
 load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load(
     "//:build_defs.bzl",
     "mozc_select",
     "mozc_select_enable_session_watchdog",
-    "mozc_select_enable_spellchecker",
+    "mozc_select_enable_supplemental_model",
     "mozc_select_enable_usage_rewriter",
 )
+load("//:config.bzl", "BAZEL_TOOLS_PREFIX")
 load("//bazel:stubs.bzl", "bzl_library")
 
 package(default_visibility = ["//:__subpackages__"])
@@ -53,6 +55,100 @@ config_setting(
         "compilation_mode": "opt",
     },
     visibility = ["//visibility:private"],
+)
+
+# CHANNEL=dev is used to build Dev channel binaries.
+# Dev channel is a kind of beta release that can be used by external users.
+# The version number of Dev channel should end with 10x (e.g. 100 for Windows, 101 for macOS).
+config_setting(
+    name = "dev_channel",
+    values = {
+        "define": "CHANNEL=dev",
+    },
+)
+
+# CODESIGN=release is used to build binaries that are signed for external product release.
+config_setting(
+    name = "codesign_release",
+    values = {
+        "define": "CODESIGN=release",
+    },
+)
+
+# CODESIGN=testing is used to build binaries that are signed for internal testing release.
+config_setting(
+    name = "codesign_testing",
+    values = {
+        "define": "CODESIGN=testing",
+    },
+)
+
+alias(
+    name = "compiler",
+    actual = BAZEL_TOOLS_PREFIX + "//tools/cpp:compiler",
+    visibility = ["//:__subpackages__"],
+)
+
+config_setting(
+    name = "compiler_msvc_cl",
+    flag_values = {
+        ":compiler": "msvc-cl",
+    },
+    visibility = ["//:__subpackages__"],
+)
+
+config_setting(
+    name = "compiler_clang_cl",
+    flag_values = {
+        ":compiler": "clang-cl",
+    },
+    visibility = ["//:__subpackages__"],
+)
+
+selects.config_setting_group(
+    name = "compiler_msvc_like",
+    match_any = [
+        # clang-cl.exe is a drop-in replacement for cl.exe.
+        # Command line options are mostly compatible.
+        # https://clang.llvm.org/docs/MSVCCompatibility.html
+        ":compiler_clang_cl",
+        ":compiler_msvc_cl",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+# Generic Windows platform with clang-cl that automatically matches host CPU.
+platform(
+    name = "host-windows-clang-cl",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@bazel_tools//tools/cpp:clang-cl",
+    ],
+    parents = ["@local_config_platform//:host"],
+)
+
+platform(
+    name = "windows-x86_32",
+    constraint_values = [
+        "@platforms//cpu:x86_32",
+        "@platforms//os:windows",
+    ],
+)
+
+platform(
+    name = "windows-x86_64",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:windows",
+    ],
+)
+
+platform(
+    name = "windows-arm64",
+    constraint_values = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:windows",
+    ],
 )
 
 # Special target so as to define special macros for each platforms.
@@ -84,6 +180,21 @@ cc_library(
         oss_macos = [
             "MOZC_BUILD",
         ],
+        oss_windows = [
+            "MOZC_BUILD",
+            "WINVER=0x0A00",
+            "_WIN32_WINNT=0x0A00",
+            "_ATL_ALL_WARNINGS",
+            "_ATL_ALLOW_CHAR_UNSIGNED",
+            "_ATL_CSTRING_EXPLICIT_CONSTRUCTORS",
+            "_ATL_NO_AUTOMATIC_NAMESPACE",
+            "_ATL_NO_HOSTING",
+            "ID_TRACE_LEVEL=1",
+            "_MIDL_USE_GUIDDEF_",
+            "PSAPI_VERSION=2",
+            "UNICODE",
+            "_UNICODE",
+        ],
         wasm = [
             "GOOGLE_JAPANESE_INPUT_BUILD",
         ],
@@ -104,10 +215,13 @@ cc_library(
         ],
     ) + mozc_select_enable_session_watchdog(
         off = ["MOZC_DISABLE_SESSION_WATCHDOG"],
-    ) + mozc_select_enable_spellchecker([
+    ) + mozc_select_enable_supplemental_model([
     ]) + mozc_select_enable_usage_rewriter(
         off = ["NO_USAGE_REWRITER"],
-    ),
+    ) + select({
+        ":dev_channel": ["CHANNEL_DEV=1"],
+        "//conditions:default": [],
+    }),
 )
 
 bzl_library(
@@ -120,7 +234,9 @@ bzl_library(
         "//bazel:run_build_tool_bzl",
         "//bazel:stubs.bzl",
         "//devtools/build_cleaner/skylark:build_defs_lib",
+        "@bazel_skylib//rules:select_file",
         "@build_bazel_rules_apple//apple:macos",
+        "@rules_cc//cc:core_rules",
     ],
 )
 
@@ -138,6 +254,7 @@ filegroup(
         default = [],
         linux = ["//unix:package"],
         macos = ["//mac:package"],
+        windows = ["//win32/installer"],
     ),
 )
 

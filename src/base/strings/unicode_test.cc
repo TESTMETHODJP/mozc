@@ -42,6 +42,8 @@
 namespace mozc::strings {
 namespace {
 
+using ::testing::ElementsAreArray;
+using ::testing::IsEmpty;
 using ::testing::Pair;
 
 TEST(UnicodeTest, OneCharLen) {
@@ -112,6 +114,25 @@ TEST(UnicodeTest, Utf32ToUtf8) {
   EXPECT_EQ(Utf32ToUtf8(kU32Str), kExpected);
 }
 
+TEST(UnicodeTest, StrAppendChar32) {
+  std::string result;
+  StrAppendChar32(&result, 0);
+  EXPECT_THAT(result, IsEmpty());
+  StrAppendChar32(&result, 'A');
+  EXPECT_EQ(result, "A");
+  StrAppendChar32(&result, U'あ');
+  EXPECT_EQ(result, "Aあ");
+  StrAppendChar32(&result, 0x110000);
+  EXPECT_EQ(result, "Aあ\uFFFD");
+}
+
+TEST(UnicodeTest, Char32ToUtf8) {
+  EXPECT_EQ(Char32ToUtf8(0), absl::string_view("\0", 1));
+  EXPECT_EQ(Char32ToUtf8('A'), "A");
+  EXPECT_EQ(Char32ToUtf8(U'あ'), "あ");
+  EXPECT_EQ(Char32ToUtf8(0x110000), "\uFFFD");
+}
+
 TEST(UnicodeTest, IsValidUtf8) {
   EXPECT_TRUE(IsValidUtf8(""));
   EXPECT_TRUE(IsValidUtf8("abc"));
@@ -157,6 +178,9 @@ TEST(UnicodeTest, Utf8Substring) {
   EXPECT_EQ(Utf8Substring("五十音ABC", 2, 2), "音A");
   EXPECT_EQ(Utf8Substring("Mozc は便利", 6, 100), "便利");
   EXPECT_EQ(Utf8Substring("日本語", 2, 0), "");
+
+  // Invalid sequence.
+  EXPECT_EQ(Utf8Substring("\xF0\x80\x80\xAF", 1, 2), "\x80\x80");
 }
 
 struct Utf8AsCharsTestParam {
@@ -376,8 +400,7 @@ TEST_P(Utf8AsCharsTest, Substring) {
   }
 
   const Utf8AsChars32 substr2(first.SubstringTo(sv.end()));
-  EXPECT_EQ(substr2.begin(), first);
-  EXPECT_EQ(substr2.end(), sv.end());
+  EXPECT_THAT(substr2, ElementsAreArray(first, sv.end()));
 }
 
 // Tests if the `DCHECK` fo reading the `end` iterator hits.

@@ -31,13 +31,16 @@
 #define MOZC_CONVERTER_SEGMENTS_MATCHERS_H_
 
 #include <algorithm>
+#include <cstddef>
 #include <initializer_list>
 #include <string>
 #include <vector>
 
 #include "absl/strings/str_format.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "testing/gmock.h"
+#include "testing/gunit.h"
 
 namespace mozc {
 
@@ -46,7 +49,7 @@ namespace mozc {
 // can display which field is different.
 //
 // Usage:
-//   Segment::Candidate actual_candidate = ...;
+//   converter::Candidate actual_candidate = ...;
 //   EXPECT_THAT(actual_candidate, EqualsCandidate(expected_candidate));
 MATCHER_P(EqualsCandidate, candidate, "") {
 #define COMPARE_FIELD(field)                                         \
@@ -63,6 +66,7 @@ MATCHER_P(EqualsCandidate, candidate, "") {
   COMPARE_FIELD(suffix);
   COMPARE_FIELD(description);
   COMPARE_FIELD(a11y_description);
+  COMPARE_FIELD(display_value);
   COMPARE_FIELD(usage_id);
   COMPARE_FIELD(usage_title);
   COMPARE_FIELD(usage_description);
@@ -72,7 +76,6 @@ MATCHER_P(EqualsCandidate, candidate, "") {
   COMPARE_FIELD(lid);
   COMPARE_FIELD(rid);
   COMPARE_FIELD(attributes);
-  COMPARE_FIELD(source_info);
   COMPARE_FIELD(category);
   COMPARE_FIELD(style);
   COMPARE_FIELD(command);
@@ -99,6 +102,7 @@ MATCHER_P(EqualsSegment, segment, "") {
   }
   COMPARE_PROPERTY(segment_type);
   COMPARE_PROPERTY(key);
+  COMPARE_PROPERTY(key_len);
 #undef COMPARE_PROPERTY
 
   // Compare candidates.
@@ -143,10 +147,10 @@ namespace internal {
 
 // A helper function to print a container of candidate matchers.
 template <typename Container>
-std::string PrintCandidateMatcherArray(const Container &matchers) {
+std::string PrintCandidateMatcherArray(const Container& matchers) {
   std::string str = "candidates are:\n";
   int index = 0;
-  for (const auto &matcher : matchers) {
+  for (const auto& matcher : matchers) {
     str += absl::StrFormat("  cand %d %s\n", index++,
                            ::testing::PrintToString(matcher));
   }
@@ -168,15 +172,15 @@ MATCHER_P(CandidatesAreArrayMatcherImpl, matcher_array,
 //
 // Segment segment = ...;
 // EXPECT_THAT(segment, CandidatesAreArray({
-//     Field(&Segment::Candidate::value, "value"),
-//     Field(&Segment::Candidate::key, "key"),
+//     Field(&converter::Candidate::value, "value"),
+//     Field(&converter::Candidate::key, "key"),
 // });
 //
 // The above code checks if the first candidate's value is "value" and the
 // second candidate's key is "key".
 //
 // Remark: Each candidate matcher should test against the pointer type
-// (Segment::Candidate *). Note: Field() from gMock is applicable to pointer
+// (converter::Candidate *). Note: Field() from gMock is applicable to pointer
 // types too. See SegmentsMatchersTest.CandidatesAreArrayWithCustomMatcher for
 // example.
 template <typename T>
@@ -185,16 +189,16 @@ template <typename T>
   return CandidatesAreArrayMatcherImpl(matchers);
 }
 
-template <typename T>
-::testing::Matcher<Segment> CandidatesAreArray(const std::vector<T> &matchers) {
+template <typename Container>
+::testing::Matcher<Segment> CandidatesAreArray(const Container& matchers) {
   return CandidatesAreArrayMatcherImpl(matchers);
 }
 
 // Checks if a segment contains one and only one candidate that matches the
 // given matcher.
 template <typename T>
-::testing::Matcher<Segment> HasSingleCandidate(const T &matcher) {
-  using CandidateMatcherType = ::testing::Matcher<const Segment::Candidate *>;
+::testing::Matcher<Segment> HasSingleCandidate(const T& matcher) {
+  using CandidateMatcherType = ::testing::Matcher<const converter::Candidate*>;
   return CandidatesAreArray(std::vector<CandidateMatcherType>{matcher});
 }
 
@@ -208,7 +212,6 @@ MATCHER_P(ContainsCandidate, matcher, "") {
 // following three fields:
 //   * pool_
 //   * revert_entries_
-//   * cached_lattice_
 // Note: this is more useful than defining operator==() in testing as it can
 // display which field is different.
 //

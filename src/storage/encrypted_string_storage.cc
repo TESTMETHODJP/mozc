@@ -33,14 +33,16 @@
 #include <ios>
 #include <string>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "base/encryptor.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/mmap.h"
 #include "base/password_manager.h"
+#include "base/random.h"
 #include "base/vlog.h"
 
 #ifdef _WIN32
@@ -58,7 +60,7 @@ constexpr size_t kSaltSize = 32;
 constexpr size_t kMaxFileSize = 64 * 1024 * 1024;
 }  // namespace
 
-bool EncryptedStringStorage::Load(std::string *output) const {
+bool EncryptedStringStorage::Load(std::string* output) const {
   DCHECK(output);
 
   std::string salt;
@@ -91,8 +93,8 @@ bool EncryptedStringStorage::Load(std::string *output) const {
   return Decrypt(salt, output);
 }
 
-bool EncryptedStringStorage::Decrypt(const std::string &salt,
-                                     std::string *data) const {
+bool EncryptedStringStorage::Decrypt(const std::string& salt,
+                                     std::string* data) const {
   DCHECK(data);
 
   std::string password;
@@ -121,9 +123,9 @@ bool EncryptedStringStorage::Decrypt(const std::string &salt,
   return true;
 }
 
-bool EncryptedStringStorage::Save(const std::string &input) const {
+bool EncryptedStringStorage::Save(const std::string& input) const {
   // Generate salt.
-  const std::string salt = random_.ByteString(kSaltSize);
+  const std::string salt = mozc::Random().ByteString(kSaltSize);
 
   std::string output(input);
   if (!Encrypt(salt, &output)) {
@@ -162,8 +164,8 @@ bool EncryptedStringStorage::Save(const std::string &input) const {
   return true;
 }
 
-bool EncryptedStringStorage::Encrypt(const std::string &salt,
-                                     std::string *data) const {
+bool EncryptedStringStorage::Encrypt(const std::string& salt,
+                                     std::string* data) const {
   DCHECK(data);
 
   std::string password;

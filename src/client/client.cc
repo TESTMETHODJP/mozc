@@ -39,7 +39,6 @@
 #include <string>
 #include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
@@ -109,9 +108,8 @@ Client::Client()
   client_factory_ = IPCClientFactory::GetIPCClientFactory();
 
   // Initialize direct_mode_keys_
-  config::Config config;
-  config::ConfigHandler::GetConfig(&config);
-  direct_mode_keys_ = KeyInfoUtil::ExtractSortedDirectModeKeys(config);
+  direct_mode_keys_ = KeyInfoUtil::ExtractSortedDirectModeKeys(
+      *config::ConfigHandler::GetSharedConfig());
 
 #ifdef MOZC_USE_SVS_JAPANESE
   InitRequestForSvsJapanese(true);
@@ -168,7 +166,7 @@ bool Client::EnsureConnection() {
 #endif  // DEBUG
       // don't break here as SERVER_SHUTDOWN and SERVER_UNKNOWN
       // have basically the same treatment.
-      ABSL_FALLTHROUGH_INTENDED;
+      [[fallthrough]];
     case SERVER_UNKNOWN:
       if (StartServer()) {
         server_status_ = SERVER_INVALID_SESSION;
@@ -433,10 +431,6 @@ void Client::EnableCascadingWindow(const bool enable) {
 }
 
 void Client::set_timeout(absl::Duration timeout) { timeout_ = timeout; }
-
-void Client::set_restricted(bool restricted) {
-  server_launcher_->set_restricted(restricted);
-}
 
 void Client::set_server_program(const absl::string_view program_path) {
   server_launcher_->set_server_program(program_path);

@@ -28,10 +28,10 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "unix/ibus/key_event_handler.h"
+#include <cstddef>
 
-#include "base/logging.h"
-#include "base/port.h"
-#include "base/singleton.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 
 namespace mozc {
 namespace ibus {
@@ -60,6 +60,18 @@ bool KeyEventHandler::GetKeyEvent(uint keyval, uint keycode, uint modifiers,
                                   bool layout_is_jp, commands::KeyEvent *key) {
   DCHECK(key);
   key->Clear();
+
+  // Ignore key events with modifiers, except for the below;
+  // - Alt (Mod1) - Mozc uses Alt for shortcuts
+  // - NumLock (Mod2) - NumLock shouldn't impact shortcuts
+  // This is needed for handling shortcuts such as Super (Mod4) + Space,
+  // IBus's default for switching input methods.
+  // https://github.com/google/mozc/issues/853
+  constexpr uint kExtraModMask =
+      IBUS_MOD3_MASK | IBUS_MOD4_MASK | IBUS_MOD5_MASK;
+  if (modifiers & kExtraModMask) {
+    return false;
+  }
 
   if (!key_translator_->Translate(keyval, keycode, modifiers, preedit_method,
                                   layout_is_jp, key)) {

@@ -36,18 +36,20 @@ load(
     "mozc_cc_test",
 )
 
-package(default_visibility = ["//:__subpackages__"])
+package(default_visibility = ["//visibility:private"])
 
 mozc_cc_library(
     name = "dictionary_file",
     srcs = ["dictionary_file.cc"],
     hdrs = ["dictionary_file.h"],
+    visibility = ["//dictionary:__subpackages__"],
     deps = [
         ":codec_interface",
         ":section",
-        "//base:logging",
         "//base:mmap",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -60,8 +62,9 @@ mozc_cc_library(
         ":codec_interface",
         ":section",
         "//base:file_stream",
-        "//base:logging",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -75,20 +78,22 @@ mozc_cc_test(
         ":dictionary_file",
         ":dictionary_file_builder",
         "//base:file_util",
-        "//base:logging",
         "//base/file:temp_dir",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
 mozc_cc_library(
     name = "codec_interface",
     hdrs = ["codec_interface.h"],
+    visibility = ["//dictionary:__subpackages__"],
     deps = [
         ":section",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -96,7 +101,7 @@ mozc_cc_library(
     name = "codec_util",
     srcs = ["codec_util.cc"],
     hdrs = ["codec_util.h"],
-    deps = ["//base:logging"],
+    deps = ["@com_google_absl//absl/log:check"],
 )
 
 mozc_cc_library(
@@ -109,10 +114,12 @@ mozc_cc_library(
         ":section",
         "//base:bits",
         "//base:hash",
-        "//base:logging",
         "//base:vlog",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -122,11 +129,10 @@ mozc_cc_library(
     hdrs = [
         "codec_factory.h",
     ],
+    visibility = ["//dictionary:__subpackages__"],
     deps = [
         ":codec",
         ":codec_interface",
-        ":codec_util",
-        ":section",
         "//base:singleton",
     ],
 )
@@ -149,11 +155,13 @@ mozc_cc_test(
         ":section",
         "//base:file_stream",
         "//base:file_util",
-        "//base:logging",
         "//base/file:temp_dir",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )

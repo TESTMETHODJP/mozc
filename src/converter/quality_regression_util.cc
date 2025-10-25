@@ -29,28 +29,31 @@
 
 #include "converter/quality_regression_util.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <memory>
 #include <sstream>  // NOLINT
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/file_stream.h"
-#include "base/logging.h"
 #include "base/number_util.h"
 #include "base/text_normalizer.h"
 #include "base/util.h"
 #include "composer/composer.h"
 #include "composer/table.h"
+#include "converter/candidate.h"
 #include "converter/converter_interface.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
@@ -60,31 +63,35 @@ namespace mozc {
 namespace quality_regression {
 namespace {
 
-constexpr char kConversionExpect[] = "Conversion Expected";
-constexpr char kConversionNotExpect[] = "Conversion Not Expected";
-constexpr char kConversionMatch[] = "Conversion Match";
-constexpr char kConversionNotMatch[] = "Conversion Not Match";
-constexpr char kReverseConversionExpect[] = "ReverseConversion Expected";
-constexpr char kReverseConversionNotExpect[] = "ReverseConversion Not Expected";
-// For now, suggestion and prediction are using same implementation
-constexpr char kPredictionExpect[] = "Prediction Expected";
-constexpr char kPredictionNotExpect[] = "Prediction Not Expected";
-constexpr char kSuggestionExpect[] = "Suggestion Expected";
-constexpr char kSuggestionNotExpect[] = "Suggestion Not Expected";
-// Zero query
-constexpr char kZeroQueryExpect[] = "ZeroQuery Expected";
-constexpr char kZeroQueryNotExpect[] = "ZeroQuery Not Expected";
+using converter::Candidate;
 
-int GetRank(absl::string_view value, const Segments *segments,
+constexpr absl::string_view kConversionExpect = "Conversion Expected";
+constexpr absl::string_view kConversionNotExpect = "Conversion Not Expected";
+constexpr absl::string_view kConversionMatch = "Conversion Match";
+constexpr absl::string_view kConversionNotMatch = "Conversion Not Match";
+constexpr absl::string_view kReverseConversionExpect =
+    "ReverseConversion Expected";
+constexpr absl::string_view kReverseConversionNotExpect =
+    "ReverseConversion Not Expected";
+// For now, suggestion and prediction are using same implementation
+constexpr absl::string_view kPredictionExpect = "Prediction Expected";
+constexpr absl::string_view kPredictionNotExpect = "Prediction Not Expected";
+constexpr absl::string_view kSuggestionExpect = "Suggestion Expected";
+constexpr absl::string_view kSuggestionNotExpect = "Suggestion Not Expected";
+// Zero query
+constexpr absl::string_view kZeroQueryExpect = "ZeroQuery Expected";
+constexpr absl::string_view kZeroQueryNotExpect = "ZeroQuery Not Expected";
+
+int GetRank(absl::string_view value, const Segments* segments,
             size_t current_segment) {
   if (current_segment == segments->segments_size()) {
     return value.empty() ? 0 : -1;
   }
-  const Segment &seg = segments->segment(current_segment);
+  const Segment& seg = segments->segment(current_segment);
   int rank = 0;
   absl::flat_hash_set<absl::string_view> dedup;
-  for (const Segment::Candidate *cand : seg.candidates()) {
-    const std::string &cand_value = cand->value;
+  for (const Candidate* cand : seg.candidates()) {
+    const std::string& cand_value = cand->value;
     const bool new_value = dedup.insert(cand_value).second;
     if (!new_value) {
       // The value is duplicated and already checked.
@@ -92,7 +99,7 @@ int GetRank(absl::string_view value, const Segments *segments,
       continue;
     }
 
-    if (!absl::StartsWith(value, cand_value)) {
+    if (!value.starts_with(cand_value)) {
       rank++;
       continue;
     }
@@ -134,7 +141,7 @@ std::string QualityRegressionUtil::TestItem::OutputAsTSV() const {
 }
 
 absl::Status QualityRegressionUtil::TestItem::ParseFromTSV(
-    const std::string &line) {
+    const std::string& line) {
   std::vector<absl::string_view> tokens =
       absl::StrSplit(line, '\t', absl::SkipEmpty());
   if (tokens.size() < 4) {
@@ -147,7 +154,7 @@ absl::Status QualityRegressionUtil::TestItem::ParseFromTSV(
   command.assign(tokens[3].data(), tokens[3].size());
 
   if (tokens.size() == 4) {
-    if (absl::StartsWith(command, kConversionExpect) &&
+    if (command.starts_with(kConversionExpect) &&
         command != kConversionExpect) {
       constexpr int kSize = std::size(kConversionExpect);  // Size with '\0'.
       expected_rank = NumberUtil::SimpleAtoi(command.substr(kSize));
@@ -182,13 +189,14 @@ absl::Status QualityRegressionUtil::TestItem::ParseFromTSV(
   return absl::OkStatus();
 }
 
-QualityRegressionUtil::QualityRegressionUtil(ConverterInterface *converter)
+QualityRegressionUtil::QualityRegressionUtil(
+    std::shared_ptr<const ConverterInterface> converter)
     : converter_(converter) {}
 
 namespace {
 absl::Status ParseFileInternal(
-    const std::string &filename,
-    std::vector<QualityRegressionUtil::TestItem> *outputs) {
+    const std::string& filename,
+    std::vector<QualityRegressionUtil::TestItem>* outputs) {
   // TODO(taku): support an XML file of Mozcsu.
   InputFileStream ifs(filename);
   if (!ifs.good()) {
@@ -211,17 +219,17 @@ absl::Status ParseFileInternal(
 }  // namespace
 
 // static
-absl::Status QualityRegressionUtil::ParseFile(const std::string &filename,
-                                              std::vector<TestItem> *outputs) {
+absl::Status QualityRegressionUtil::ParseFile(const std::string& filename,
+                                              std::vector<TestItem>* outputs) {
   outputs->clear();
   return ParseFileInternal(filename, outputs);
 }
 
 // static
 absl::Status QualityRegressionUtil::ParseFiles(
-    const std::vector<std::string> &filenames, std::vector<TestItem> *outputs) {
+    absl::Span<const std::string> filenames, std::vector<TestItem>* outputs) {
   outputs->clear();
-  for (const std::string &filename : filenames) {
+  for (const std::string& filename : filenames) {
     const absl::Status result = ParseFileInternal(filename, outputs);
     if (!result.ok()) {
       return result;
@@ -231,10 +239,10 @@ absl::Status QualityRegressionUtil::ParseFiles(
 }
 
 absl::StatusOr<bool> QualityRegressionUtil::ConvertAndTest(
-    const TestItem &item, std::string *actual_value) {
-  const std::string &key = item.key;
-  const std::string &expected_value = item.expected_value;
-  const std::string &command = item.command;
+    const TestItem& item, std::string* actual_value) {
+  const std::string& key = item.key;
+  const std::string& expected_value = item.expected_value;
+  const std::string& command = item.command;
   const int expected_rank = item.expected_rank;
 
   CHECK(actual_value);
@@ -242,14 +250,18 @@ absl::StatusOr<bool> QualityRegressionUtil::ConvertAndTest(
   converter_->ResetConversion(&segments_);
   actual_value->clear();
 
-  composer::Table table;
+  auto table = std::make_shared<composer::Table>();
   config_.set_use_typing_correction(true);
 
   if (command == kConversionExpect || command == kConversionNotExpect ||
       command == kConversionMatch || command == kConversionNotMatch) {
-    composer::Composer composer(&table, &request_, &config_);
+    composer::Composer composer(table, request_, config_);
     composer.SetPreeditTextForTestOnly(key);
-    ConversionRequest conv_req(&composer, &request_, &config_);
+    const ConversionRequest conv_req = ConversionRequestBuilder()
+                                           .SetComposer(composer)
+                                           .SetRequestView(request_)
+                                           .SetConfigView(config_)
+                                           .Build();
     if (!converter_->StartConversion(conv_req, &segments_)) {
       return absl::UnknownError(absl::StrCat(
           "StartConversionForRequest failed: ", item.OutputAsTSV()));
@@ -260,33 +272,55 @@ absl::StatusOr<bool> QualityRegressionUtil::ConvertAndTest(
       return absl::UnknownError("StartReverseConversion failed");
     }
   } else if (command == kPredictionExpect || command == kPredictionNotExpect) {
-    composer::Composer composer(&table, &request_, &config_);
+    composer::Composer composer(table, request_, config_);
     composer.SetPreeditTextForTestOnly(key);
-    ConversionRequest conv_req(&composer, &request_, &config_);
+    ConversionRequest::Options options;
+    options.request_type = ConversionRequest::PREDICTION;
+    if (request_.mixed_conversion()) {
+      options.create_partial_candidates = true;
+    }
+    const ConversionRequest conv_req = ConversionRequestBuilder()
+                                           .SetComposer(composer)
+                                           .SetRequestView(request_)
+                                           .SetConfigView(config_)
+                                           .SetOptions(std::move(options))
+                                           .Build();
     if (!converter_->StartPrediction(conv_req, &segments_)) {
       return absl::UnknownError(absl::StrCat(
           "StartPredictionForRequest failed: ", item.OutputAsTSV()));
     }
   } else if (command == kSuggestionExpect || command == kSuggestionNotExpect) {
-    composer::Composer composer(&table, &request_, &config_);
+    composer::Composer composer(table, request_, config_);
     composer.SetPreeditTextForTestOnly(key);
-    ConversionRequest conv_req(&composer, &request_, &config_);
-    if (!converter_->StartSuggestion(conv_req, &segments_)) {
-      return absl::UnknownError(
-          absl::StrCat("StartSuggestion failed: ", item.OutputAsTSV()));
+    const ConversionRequest conv_req =
+        ConversionRequestBuilder()
+            .SetComposer(composer)
+            .SetRequestView(request_)
+            .SetConfigView(config_)
+            .SetOptions({.request_type = ConversionRequest::SUGGESTION})
+            .Build();
+    if (!converter_->StartPrediction(conv_req, &segments_)) {
+      return absl::UnknownError(absl::StrCat(
+          "StartPrediction for suggestion failed: ", item.OutputAsTSV()));
     }
   } else if (command == kZeroQueryExpect || command == kZeroQueryNotExpect) {
     commands::Request request = request_;
     request.set_zero_query_suggestion(true);
     request.set_mixed_conversion(true);
     {
-      composer::Composer composer(&table, &request, &config_);
+      composer::Composer composer(table, request, config_);
       composer.SetPreeditTextForTestOnly(key);
-      ConversionRequest conv_req(&composer, &request, &config_);
-      conv_req.set_max_conversion_candidates_size(10);
-      if (!converter_->StartSuggestion(conv_req, &segments_)) {
-        return absl::UnknownError(
-            absl::StrCat("StartSuggestion failed: ", item.OutputAsTSV()));
+      const ConversionRequest conv_req =
+          ConversionRequestBuilder()
+              .SetComposer(composer)
+              .SetRequestView(request)
+              .SetConfigView(config_)
+              .SetOptions({.request_type = ConversionRequest::SUGGESTION,
+                           .max_conversion_candidates_size = 10})
+              .Build();
+      if (!converter_->StartPrediction(conv_req, &segments_)) {
+        return absl::UnknownError(absl::StrCat(
+            "StartSuggestion for suggestion failed: ", item.OutputAsTSV()));
       }
       if (!converter_->CommitSegmentValue(&segments_, 0, 0)) {
         return absl::UnknownError(
@@ -296,9 +330,15 @@ absl::StatusOr<bool> QualityRegressionUtil::ConvertAndTest(
     }
     {
       // Issues zero-query request.
-      composer::Composer composer(&table, &request, &config_);
-      ConversionRequest conv_req(&composer, &request, &config_);
-      conv_req.set_max_conversion_candidates_size(10);
+      composer::Composer composer(table, request, config_);
+      const ConversionRequest conv_req =
+          ConversionRequestBuilder()
+              .SetComposer(composer)
+              .SetRequestView(request)
+              .SetConfigView(config_)
+              .SetOptions({.request_type = ConversionRequest::PREDICTION,
+                           .max_conversion_candidates_size = 10})
+              .Build();
       if (!converter_->StartPrediction(conv_req, &segments_)) {
         return absl::UnknownError(absl::StrCat(
             "StartPredictionForRequest failed: ", item.OutputAsTSV()));
@@ -318,8 +358,8 @@ absl::StatusOr<bool> QualityRegressionUtil::ConvertAndTest(
     return true;
   }
 
-  for (const Segment &segment : segments_) {
-    *actual_value += segment.candidate(0).value;
+  for (const Segment& segment : segments_) {
+    absl::StrAppend(actual_value, segment.candidate(0).value);
   }
 
   if (command == kConversionMatch) {
@@ -343,11 +383,11 @@ absl::StatusOr<bool> QualityRegressionUtil::ConvertAndTest(
   return result;
 }
 
-void QualityRegressionUtil::SetRequest(const commands::Request &request) {
+void QualityRegressionUtil::SetRequest(const commands::Request& request) {
   request_ = request;
 }
 
-void QualityRegressionUtil::SetConfig(const config::Config &config) {
+void QualityRegressionUtil::SetConfig(const config::Config& config) {
   config_ = config;
 }
 

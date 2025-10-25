@@ -70,7 +70,6 @@ mozc_cc_library(
     srcs = ["gtest_main.cc"],
     visibility = ["//visibility:private"],
     deps = [
-        ":googletest",
         ":gunit",
         "@com_google_absl//absl/flags:flag",
     ] + mozc_select(
@@ -85,11 +84,9 @@ mozc_cc_library(
     testonly = True,
     hdrs = [
         "gmock.h",
-        "googletest.h",
         "gunit.h",
     ],
     deps = [
-        ":googletest",
         ":gunit",
         "@com_google_absl//absl/flags:flag",
     ] + mozc_select(
@@ -109,10 +106,8 @@ mozc_cc_library(
 )
 
 mozc_cc_library(
-    name = "friend_test",
-    hdrs = ["friend_test.h"],
-    deps = [
-    ],
+    name = "test_peer",
+    hdrs = ["test_peer.h"],
 )
 
 mozc_cc_library(
@@ -122,6 +117,7 @@ mozc_cc_library(
     hdrs = ["testing_util.h"],
     deps = [
         ":gunit",
+        "//base/protobuf:descriptor",
         "//base/protobuf:message",
         "//base/protobuf:text_format",
         "@com_google_absl//absl/log",
@@ -140,7 +136,6 @@ mozc_cc_library(
         "gunit.h",
     ],
     deps = [
-        ":googletest",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -150,57 +145,17 @@ mozc_objc_library(
     testonly = True,
     hdrs = [
         "gmock.h",
-        "googletest.h",
         "gunit.h",
     ],
     sdk_frameworks = [
         "XCTest",  # fixdeps: keep
     ],
-    tags = ["avoid_dep"],  # The overwhelming majority of the build targets in mozc are C++.
+    tags = [
+        "avoid_dep",
+    ],  # The overwhelming majority of the build targets in mozc are C++.
     deps = [
-        "@com_google_absl//absl/flags:flag",
         "@com_google_googletest//:gtest",
         "@google_toolbox_for_mac//:GTM_GoogleTestRunner_GTM_USING_XCTEST",  # fixdeps: keep
-    ],
-)
-
-mozc_cc_library(
-    name = "googletest",
-    testonly = True,
-    srcs = mozc_select(
-        client = ["googletest.cc"],
-        linux = [],
-        oss = ["googletest.cc"],
-    ),
-    hdrs = [
-        "googletest.h",
-    ],
-    deps = mozc_select(
-        client = [
-            ":mozc_data_dir_header",
-            "//base:environ",
-            "//base/file:temp_dir",
-            "@com_google_absl//absl/flags:flag",
-        ],
-        default = ["@com_google_googletest//:gtest"],
-        linux = ["@com_google_googletest//:gtest"],
-        oss = [
-            ":mozc_data_dir_header",
-            "//base:environ",
-            "//base/file:temp_dir",
-            "@com_google_absl//absl/flags:flag",
-        ],
-    ),
-)
-
-mozc_cc_test(
-    name = "googletest_test",
-    srcs = ["googletest_test.cc"],
-    data = ["googletest_test.cc"],  # Use the source file as test data.
-    deps = [
-        ":gunit_main",
-        "//base:file_util",
-        "@com_google_absl//absl/flags:flag",
     ],
 )
 
@@ -213,13 +168,15 @@ mozc_cc_library(
         "//:__subpackages__",
     ],
     deps = [
-        ":googletest",
         ":gunit",
+        ":mozc_data_dir_header",
+        "//base:environ",
         "//base:file_util",
-        "//base:logging",
         "//base:system_util",
         "//base/file:temp_dir",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

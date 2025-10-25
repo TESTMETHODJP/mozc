@@ -34,13 +34,19 @@ load(
 )
 load(
     "//data_manager:mozc_data.bzl",
+    "magic_number",
     "mozc_dataset",
 )
 
 package(default_visibility = ["//visibility:public"])
 
 # MOCK
-MOZC_DATASET_MAGIC_NUMBER = "\\x4D\\x4F\\x43\\x4B"
+MOZC_DATASET_MAGIC_NUMBER = magic_number([
+    0x4D,  # M
+    0x4F,  # O
+    0x43,  # C
+    0x4B,  # K
+])
 
 mozc_cc_library(
     name = "mock_data_manager",
@@ -50,14 +56,14 @@ mozc_cc_library(
         ":mozc_dataset_for_testing@header",
     ],
     hdrs = ["mock_data_manager.h"],
-    copts = [
-        "-DMOZC_DATASET_MAGIC_NUMBER='\"" + MOZC_DATASET_MAGIC_NUMBER + "\"'",
+    local_defines = [
+        "MOZC_DATASET_MAGIC_NUMBER_LENGTH=%d" % MOZC_DATASET_MAGIC_NUMBER.length,
     ],
     deps = [
         "//base:embedded_file",
-        "//base:logging",
         "//data_manager",
         "//testing:gunit",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -69,7 +75,6 @@ mozc_cc_test(
         "mock_data_manager_test.cc",
         ":mozc_dataset_for_testing@segmenter_inl_header",
     ],
-    copts = ["-Wno-parentheses"],
     data = [
         "//data/test/dictionary:connection_single_column.txt",
         "//data/test/dictionary:dictionary_data",

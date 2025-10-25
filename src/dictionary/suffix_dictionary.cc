@@ -30,14 +30,18 @@
 #include "dictionary/suffix_dictionary.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/container/serialized_string_array.h"
-#include "base/logging.h"
 #include "dictionary/dictionary_token.h"
+#include "request/conversion_request.h"
 
 namespace mozc {
 namespace dictionary {
@@ -59,11 +63,10 @@ class ComparePrefix {
 
 SuffixDictionary::SuffixDictionary(absl::string_view key_array_data,
                                    absl::string_view value_array_data,
-                                   const uint32_t *token_array)
+                                   absl::Span<const uint32_t> token_array)
     : token_array_(token_array) {
   DCHECK(SerializedStringArray::VerifyData(key_array_data));
   DCHECK(SerializedStringArray::VerifyData(value_array_data));
-  DCHECK(token_array_);
   key_array_.Set(key_array_data);
   value_array_.Set(value_array_data);
 }
@@ -87,8 +90,8 @@ bool SuffixDictionary::HasValue(absl::string_view value) const {
 }
 
 void SuffixDictionary::LookupPredictive(
-    absl::string_view key, const ConversionRequest &conversion_request,
-    Callback *callback) const {
+    absl::string_view key, const ConversionRequest& conversion_request,
+    Callback* callback) const {
   using Iter = SerializedStringArray::const_iterator;
   std::pair<Iter, Iter> range = std::equal_range(
       key_array_.begin(), key_array_.end(), key, ComparePrefix(key.size()));
@@ -105,6 +108,10 @@ void SuffixDictionary::LookupPredictive(
         LOG(FATAL) << "Culling is not supported.";
       default:
         break;
+    }
+    if (callback->OnActualKey(token.key, token.key, /* num_expanded= */ 0) ==
+        Callback::TRAVERSE_DONE) {
+      return;
     }
     const size_t index = range.first - key_array_.begin();
     if (value_array_[index].empty()) {

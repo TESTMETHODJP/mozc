@@ -35,6 +35,7 @@
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "base/protobuf/descriptor.h"
 #include "base/protobuf/message.h"
 #include "base/protobuf/text_format.h"
 #include "testing/gunit.h"
@@ -54,12 +55,12 @@ namespace internal {
 
 namespace {
 
-bool EqualsProtoInternal(const Message &message1, const Message &message2,
+bool EqualsProtoInternal(const Message& message1, const Message& message2,
                          bool is_partial);
 
 // Compares (non-repeated) filed of the given messages.
-bool EqualsField(const FieldDescriptor *field, const Reflection *reflection,
-                 const Message &message1, const Message &message2,
+bool EqualsField(const FieldDescriptor* field, const Reflection* reflection,
+                 const Message& message1, const Message& message2,
                  bool is_partial) {
   const bool has_field = reflection->HasField(message1, field);
   if (is_partial && !has_field) {
@@ -106,9 +107,9 @@ bool EqualsField(const FieldDescriptor *field, const Reflection *reflection,
   return true;
 }
 
-bool EqualsRepeatedField(const FieldDescriptor *field,
-                         const Reflection *reflection, const Message &message1,
-                         const Message &message2, bool is_partial) {
+bool EqualsRepeatedField(const FieldDescriptor* field,
+                         const Reflection* reflection, const Message& message1,
+                         const Message& message2, bool is_partial) {
   const int field_size = reflection->FieldSize(message1, field);
   if (is_partial && field_size == 0) {
     // Don't check empty fields for partial equality check.
@@ -159,16 +160,16 @@ bool EqualsRepeatedField(const FieldDescriptor *field,
   return true;
 }
 
-bool EqualsProtoInternal(const Message &message1, const Message &message2,
+bool EqualsProtoInternal(const Message& message1, const Message& message2,
                          bool is_partial) {
-  const Descriptor *descriptor = message1.GetDescriptor();
+  const Descriptor* descriptor = message1.GetDescriptor();
   CHECK(descriptor == message2.GetDescriptor());
 
-  const Reflection *reflection = message1.GetReflection();
+  const Reflection* reflection = message1.GetReflection();
   CHECK(reflection == message2.GetReflection());
 
   for (int i = 0; i < descriptor->field_count(); ++i) {
-    const FieldDescriptor *field = descriptor->field(i);
+    const FieldDescriptor* field = descriptor->field(i);
     CHECK(field != nullptr);
     if (field->is_repeated()) {
       if (!EqualsRepeatedField(field, reflection, message1, message2,
@@ -189,8 +190,8 @@ bool EqualsProtoInternal(const Message &message1, const Message &message2,
 
 ::testing::AssertionResult EqualsProtoFormat(absl::string_view expect_string,
                                              absl::string_view actual_string,
-                                             const Message &expect,
-                                             const Message &actual,
+                                             const Message& expect,
+                                             const Message& actual,
                                              bool is_partial) {
   if (EqualsProtoInternal(expect, actual, is_partial)) {
     return ::testing::AssertionSuccess();
@@ -209,7 +210,7 @@ namespace {
 ::testing::AssertionResult EqualsProtoWithParse(absl::string_view expect_string,
                                                 absl::string_view actual_string,
                                                 absl::string_view expect,
-                                                const Message &actual,
+                                                const Message& actual,
                                                 bool is_partial) {
   // Note: Message::New returns an instance of the actual type,
   // so we can convert the string representation of the "actual"'s type,
@@ -228,7 +229,7 @@ namespace {
 ::testing::AssertionResult EqualsProto(absl::string_view expect_string,
                                        absl::string_view actual_string,
                                        absl::string_view expect,
-                                       const Message &actual) {
+                                       const Message& actual) {
   return EqualsProtoWithParse(expect_string, actual_string, expect, actual,
                               false);
 }
@@ -236,7 +237,7 @@ namespace {
 ::testing::AssertionResult PartiallyEqualsProto(absl::string_view expect_string,
                                                 absl::string_view actual_string,
                                                 absl::string_view expect,
-                                                const Message &actual) {
+                                                const Message& actual) {
   return EqualsProtoWithParse(expect_string, actual_string, expect, actual,
                               true);
 }

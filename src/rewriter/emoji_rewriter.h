@@ -35,8 +35,9 @@
 
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "data_manager/emoji_data.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
@@ -53,7 +54,7 @@ namespace mozc {
 //
 //   mozc::Segments segments;
 //   mozc::Segment *segment = segments.add_segment();
-//   mozc::Segment::Candidate *candidate = segment->add_candidate();
+//   mozc::converter::Candidate *candidate = segment->add_candidate();
 //   candidate->set_key("えもじ");
 //
 //   // Use one of data manager from data_manager/.
@@ -71,33 +72,26 @@ class EmojiRewriter : public RewriterInterface {
   static constexpr size_t kEmojiDataByteLength = 28;
   using IteratorRange = std::pair<EmojiDataIterator, EmojiDataIterator>;
 
-  explicit EmojiRewriter(const DataManagerInterface &data_manager);
-  EmojiRewriter(const EmojiRewriter &) = delete;
-  EmojiRewriter &operator=(const EmojiRewriter &) = delete;
+  explicit EmojiRewriter(const DataManager& data_manager);
+  EmojiRewriter(const EmojiRewriter&) = delete;
+  EmojiRewriter& operator=(const EmojiRewriter&) = delete;
 
-  int capability(const ConversionRequest &request) const override;
+  int capability(const ConversionRequest& request) const override;
 
   // Returns true if emoji candidates are added.  When user settings are set
   // not to use EmojiRewriter, does nothing other than returning false.
   // Otherwise, main process are done in ReriteCandidates().
   // A reference to a ConversionRequest instance is not used, but it is required
   // because of the interface.
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
-
-  // Counts the number of segments in which emoji candidates are selected,
-  // and stores the result as usage stats.
-  // NOTE: This method is expected to be called after the segments are processed
-  // with COMMIT command in a SessionConverter instance.  May record wrong
-  // stats if you call this method in other situation.
-  void Finish(const ConversionRequest &request, Segments *segments) override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 
   // Returns true if the given candidate includes emoji characters.
   // TODO(peria, hidehiko): Unify this checker and IsEmojiEntry defined in
   //     predictor/user_history_predictor.cc.  If you make similar functions
   //     before the merging in case, put a same note to avoid twisted
   //     dependency.
-  static bool IsEmojiCandidate(const Segment::Candidate &candidate);
+  static bool IsEmojiCandidate(const converter::Candidate& candidate);
 
  private:
   EmojiDataIterator begin() const {
@@ -112,7 +106,7 @@ class EmojiRewriter : public RewriterInterface {
   // specific string as a key based on a dictionary.  If a segment's value is
   // "えもじ", adds all emoji candidates.
   // Returns true if emoji candidates are added in any segment.
-  bool RewriteCandidates(Segments *segments) const;
+  bool RewriteCandidates(Segments* segments) const;
 
   IteratorRange LookUpToken(absl::string_view key) const;
 

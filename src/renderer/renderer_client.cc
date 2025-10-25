@@ -29,6 +29,7 @@
 
 #include "renderer/renderer_client.h"
 
+#include <atomic>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -56,7 +57,6 @@
 #endif  // __APPLE__
 
 #ifdef _WIN32
-#include "base/run_level.h"
 #include "base/win32/win_sandbox.h"
 #endif  // _WIN32
 
@@ -71,8 +71,8 @@ constexpr size_t kMaxErrorTimes = 5;
 constexpr absl::Duration kRetryIntervalTime = absl::Seconds(30);
 constexpr char kServiceName[] = "renderer";
 
-inline void CallCommand(IPCClientInterface *client,
-                        const commands::RendererCommand &command) {
+inline void CallCommand(IPCClientInterface* client,
+                        const commands::RendererCommand& command) {
   std::string buf;
   command.SerializeToString(&buf);
 
@@ -103,9 +103,9 @@ class RendererLauncher : public RendererLauncherInterface {
   }
 
   void StartRenderer(
-      const std::string &name, const std::string &path,
+      const std::string& name, const std::string& path,
       bool disable_renderer_path_check,
-      IPCClientFactoryInterface *ipc_client_factory_interface) override {
+      IPCClientFactoryInterface* ipc_client_factory_interface) override {
     if (Status() == RendererStatus::RENDERER_LAUNCHING ||
         Status() == RendererStatus::RENDERER_READY ||
         Status() == RendererStatus::RENDERER_TIMEOUT) {
@@ -124,7 +124,7 @@ class RendererLauncher : public RendererLauncherInterface {
     launcher_.emplace([this] { ThreadMain(); });
   }
 
-  bool ForceTerminateRenderer(const std::string &name) override {
+  bool ForceTerminateRenderer(const std::string& name) override {
     return IPCClient::TerminateServer(name);
   }
 
@@ -180,10 +180,11 @@ class RendererLauncher : public RendererLauncherInterface {
     return false;
   }
 
-  void SetPendingCommand(const commands::RendererCommand &command) override
+  void SetPendingCommand(const commands::RendererCommand& command) override
       ABSL_LOCKS_EXCLUDED(mu_) {
     // ignore NOOP|SHUTDOWN
     if (command.type() == commands::RendererCommand::UPDATE) {
+      // TODO(b/438604511): Use mu_ (w/o &) when Abseil LTS supports it.
       absl::MutexLock l(&mu_);
       if (!pending_command_.has_value()) {
         pending_command_ = command;
@@ -206,11 +207,13 @@ class RendererLauncher : public RendererLauncherInterface {
   };
 
   RendererStatus Status() const ABSL_LOCKS_EXCLUDED(mu_) {
+    // TODO(b/438604511): Use mu_ (w/o &) when Abseil LTS supports it.
     absl::MutexLock l(&mu_);
     return renderer_status_;
   }
 
   void SetStatus(RendererStatus status) ABSL_LOCKS_EXCLUDED(mu_) {
+    // TODO(b/438604511): Use mu_ (w/o &) when Abseil LTS supports it.
     absl::MutexLock l(&mu_);
     renderer_status_ = status;
   }
@@ -223,23 +226,19 @@ class RendererLauncher : public RendererLauncherInterface {
 
 #ifdef _WIN32
     DWORD pid = 0;
-    const bool process_in_job = RunLevel::IsProcessInJob();
-    const std::string arg = process_in_job ? "--restricted" : "";
 
     WinSandbox::SecurityInfo info;
     info.primary_level = WinSandbox::USER_INTERACTIVE;
     info.impersonation_level = WinSandbox::USER_RESTRICTED_SAME_ACCESS;
     info.integrity_level = WinSandbox::INTEGRITY_LEVEL_LOW;
-    // If the current process is in a job, you cannot use
-    // CREATE_BREAKAWAY_FROM_JOB. b/1571395
-    info.use_locked_down_job = !process_in_job;
+    info.use_locked_down_job = true;
     info.allow_ui_operation = true;  // skip UI protection
     info.in_system_dir = true;  // use system dir not to lock current directory
     info.creation_flags = CREATE_DEFAULT_ERROR_MODE;
 
     // start renderer process
     const bool result =
-        WinSandbox::SpawnSandboxedProcess(path_, arg, info, &pid);
+        WinSandbox::SpawnSandboxedProcess(path_, "", info, &pid);
 #elif defined(__APPLE__)  // _WIN32
     // Start renderer process by using launch_msg API.
     pid_t pid = 0;
@@ -294,6 +293,7 @@ class RendererLauncher : public RendererLauncherInterface {
   }
 
   void FlushPendingCommand() ABSL_LOCKS_EXCLUDED(mu_) {
+    // TODO(b/438604511): Use mu_ (w/o &) when Abseil LTS supports it.
     absl::MutexLock l(&mu_);
     if (ipc_client_factory_interface_ != nullptr &&
         pending_command_.has_value()) {
@@ -324,12 +324,12 @@ class RendererLauncher : public RendererLauncherInterface {
   std::string name_;
   std::string path_;
   absl::Time last_launch_time_ = absl::UnixEpoch();
-  volatile size_t error_times_ = 0;
-  IPCClientFactoryInterface *ipc_client_factory_interface_ = nullptr;
+  std::atomic<size_t> error_times_ = 0;
+  IPCClientFactoryInterface* ipc_client_factory_interface_ = nullptr;
   mutable absl::Mutex mu_;
   std::optional<commands::RendererCommand> pending_command_
       ABSL_GUARDED_BY(mu_);
-  volatile RendererStatus renderer_status_ ABSL_GUARDED_BY(mu_) =
+  RendererStatus renderer_status_ ABSL_GUARDED_BY(mu_) =
       RendererStatus::RENDERER_UNKNOWN;
   bool disable_renderer_path_check_ = false;
   bool suppress_error_dialog_ = false;
@@ -366,12 +366,12 @@ RendererClient::~RendererClient() {
 }
 
 void RendererClient::SetIPCClientFactory(
-    IPCClientFactoryInterface *ipc_client_factory_interface) {
+    IPCClientFactoryInterface* ipc_client_factory_interface) {
   ipc_client_factory_interface_ = ipc_client_factory_interface;
 }
 
 void RendererClient::SetRendererLauncherInterface(
-    RendererLauncherInterface *renderer_launcher_interface) {
+    RendererLauncherInterface* renderer_launcher_interface) {
   renderer_launcher_interface_ = renderer_launcher_interface;
 }
 
@@ -431,7 +431,7 @@ void RendererClient::set_suppress_error_dialog(bool suppress) {
   renderer_launcher_interface_->set_suppress_error_dialog(suppress);
 }
 
-bool RendererClient::ExecCommand(const commands::RendererCommand &command) {
+bool RendererClient::ExecCommand(const commands::RendererCommand& command) {
   if (renderer_launcher_interface_ == nullptr) {
     LOG(ERROR) << "RendererLauncher is nullptr";
     return false;

@@ -33,11 +33,11 @@
 
 #include <string>
 
-#include "absl/strings/match.h"
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "base/const.h"
-#include "base/logging.h"
 #include "base/mac/mac_util.h"
+#include "base/strings/zstring_view.h"
 #include "base/util.h"
 
 namespace mozc {
@@ -48,7 +48,7 @@ const char kFileSchema[] = "file://";
 bool MacProcess::OpenBrowserForMac(const absl::string_view url) {
   bool success = false;
   NSURL *nsURL = nil;
-  if (absl::StartsWith(url, kFileSchema)) {
+  if (url.starts_with(kFileSchema)) {
     // for making URL from "file://...", use fileURLWithPath
     const std::string filepath(url.substr(strlen(kFileSchema)));
     NSString *nsStr = [[NSString alloc] initWithBytes:filepath.data()
@@ -78,7 +78,7 @@ bool MacProcess::OpenApplication(const absl::string_view path) {
 }
 
 namespace {
-bool LaunchMozcToolInternal(const std::string &tool_name, const std::string &error_type) {
+bool LaunchMozcToolInternal(zstring_view tool_name, zstring_view error_type) {
   // FLAGS_error_type is used where FLAGS_mode is "error_message_dialog".
   setenv("FLAGS_error_type", error_type.c_str(), 1);
 
@@ -117,11 +117,11 @@ bool LaunchMozcToolInternal(const std::string &tool_name, const std::string &err
 }
 }  // namespace
 
-bool MacProcess::LaunchMozcTool(const std::string &tool_name) {
+bool MacProcess::LaunchMozcTool(zstring_view tool_name) {
   return LaunchMozcToolInternal(tool_name, "");
 }
 
-bool MacProcess::LaunchErrorMessageDialog(const std::string &error_type) {
+bool MacProcess::LaunchErrorMessageDialog(zstring_view error_type) {
   return LaunchMozcToolInternal("error_message_dialog", error_type);
 }
 

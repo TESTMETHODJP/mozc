@@ -39,10 +39,12 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/config_file_stream.h"
-#include "base/logging.h"
 #include "base/number_util.h"
 #include "base/singleton.h"
 #include "base/strings/assign.h"
@@ -68,9 +70,8 @@ class CharacterFormManagerImpl {
  public:
   CharacterFormManagerImpl()
       : storage_(nullptr), require_consistent_conversion_(false) {}
-  CharacterFormManagerImpl(const CharacterFormManagerImpl &) = delete;
-  CharacterFormManagerImpl &operator=(const CharacterFormManagerImpl &) =
-      delete;
+  CharacterFormManagerImpl(const CharacterFormManagerImpl&) = delete;
+  CharacterFormManagerImpl& operator=(const CharacterFormManagerImpl&) = delete;
   virtual ~CharacterFormManagerImpl() = default;
 
   Config::CharacterForm GetCharacterForm(absl::string_view str) const;
@@ -78,10 +79,10 @@ class CharacterFormManagerImpl {
   void SetCharacterForm(absl::string_view str, Config::CharacterForm form);
   void GuessAndSetCharacterForm(absl::string_view str);
 
-  void ConvertString(absl::string_view str, std::string *output) const;
+  void ConvertString(absl::string_view str, std::string* output) const;
 
-  bool ConvertStringWithAlternative(absl::string_view str, std::string *output,
-                                    std::string *alternative_output) const;
+  bool ConvertStringWithAlternative(absl::string_view str, std::string* output,
+                                    std::string* alternative_output) const;
 
   // clear setting
   void Clear();
@@ -96,7 +97,7 @@ class CharacterFormManagerImpl {
   // Call Clear() first if you want to set rule from scratch
   void AddRule(absl::string_view key, Config::CharacterForm form);
 
-  void set_storage(LruStorage *storage) { storage_ = storage; }
+  void set_storage(LruStorage* storage) { storage_ = storage; }
 
   void set_require_consistent_conversion(bool val) {
     require_consistent_conversion_ = val;
@@ -116,12 +117,12 @@ class CharacterFormManagerImpl {
   //  this will be "３.１４" and it is not consistent
   //  so this function will return false
   bool TryConvertStringWithPreference(absl::string_view str,
-                                      std::string *output) const;
+                                      std::string* output) const;
 
   void ConvertStringAlternative(absl::string_view str,
-                                std::string *output) const;
+                                std::string* output) const;
 
-  LruStorage *storage_;
+  LruStorage* storage_;
 
   // store the setting of a character
   absl::flat_hash_map<char16_t, Config::CharacterForm> conversion_table_;
@@ -195,35 +196,35 @@ class ConversionCharacterFormManagerImpl : public CharacterFormManagerImpl {
 class NumberStyleManager {
  public:
   NumberStyleManager()
-      : key_(reinterpret_cast<const char *>(&kKey), sizeof(char16_t)),
+      : key_(reinterpret_cast<const char*>(&kKey), sizeof(char16_t)),
         storage_(nullptr) {}
 
-  void SetNumberStyle(const CharacterFormManager::NumberFormStyle &form_style) {
+  void SetNumberStyle(const CharacterFormManager::NumberFormStyle& form_style) {
     const NumberStyleEntry entry(form_style);
-    storage_->Insert(key_, reinterpret_cast<const char *>(&entry));
+    storage_->Insert(key_, reinterpret_cast<const char*>(&entry));
   }
 
   std::optional<const CharacterFormManager::NumberFormStyle> GetNumberStyle()
       const {
-    const char *value = storage_->Lookup(key_);
+    const char* value = storage_->Lookup(key_);
     if (value == nullptr) {
       return std::nullopt;
     }
-    const NumberStyleEntry *entry =
-        reinterpret_cast<const NumberStyleEntry *>(value);
+    const NumberStyleEntry* entry =
+        reinterpret_cast<const NumberStyleEntry*>(value);
     CharacterFormManager::NumberFormStyle form_style{entry->form(),
                                                      entry->style()};
     return form_style;
   }
 
-  void set_storage(LruStorage *storage) { storage_ = storage; }
+  void set_storage(LruStorage* storage) { storage_ = storage; }
 
  private:
   // Entry should fit value_size (sizeof uint32_t) of the storage.
   class NumberStyleEntry {
    public:
     explicit NumberStyleEntry(
-        const CharacterFormManager::NumberFormStyle &form_style)
+        const CharacterFormManager::NumberFormStyle& form_style)
         : form_(form_style.form), style_(form_style.style) {}
 
     NumberUtil::NumberString::Style style() const {
@@ -245,7 +246,7 @@ class NumberStyleManager {
   const absl::string_view key_;
 
   // This class does not have the ownership of `storage_`.
-  LruStorage *storage_;
+  LruStorage* storage_;
 };
 
 // Returns canonical/normalized UCS2 character for given string.
@@ -372,13 +373,13 @@ Config::CharacterForm CharacterFormManagerImpl::GetCharacterFormFromStorage(
   if (storage_ == nullptr) {
     return Config::FULL_WIDTH;  // Return default setting
   }
-  const absl::string_view key(reinterpret_cast<const char *>(&ucs2),
+  const absl::string_view key(reinterpret_cast<const char*>(&ucs2),
                               sizeof(ucs2));
-  const char *value = storage_->Lookup(key);
+  const char* value = storage_->Lookup(key);
   if (value == nullptr) {
     return Config::FULL_WIDTH;  // Return default setting
   }
-  const uint32_t ivalue = *reinterpret_cast<const uint32_t *>(value);
+  const uint32_t ivalue = *reinterpret_cast<const uint32_t*>(value);
   return static_cast<Config::CharacterForm>(ivalue);
 }
 
@@ -392,9 +393,9 @@ void CharacterFormManagerImpl::SaveCharacterFormToStorage(
     return;
   }
 
-  const absl::string_view key(reinterpret_cast<const char *>(&ucs2),
+  const absl::string_view key(reinterpret_cast<const char*>(&ucs2),
                               sizeof(ucs2));
-  const char *value = storage_->Lookup(key);
+  const char* value = storage_->Lookup(key);
   if (value != nullptr && static_cast<Config::CharacterForm>(*value) == form) {
     return;
   }
@@ -404,15 +405,15 @@ void CharacterFormManagerImpl::SaveCharacterFormToStorage(
 
   const auto iter = group_table_.find(ucs2);
   if (iter == group_table_.end()) {
-    storage_->Insert(key, reinterpret_cast<const char *>(&iform));
+    storage_->Insert(key, reinterpret_cast<const char*>(&iform));
   } else {
     // Update values in the same group.
-    const std::vector<char16_t> &group = iter->second;
+    absl::Span<const char16_t> group = iter->second;
     for (size_t i = 0; i < group.size(); ++i) {
       const char16_t group_ucs2 = group[i];
       const absl::string_view group_key(
-          reinterpret_cast<const char *>(&group_ucs2), sizeof(group_ucs2));
-      storage_->Insert(group_key, reinterpret_cast<const char *>(&iform));
+          reinterpret_cast<const char*>(&group_ucs2), sizeof(group_ucs2));
+      storage_->Insert(group_key, reinterpret_cast<const char*>(&iform));
     }
   }
   MOZC_VLOG(2) << static_cast<uint16_t>(ucs2) << " is stored to " << kFileName
@@ -420,12 +421,12 @@ void CharacterFormManagerImpl::SaveCharacterFormToStorage(
 }
 
 void CharacterFormManagerImpl::ConvertString(const absl::string_view str,
-                                             std::string *output) const {
+                                             std::string* output) const {
   ConvertStringWithAlternative(str, output, nullptr);
 }
 
 bool CharacterFormManagerImpl::TryConvertStringWithPreference(
-    const absl::string_view str, std::string *output) const {
+    const absl::string_view str, std::string* output) const {
   DCHECK(output);
   Config::CharacterForm target_form = Config::NO_CONVERSION;
   Config::CharacterForm prev_form = Config::NO_CONVERSION;
@@ -474,7 +475,7 @@ bool CharacterFormManagerImpl::TryConvertStringWithPreference(
 }
 
 void CharacterFormManagerImpl::ConvertStringAlternative(
-    const absl::string_view str, std::string *output) const {
+    const absl::string_view str, std::string* output) const {
   DCHECK(output);
   Util::FormType prev_form = Util::UNKNOWN_FORM;
   Util::ScriptType prev_type = Util::UNKNOWN_SCRIPT;
@@ -512,8 +513,8 @@ void CharacterFormManagerImpl::ConvertStringAlternative(
 }
 
 bool CharacterFormManagerImpl::ConvertStringWithAlternative(
-    const absl::string_view str, std::string *output,
-    std::string *alternative_output) const {
+    const absl::string_view str, std::string* output,
+    std::string* alternative_output) const {
   // If require_consistent_conversion_ is true,
   // do not convert to inconsistent form string.
   DCHECK(output);
@@ -590,9 +591,9 @@ class CharacterFormManager::Data {
   Data();
   ~Data() = default;
 
-  CharacterFormManagerImpl *GetPreeditManager() { return preedit_.get(); }
-  CharacterFormManagerImpl *GetConversionManager() { return conversion_.get(); }
-  NumberStyleManager *GetNumberStyleManager() { return number_style_.get(); }
+  CharacterFormManagerImpl* GetPreeditManager() { return preedit_.get(); }
+  CharacterFormManagerImpl* GetConversionManager() { return conversion_.get(); }
+  NumberStyleManager* GetNumberStyleManager() { return number_style_.get(); }
 
  private:
   std::unique_ptr<PreeditCharacterFormManagerImpl> preedit_;
@@ -618,17 +619,15 @@ CharacterFormManager::Data::Data() {
   number_style_->set_storage(storage_.get());
 }
 
-CharacterFormManager *CharacterFormManager::GetCharacterFormManager() {
+CharacterFormManager* CharacterFormManager::GetCharacterFormManager() {
   return Singleton<CharacterFormManager>::get();
 }
 
 CharacterFormManager::CharacterFormManager() : data_(std::make_unique<Data>()) {
-  Config config;
-  ConfigHandler::GetConfig(&config);
-  ReloadConfig(config);
+  ReloadConfig(*ConfigHandler::GetSharedConfig());
 }
 
-void CharacterFormManager::ReloadConfig(const Config &config) {
+void CharacterFormManager::ReloadConfig(const Config& config) {
   Clear();
   if (config.character_form_rules_size() > 0) {
     for (size_t i = 0; i < config.character_form_rules_size(); ++i) {
@@ -658,25 +657,25 @@ std::string CharacterFormManager::ConvertWidth(std::string input,
 }
 
 void CharacterFormManager::ConvertPreeditString(const absl::string_view input,
-                                                std::string *output) const {
+                                                std::string* output) const {
   data_->GetPreeditManager()->ConvertString(input, output);
 }
 
 void CharacterFormManager::ConvertConversionString(
-    const absl::string_view input, std::string *output) const {
+    const absl::string_view input, std::string* output) const {
   data_->GetConversionManager()->ConvertString(input, output);
 }
 
 bool CharacterFormManager::ConvertPreeditStringWithAlternative(
-    const absl::string_view input, std::string *output,
-    std::string *alternative_output) const {
+    const absl::string_view input, std::string* output,
+    std::string* alternative_output) const {
   return data_->GetPreeditManager()->ConvertStringWithAlternative(
       input, output, alternative_output);
 }
 
 bool CharacterFormManager::ConvertConversionStringWithAlternative(
-    const absl::string_view input, std::string *output,
-    std::string *alternative_output) const {
+    const absl::string_view input, std::string* output,
+    std::string* alternative_output) const {
   return data_->GetConversionManager()->ConvertStringWithAlternative(
       input, output, alternative_output);
 }
@@ -719,7 +718,7 @@ void CharacterFormManager::GuessAndSetCharacterForm(
 }
 
 void CharacterFormManager::SetLastNumberStyle(
-    const NumberFormStyle &form_style) {
+    const NumberFormStyle& form_style) {
   data_->GetNumberStyleManager()->SetNumberStyle(form_style);
 }
 
@@ -741,89 +740,6 @@ void CharacterFormManager::AddConversionRule(const absl::string_view input,
 void CharacterFormManager::SetDefaultRule() {
   data_->GetPreeditManager()->SetDefaultRule();
   data_->GetConversionManager()->SetDefaultRule();
-}
-
-namespace {
-
-bool IsHalfWidthVoiceSoundMark(char32_t ch) {
-  // 0xFF9E: Halfwidth voice sound mark
-  // 0xFF9F: Halfwidth semi-voice sound mark
-  return ch == 0xFF9E || ch == 0xFF9F;
-}
-
-// Skip halfwidth voice/semi-voice sound mark as they are treated as one
-// character.
-Utf8AsChars32::const_iterator SkipHalfWidthVoiceSoundMark(
-    Utf8AsChars32::const_iterator it, Utf8AsChars32::const_iterator last) {
-  while (it != last && IsHalfWidthVoiceSoundMark(*it)) {
-    ++it;
-  }
-  return it;
-}
-
-}  // namespace
-
-bool CharacterFormManager::GetFormTypesFromStringPair(
-    const absl::string_view input1, FormType *output_form1,
-    const absl::string_view input2, FormType *output_form2) {
-  CHECK(output_form1);
-  CHECK(output_form2);
-
-  *output_form1 = CharacterFormManager::UNKNOWN_FORM;
-  *output_form2 = CharacterFormManager::UNKNOWN_FORM;
-
-  Utf8AsChars32 chars1(input1), chars2(input2);
-  auto it1 = chars1.begin(), it2 = chars2.begin();
-  for (; it1 != chars1.end() && it2 != chars2.end(); ++it1, ++it2) {
-    it1 = SkipHalfWidthVoiceSoundMark(it1, chars1.end());
-    it2 = SkipHalfWidthVoiceSoundMark(it2, chars2.end());
-    if (it1 == chars1.end() || it2 == chars2.end()) {
-      break;
-    }
-
-    const Util::ScriptType script1 = Util::GetScriptType(*it1);
-    const Util::ScriptType script2 = Util::GetScriptType(*it2);
-    const Util::FormType form1 = Util::GetFormType(*it1);
-    const Util::FormType form2 = Util::GetFormType(*it2);
-
-    // TODO(taku): have to check that normalized w1 and w2 are identical
-    if (script1 != script2) {
-      return false;
-    }
-
-    DCHECK_EQ(script1, script2);
-
-    // when having different forms, record the diff.
-    if (form1 == Util::FULL_WIDTH && form2 == Util::HALF_WIDTH) {
-      if (*output_form1 == CharacterFormManager::HALF_WIDTH ||
-          *output_form2 == CharacterFormManager::FULL_WIDTH) {
-        // inconsistent with the previous forms.
-        return false;
-      }
-      *output_form1 = CharacterFormManager::FULL_WIDTH;
-      *output_form2 = CharacterFormManager::HALF_WIDTH;
-    } else if (form1 == Util::HALF_WIDTH && form2 == Util::FULL_WIDTH) {
-      if (*output_form1 == CharacterFormManager::FULL_WIDTH ||
-          *output_form2 == CharacterFormManager::HALF_WIDTH) {
-        // inconsistent with the previous forms.
-        return false;
-      }
-      *output_form1 = CharacterFormManager::HALF_WIDTH;
-      *output_form2 = CharacterFormManager::FULL_WIDTH;
-    }
-  }
-
-  // length should be the same
-  if (it1 != chars1.end() || it2 != chars2.end()) {
-    return false;
-  }
-
-  if (*output_form1 == CharacterFormManager::UNKNOWN_FORM ||
-      *output_form2 == CharacterFormManager::UNKNOWN_FORM) {
-    return false;
-  }
-
-  return true;
 }
 
 }  // namespace config

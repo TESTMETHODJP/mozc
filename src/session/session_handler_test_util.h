@@ -36,9 +36,8 @@
 
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "session/session_handler_interface.h"
+#include "session/session_handler.h"
 #include "testing/mozctest.h"
-#include "usage_stats/usage_stats_testing_util.h"
 
 namespace mozc {
 namespace session {
@@ -47,18 +46,18 @@ namespace testing {
 // Sends CREATE_SESSION command to the given handler and returns its result.
 // If it is successfully completed and the given id is not NULL,
 // also stores the session id to it.
-bool CreateSession(SessionHandlerInterface *handler, uint64_t *id);
+bool CreateSession(SessionHandler* handler, uint64_t* id);
 
 // Sends DELETE_SESSION command with the given id to the given handler,
 // and returns its result.
-bool DeleteSession(SessionHandlerInterface *handler, uint64_t id);
+bool DeleteSession(SessionHandler* handler, uint64_t id);
 
 // Sends CLEANUP command to the given handler, and returns its result.
-bool CleanUp(SessionHandlerInterface *handler, uint64_t id);
+bool CleanUp(SessionHandler* handler, uint64_t id);
 
 // Returns the session represented by the given id is "good" or not, based
 // on sending a SPACE key. See the implementation for the detail.
-bool IsGoodSession(SessionHandlerInterface *handler, uint64_t id);
+bool IsGoodSession(SessionHandler* handler, uint64_t id);
 
 // Base implementation of test cases.
 class SessionHandlerTestBase : public ::mozc::testing::TestWithTempUserProfile {
@@ -66,7 +65,7 @@ class SessionHandlerTestBase : public ::mozc::testing::TestWithTempUserProfile {
   void SetUp() override;
   void TearDown() override;
 
-  void ClearState();
+  virtual void ClearState();
 
  private:
   config::Config config_backup_;
@@ -76,7 +75,6 @@ class SessionHandlerTestBase : public ::mozc::testing::TestWithTempUserProfile {
   int32_t flags_last_command_timeout_backup_;
   int32_t flags_last_create_session_timeout_backup_;
   bool flags_restricted_backup_;
-  usage_stats::scoped_usage_stats_enabler usage_stats_enabler_;
 };
 
 }  // namespace testing

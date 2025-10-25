@@ -33,11 +33,12 @@
 #include <string>
 #include <utility>
 
-#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
+#include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
 
@@ -49,25 +50,25 @@ constexpr absl::string_view kDummyDataVersion = "dataversion";
 class VersionRewriterTest : public testing::TestWithTempUserProfile {
  protected:
   static void AddSegment(std::string key, std::string value,
-                         Segments *segments) {
-    Segment *segment = segments->push_back_segment();
+                         Segments* segments) {
+    Segment* segment = segments->push_back_segment();
     segment->set_key(key);
     AddCandidate(std::move(key), std::move(value), segment);
   }
 
   static void AddCandidate(std::string key, std::string value,
-                           Segment *segment) {
-    Segment::Candidate *candidate = segment->add_candidate();
+                           Segment* segment) {
+    converter::Candidate* candidate = segment->add_candidate();
     candidate->value = value;
     candidate->content_value = std::move(value);
     candidate->content_key = std::move(key);
   }
 
   static bool FindCandidateWithPrefix(const absl::string_view prefix,
-                                      const Segments &segments) {
-    for (const Segment &segment : segments) {
+                                      const Segments& segments) {
+    for (const Segment& segment : segments) {
       for (size_t j = 0; j < segment.candidates_size(); ++j) {
-        if (absl::StartsWith(segment.candidate(j).value, prefix)) {
+        if (segment.candidate(j).value.starts_with(prefix)) {
           return true;
         }
       }
@@ -84,18 +85,20 @@ TEST_F(VersionRewriterTest, CapabilityTest) {
 }
 
 TEST_F(VersionRewriterTest, MobileEnvironmentTest) {
-  ConversionRequest convreq;
   commands::Request request;
-  convreq.set_request(&request);
   VersionRewriter rewriter(kDummyDataVersion);
 
   {
     request.set_mixed_conversion(true);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::ALL);
   }
 
   {
     request.set_mixed_conversion(false);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::CONVERSION);
   }
 }

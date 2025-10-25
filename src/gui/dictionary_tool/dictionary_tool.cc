@@ -48,15 +48,15 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "base/file_stream.h"
-#include "base/logging.h"
 #include "base/util.h"
 #include "base/vlog.h"
 #include "client/client.h"
-#include "data_manager/pos_list_provider.h"
 #include "dictionary/user_dictionary_importer.h"
 #include "dictionary/user_dictionary_session.h"
 #include "dictionary/user_dictionary_storage.h"
@@ -332,7 +332,6 @@ DictionaryTool::DictionaryTool(QWidget *parent)
       import_default_ime_action_(nullptr),
       client_(client::ClientFactory::NewClient()),
       max_entry_size_(mozc::UserDictionaryStorage::max_entry_size()),
-      pos_list_provider_(std::make_unique<PosListProvider>()),
       modified_(false),
       monitoring_user_edit_(false),
       is_available_(true) {
@@ -358,16 +357,6 @@ DictionaryTool::DictionaryTool(QWidget *parent)
     is_available_ = false;
     return;
   }
-
-#ifndef ENABLE_CLOUD_SYNC
-  if (session_->mutable_storage()
-          ->ConvertSyncDictionariesToNormalDictionaries()) {
-    LOG(INFO) << "Syncable dictionaries are converted to normal dictionaries";
-    if (absl::Status s = session_->mutable_storage()->Save(); !s.ok()) {
-      LOG(ERROR) << "Failed to save the storage: " << s;
-    }
-  }
-#endif  // !ENABLE_CLOUD_SYNC
 
   // main window
 #ifndef __linux__
@@ -415,7 +404,7 @@ DictionaryTool::DictionaryTool(QWidget *parent)
       GetTableHeight(dic_content_));
 
   // Get a list of POS and set a custom delagate that holds the list.
-  const std::vector<std::string> tmp_pos_vec = pos_list_provider_->GetPosList();
+  const std::vector<std::string> tmp_pos_vec = pos_list_provider_.GetPosList();
   QStringList pos_list;
   for (size_t i = 0; i < tmp_pos_vec.size(); ++i) {
     pos_list.append(QUtf8(tmp_pos_vec[i]));
@@ -425,7 +414,7 @@ DictionaryTool::DictionaryTool(QWidget *parent)
   dic_content_->setItemDelegateForColumn(2, delegate);
 
   // Set the default POS. It should be "名詞".
-  default_pos_ = pos_list[pos_list_provider_->GetPosListDefaultIndex()];
+  default_pos_ = pos_list[pos_list_provider_.GetPosListDefaultIndex()];
   DCHECK(default_pos_ == "名詞") << "The default POS is not 名詞";
 
   // Set up the main table widget for dictionary contents.
@@ -444,7 +433,7 @@ DictionaryTool::DictionaryTool(QWidget *parent)
   // Qt::CTRL = Command key
   // Command+Backspace = delete
   QShortcut *shortcut2 =
-      new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_Backspace), dic_content_);
+      new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Backspace), dic_content_);
   connect(shortcut1, SIGNAL(activated()), this, SLOT(DeleteWord()));
   connect(shortcut2, SIGNAL(activated()), this, SLOT(DeleteWord()));
 #else   // __APPLE__
@@ -560,10 +549,10 @@ void DictionaryTool::closeEvent(QCloseEvent *event) {
   dic_menu_button_->setFocus(Qt::MouseFocusReason);
 
   SyncToStorage();
-  SaveAndReloadServer();
 
-  if (session_->mutable_storage()->GetLastError() ==
-      mozc::UserDictionaryStorage::TOO_BIG_FILE_BYTES) {
+  absl::Status status = SaveAndReloadServer();
+
+  if (absl::IsResourceExhausted(status)) {
     QMessageBox::warning(
         this, window_title_,
         tr("Making dangerously large user dictionary file. "
@@ -575,7 +564,7 @@ void DictionaryTool::closeEvent(QCloseEvent *event) {
 
 void DictionaryTool::OnDeactivate() {
   SyncToStorage();
-  SaveAndReloadServer();
+  SaveAndReloadServer().IgnoreError();
 }
 
 bool DictionaryTool::eventFilter(QObject *obj, QEvent *event) {
@@ -713,9 +702,11 @@ void DictionaryTool::DeleteDictionary() {
     return;
   }
 
-  if (!session_->mutable_storage()->DeleteDictionary(dic_info.id)) {
-    LOG(ERROR) << "Failed to delete the dictionary.";
-    ReportError();
+  if (absl::Status s =
+          session_->mutable_storage()->DeleteDictionary(dic_info.id);
+      !s.ok()) {
+    LOG(ERROR) << "Failed to delete the dictionary. " << s;
+    ReportError(s);
     return;
   }
 
@@ -740,10 +731,11 @@ void DictionaryTool::RenameDictionary() {
     return;
   }
 
-  if (!session_->mutable_storage()->RenameDictionary(dic_info.id,
-                                                     dic_name.toStdString())) {
-    LOG(ERROR) << "Failed to rename the dictionary.";
-    ReportError();
+  if (absl::Status s = session_->mutable_storage()->RenameDictionary(
+          dic_info.id, dic_name.toStdString());
+      !s.ok()) {
+    LOG(ERROR) << "Failed to rename the dictionary. " << s;
+    ReportError(s);
     return;
   }
 
@@ -858,11 +850,15 @@ void DictionaryTool::ImportHelper(
   }
 
   const std::string dic_name_str = dic_name.toStdString();
-  if (dic_id == 0 &&
-      !session_->mutable_storage()->CreateDictionary(dic_name_str, &dic_id)) {
-    LOG(ERROR) << "Failed to create the dictionary.";
-    ReportError();
-    return;
+  if (dic_id == 0) {
+    absl::StatusOr<uint64_t> s =
+        session_->mutable_storage()->CreateDictionary(dic_name_str);
+    if (!s.status().ok()) {
+      LOG(ERROR) << "Failed to create the dictionary.";
+      ReportError(s.status());
+      return;
+    }
+    dic_id = s.value();
   }
 
   UserDictionary *dic = session_->mutable_storage()->GetUserDictionary(dic_id);
@@ -995,10 +991,11 @@ void DictionaryTool::ExportDictionary() {
 
   SyncToStorage();
 
-  if (!session_->mutable_storage()->ExportDictionary(dic_info.id,
-                                                     file_name.toStdString())) {
-    LOG(ERROR) << "Failed to export the dictionary.";
-    ReportError();
+  if (absl::Status s = session_->mutable_storage()->ExportDictionary(
+          dic_info.id, file_name.toStdString());
+      !s.ok()) {
+    LOG(ERROR) << "Failed to export the dictionary. " << s;
+    ReportError(s);
     return;
   }
 
@@ -1181,7 +1178,7 @@ void DictionaryTool::MoveTo(int dictionary_row) {
         // TODO(yuryu): remove c_str() after changing ToPosType to take
         // absl::string_view.
         entry->set_pos(UserDictionaryUtil::ToPosType(
-            dic_content_->item(row, 2)->text().toStdString().c_str()));
+            dic_content_->item(row, 2)->text().toStdString()));
         entry->set_comment(dic_content_->item(row, 3)->text().toStdString());
         UserDictionaryUtil::SanitizeEntry(entry);
         progress->setValue(progress_index);
@@ -1317,7 +1314,7 @@ void DictionaryTool::OnContextMenuRequestedForContent(const QPoint &pos) {
 
   menu->addSeparator();
   QMenu *change_category_to = menu->addMenu(tr("Change category to"));
-  const std::vector<std::string> pos_list = pos_list_provider_->GetPosList();
+  const std::vector<std::string> pos_list = pos_list_provider_.GetPosList();
   std::vector<QAction *> change_pos_actions(pos_list.size());
   for (size_t i = 0; i < pos_list.size(); ++i) {
     change_pos_actions[i] = change_category_to->addAction(QUtf8(pos_list[i]));
@@ -1414,7 +1411,7 @@ void DictionaryTool::SyncToStorage() {
     // TODO(yuryu): remove c_str() after changing ToPosType to take
     // absl::string_view.
     entry->set_pos(UserDictionaryUtil::ToPosType(
-        dic_content_->item(i, 2)->text().toStdString().c_str()));
+        dic_content_->item(i, 2)->text().toStdString()));
     entry->set_comment(dic_content_->item(i, 3)->text().toStdString());
     UserDictionaryUtil::SanitizeEntry(entry);
   }
@@ -1423,13 +1420,15 @@ void DictionaryTool::SyncToStorage() {
 }
 
 void DictionaryTool::CreateDictionaryHelper(const QString &dic_name) {
-  uint64_t new_dic_id = 0;
-  if (!session_->mutable_storage()->CreateDictionary(dic_name.toStdString(),
-                                                     &new_dic_id)) {
-    LOG(ERROR) << "Failed to create a new dictionary.";
-    ReportError();
+  absl::StatusOr<uint64_t> s =
+      session_->mutable_storage()->CreateDictionary(dic_name.toStdString());
+  if (!s.status().ok()) {
+    LOG(ERROR) << "Failed to create a new dictionary. " << s;
+    ReportError(s.status());
     return;
   }
+
+  const uint64_t new_dic_id = s.value();
 
   QListWidgetItem *item = new QListWidgetItem(dic_list_);
   DCHECK(item);
@@ -1478,8 +1477,8 @@ QString DictionaryTool::PromptForDictionaryName(const QString &text,
   return dic_name;
 }
 
-void DictionaryTool::ReportError() {
-  switch (session_->mutable_storage()->GetLastError()) {
+void DictionaryTool::ReportError(const absl::Status &s) {
+  switch (s.raw_code()) {
     case mozc::UserDictionaryStorage::INVALID_CHARACTERS_IN_DICTIONARY_NAME:
       LOG(ERROR) << "Dictionary name contains an invalid character.";
       QMessageBox::critical(
@@ -1526,25 +1525,25 @@ void DictionaryTool::StopMonitoringUserEdit() {
   monitoring_user_edit_ = false;
 }
 
-void DictionaryTool::SaveAndReloadServer() {
-  if (absl::Status s = session_->mutable_storage()->Save();
-      !s.ok() && session_->mutable_storage()->GetLastError() ==
-                     mozc::UserDictionaryStorage::SYNC_FAILURE) {
-    LOG(ERROR) << "Cannot save dictionary: " << s;
-    return;
+absl::Status DictionaryTool::SaveAndReloadServer() {
+  absl::Status status = session_->mutable_storage()->Save();
+
+  if (!status.ok() && !absl::IsResourceExhausted(status)) {
+    LOG(ERROR) << "Cannot save dictionary: " << status;
+    return status;
   }
 
   // If server is not running, we don't need to
   // execute Reload command.
   if (!client_->PingServer()) {
     LOG(WARNING) << "Server is not running. Do nothing";
-    return;
+    return status;
   }
 
   // Update server version if need be.
   if (!client_->CheckVersionOrRestartServer()) {
     LOG(ERROR) << "CheckVersionOrRestartServer failed";
-    return;
+    return status;
   }
 
   // We don't show any dialog even when an error happens, since
@@ -1552,6 +1551,8 @@ void DictionaryTool::SaveAndReloadServer() {
   if (!client_->Reload()) {
     LOG(ERROR) << "Reload command failed";
   }
+
+  return status;
 }
 
 bool DictionaryTool::IsReadableToImport(const QString &file_name) {

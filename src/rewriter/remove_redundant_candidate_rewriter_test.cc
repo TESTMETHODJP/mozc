@@ -29,18 +29,20 @@
 
 #include "rewriter/remove_redundant_candidate_rewriter.h"
 
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
+#include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
 
 namespace mozc {
 TEST(RemoveRedundantCandidateRewriterTest, RemoveTest) {
   RemoveRedundantCandidateRewriter rewriter;
   Segments segments;
-  Segment *segment = segments.add_segment();
+  Segment* segment = segments.add_segment();
   segment->set_key("a");
-  Segment::Candidate *candidate = segment->add_candidate();
+  converter::Candidate* candidate = segment->add_candidate();
   candidate->key = "a";
   candidate->value = "a";
 
@@ -52,9 +54,9 @@ TEST(RemoveRedundantCandidateRewriterTest, RemoveTest) {
 TEST(RemoveRedundantCandidateRewriterTest, NoRemoveTest) {
   RemoveRedundantCandidateRewriter rewriter;
   Segments segments;
-  Segment *segment = segments.add_segment();
+  Segment* segment = segments.add_segment();
   segment->set_key("a");
-  Segment::Candidate *candidate = segment->add_candidate();
+  converter::Candidate* candidate = segment->add_candidate();
   candidate->key = "a";
   candidate->value = "aa";
 
@@ -65,13 +67,17 @@ TEST(RemoveRedundantCandidateRewriterTest, NoRemoveTest) {
 
 TEST(RemoveRedundantCandidateRewriterTest, CapabilityTest) {
   RemoveRedundantCandidateRewriter rewriter;
-  ConversionRequest convreq;
   commands::Request request;
-  convreq.set_request(&request);
-  { EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::NOT_AVAILABLE); }
+  {
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
+    EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::NOT_AVAILABLE);
+  }
 
   {
     request.set_mixed_conversion(true);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::ALL);
   }
 }

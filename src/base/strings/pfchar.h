@@ -30,8 +30,8 @@
 #ifndef MOZC_BASE_STRINGS_PFCHAR_H_
 #define MOZC_BASE_STRINGS_PFCHAR_H_
 
+#include <concepts>
 #include <string>
-#include <type_traits>
 #include <utility>
 
 #include "absl/strings/string_view.h"
@@ -61,7 +61,7 @@ using pfstring_view = absl::string_view;
 // On Windows, it converts the string to utf-16. On other platforms, it passes
 // through std::string as a reference, or creates a new std::string object from
 // absl::string_view.
-inline pfstring to_pfstring(std::string &&str) {
+inline pfstring to_pfstring(std::string&& str) {
 #ifdef _WIN32
   return win32::Utf8ToWide(str);
 #else   // _WIN32
@@ -70,11 +70,10 @@ inline pfstring to_pfstring(std::string &&str) {
 }
 
 // Zero overhead overload for cases where pfstring == std::string.
-template <
-    typename T = pfstring,
-    std::enable_if_t<std::is_same_v<T, std::string>, std::nullptr_t> = nullptr>
-inline const pfstring &to_pfstring(const std::string &str) {
-  return static_cast<const T &>(str);
+template <typename T = pfstring>
+  requires(std::same_as<T, std::string>)
+inline const pfstring& to_pfstring(const std::string& str) {
+  return static_cast<const T&>(str);
 }
 
 inline pfstring to_pfstring(const absl::string_view str) {
@@ -89,7 +88,7 @@ inline pfstring to_pfstring(const absl::string_view str) {
 // On Windows, it converts the string from utf-16. On other platforms, it passes
 // through std::string as a reference, or creates a new std::string object from
 // absl::string_view.
-inline std::string to_string(pfstring &&str) {
+inline std::string to_string(pfstring&& str) {
 #ifdef _WIN32
   return win32::WideToUtf8(str);
 #else   // _WIN32
@@ -98,10 +97,9 @@ inline std::string to_string(pfstring &&str) {
 }
 
 // Zero overhead overload for cases where pfstring == std::string.
-template <
-    typename T = pfstring,
-    std::enable_if_t<std::is_same_v<T, std::string>, std::nullptr_t> = nullptr>
-inline const std::string &to_string(const T &str) {
+template <typename T = pfstring>
+  requires(std::same_as<T, std::string>)
+inline const std::string& to_string(const T& str) {
   return str;
 }
 

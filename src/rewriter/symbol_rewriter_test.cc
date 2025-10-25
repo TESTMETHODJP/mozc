@@ -29,56 +29,64 @@
 
 #include "rewriter/symbol_rewriter.h"
 
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "base/util.h"
-#include "converter/converter_mock.h"
+#include "converter/candidate.h"
+#include "converter/inner_segment.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
-#include "engine/engine_interface.h"
-#include "engine/mock_data_engine_factory.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
 #include "request/request_test_util.h"
-#include "testing/gmock.h"
+#include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
+#include "testing/test_peer.h"
 
 namespace mozc {
+
+class SymbolRewriterTestPeer : testing::TestPeer<SymbolRewriter> {
+ public:
+  explicit SymbolRewriterTestPeer(SymbolRewriter& rewriter)
+      : testing::TestPeer<SymbolRewriter>(rewriter) {}
+
+  PEER_METHOD(RewriteEachCandidate);
+};
+
 namespace {
 
-using ::testing::_;
-using ::testing::Ref;
-using ::testing::Return;
-
 void AddSegment(const absl::string_view key, const absl::string_view value,
-                Segments *segments) {
-  Segment *seg = segments->push_back_segment();
+                Segments* segments) {
+  Segment* seg = segments->push_back_segment();
   seg->set_key(key);
-  Segment::Candidate *candidate = seg->add_candidate();
+  converter::Candidate* candidate = seg->add_candidate();
   candidate->value = std::string(value);
   candidate->content_key = std::string(key);
   candidate->content_value = std::string(value);
 }
 
-void AddCandidate(const absl::string_view value, Segment *segment) {
-  Segment::Candidate *candidate = segment->add_candidate();
+void AddCandidate(const absl::string_view value, Segment* segment) {
+  converter::Candidate* candidate = segment->add_candidate();
   candidate->value = std::string(value);
   candidate->content_key = segment->key();
   candidate->content_value = std::string(value);
 }
 
-bool HasCandidateAndDescription(const Segments &segments, int index,
+bool HasCandidateAndDescription(const Segments& segments, int index,
                                 const absl::string_view key,
                                 const absl::string_view description) {
   CHECK_GT(segments.segments_size(), index);
   bool check_description = !description.empty();
 
   for (size_t i = 0; i < segments.segment(index).candidates_size(); ++i) {
-    const Segment::Candidate &candidate = segments.segment(index).candidate(i);
+    const converter::Candidate& candidate =
+        segments.segment(index).candidate(i);
     if (candidate.value == key) {
       if (check_description) {
         bool result = candidate.description == description;
@@ -91,7 +99,7 @@ bool HasCandidateAndDescription(const Segments &segments, int index,
   return false;
 }
 
-bool HasCandidate(const Segments &segments, int index,
+bool HasCandidate(const Segments& segments, int index,
                   const absl::string_view value) {
   return HasCandidateAndDescription(segments, index, value, "");
 }
@@ -101,18 +109,9 @@ bool HasCandidate(const Segments &segments, int index,
 class SymbolRewriterTest : public testing::TestWithTempUserProfile {
  protected:
   void SetUp() override {
-    // We cannot use mock converter here because SymbolRewriter uses
-    // ResizeSegment of converter implementation. However, SymbolRewriter is
-    // independent of underlying dictionary and, hence, we can use a converter
-    // with mock data.
-    engine_ = MockDataEngineFactory::Create().value();
-    converter_ = engine_->GetConverter();
-
     data_manager_ = std::make_unique<testing::MockDataManager>();
   }
 
-  std::unique_ptr<EngineInterface> engine_;
-  const ConverterInterface *converter_;
   std::unique_ptr<testing::MockDataManager> data_manager_;
 };
 
@@ -120,53 +119,50 @@ class SymbolRewriterTest : public testing::TestWithTempUserProfile {
 // Test result can be changed if symbol dictionary is modified.
 // TODO(toshiyuki): Modify symbol rewriter so that we can use symbol dictionary
 // for testing.
-TEST_F(SymbolRewriterTest, TriggerRewriteTest) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+TEST_F(SymbolRewriterTest, CheckResizeSegmentsRequestTest) {
+  SymbolRewriter symbol_rewriter(*data_manager_);
   const ConversionRequest request;
 
   {
+    // Two segments should be resized to one segment (i.e. "ー>").
     Segments segments;
     AddSegment("ー", "test", &segments);
     AddSegment(">", "test", &segments);
-    EXPECT_TRUE(symbol_rewriter.Rewrite(request, &segments));
-    EXPECT_TRUE(HasCandidate(segments, 0, "→"));
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        symbol_rewriter.CheckResizeSegmentsRequest(request, segments);
+    ASSERT_TRUE(resize_request.has_value());
+    EXPECT_EQ(resize_request->segment_index, 0);
+    EXPECT_EQ(resize_request->segment_sizes[0], 2);
   }
   {
+    // Already resized.
+    Segments segments;
+    AddSegment("ー>", "test", &segments);
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        symbol_rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
+  }
+  {
+    // No applicable symbols.
     Segments segments;
     AddSegment("ー", "test", &segments);
     AddSegment("ー", "test", &segments);
-    EXPECT_TRUE(symbol_rewriter.Rewrite(request, &segments));
-    EXPECT_TRUE(HasCandidate(segments, 0, "―"));
-    EXPECT_TRUE(HasCandidate(segments, 1, "―"));
-  }
-}
-
-TEST_F(SymbolRewriterTest, TriggerRewriteEntireTest) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
-  const ConversionRequest request;
-  {
-    Segments segments;
-    AddSegment("ー", "test", &segments);
-    AddSegment(">", "test", &segments);
-    EXPECT_TRUE(symbol_rewriter.RewriteEntireCandidate(request, &segments));
-    EXPECT_TRUE(HasCandidate(segments, 0, "→"));
-  }
-  {
-    Segments segments;
-    AddSegment("ー", "test", &segments);
-    AddSegment("ー", "test", &segments);
-    EXPECT_FALSE(symbol_rewriter.RewriteEntireCandidate(request, &segments));
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        symbol_rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
   }
 }
 
 TEST_F(SymbolRewriterTest, TriggerRewriteEachTest) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
+  SymbolRewriterTestPeer symbol_rewriter_peer(symbol_rewriter);
+
   const ConversionRequest request;
   {
     Segments segments;
     AddSegment("ー", "test", &segments);
     AddSegment(">", "test", &segments);
-    EXPECT_TRUE(symbol_rewriter.RewriteEachCandidate(request, &segments));
+    EXPECT_TRUE(symbol_rewriter_peer.RewriteEachCandidate(request, &segments));
     EXPECT_EQ(segments.segments_size(), 2);
     EXPECT_TRUE(HasCandidate(segments, 0, "―"));
     EXPECT_FALSE(HasCandidate(segments, 0, "→"));
@@ -175,7 +171,7 @@ TEST_F(SymbolRewriterTest, TriggerRewriteEachTest) {
 }
 
 TEST_F(SymbolRewriterTest, HentaiganaSymbolTest) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
   const ConversionRequest request;
   {
     Segments segments;
@@ -200,12 +196,13 @@ TEST_F(SymbolRewriterTest, HentaiganaSymbolTest) {
 }
 
 TEST_F(SymbolRewriterTest, TriggerRewriteDescriptionTest) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
+  SymbolRewriterTestPeer symbol_rewriter_peer(symbol_rewriter);
   const ConversionRequest request;
   {
     Segments segments;
     AddSegment("したつき", "test", &segments);
-    EXPECT_TRUE(symbol_rewriter.RewriteEachCandidate(request, &segments));
+    EXPECT_TRUE(symbol_rewriter_peer.RewriteEachCandidate(request, &segments));
     EXPECT_EQ(segments.segments_size(), 1);
     EXPECT_TRUE(
         HasCandidateAndDescription(segments, 0, "₍", "下付き文字(始め丸括弧)"));
@@ -213,12 +210,12 @@ TEST_F(SymbolRewriterTest, TriggerRewriteDescriptionTest) {
 }
 
 TEST_F(SymbolRewriterTest, InsertAfterSingleKanjiAndT13n) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
   const ConversionRequest request;
   {
     Segments segments;
     AddSegment("てん", "てん", &segments);
-    Segment *seg = segments.mutable_segment(0);
+    Segment* seg = segments.mutable_segment(0);
     // Add 15 single-kanji and transliterated candidates
     AddCandidate("点", seg);
     AddCandidate("転", seg);
@@ -239,7 +236,7 @@ TEST_F(SymbolRewriterTest, InsertAfterSingleKanjiAndT13n) {
     EXPECT_TRUE(symbol_rewriter.Rewrite(request, &segments));
     EXPECT_GT(segments.segment(0).candidates_size(), 16);
     for (int i = 0; i < 16; ++i) {
-      const std::string &value = segments.segment(0).candidate(i).value;
+      const std::string& value = segments.segment(0).candidate(i).value;
       EXPECT_FALSE(Util::IsScriptType(value, Util::UNKNOWN_SCRIPT))
           << i << ": " << value;
     }
@@ -247,16 +244,16 @@ TEST_F(SymbolRewriterTest, InsertAfterSingleKanjiAndT13n) {
 }
 
 TEST_F(SymbolRewriterTest, InsertSymbolsPositionMobileSymbolKey) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
   commands::Request command_request;
   request_test_util::FillMobileRequest(&command_request);
-  ConversionRequest request;
-  request.set_request(&command_request);
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetRequest(command_request).Build();
 
   {
     Segments segments;
     AddSegment("%", "%", &segments);  // segments from symbol key.
-    Segment *seg = segments.mutable_segment(0);
+    Segment* seg = segments.mutable_segment(0);
     // Add predictive candidates.
     AddCandidate("%引き", seg);
     AddCandidate("%増し", seg);
@@ -271,16 +268,16 @@ TEST_F(SymbolRewriterTest, InsertSymbolsPositionMobileSymbolKey) {
 }
 
 TEST_F(SymbolRewriterTest, InsertSymbolsPositionMobileAlphabetKey) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
   commands::Request command_request;
   request_test_util::FillMobileRequest(&command_request);
-  ConversionRequest request;
-  request.set_request(&command_request);
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetRequest(command_request).Build();
 
   {
     Segments segments;
     AddSegment("a", "app", &segments);  // segments from alphabet key.
-    Segment *seg = segments.mutable_segment(0);
+    Segment* seg = segments.mutable_segment(0);
     // Add predictive candidates.
     AddCandidate("apple", seg);
     AddCandidate("align", seg);
@@ -297,14 +294,14 @@ TEST_F(SymbolRewriterTest, InsertSymbolsPositionMobileAlphabetKey) {
 }
 
 TEST_F(SymbolRewriterTest, SetKey) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
   Segments segments;
   const ConversionRequest request;
 
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   const std::string kKey = "てん";
   segment->set_key(kKey);
-  Segment::Candidate *candidate = segment->add_candidate();
+  converter::Candidate* candidate = segment->add_candidate();
   candidate->key = "strange key";
   candidate->value = "strange value";
   candidate->content_key = "strange key";
@@ -318,50 +315,51 @@ TEST_F(SymbolRewriterTest, SetKey) {
 }
 
 TEST_F(SymbolRewriterTest, MobileEnvironmentTest) {
-  ConversionRequest convreq;
   commands::Request request;
-  convreq.set_request(&request);
-  SymbolRewriter rewriter(converter_, data_manager_.get());
+  SymbolRewriter rewriter(*data_manager_);
 
   {
     request.set_mixed_conversion(true);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::ALL);
   }
 
   {
     request.set_mixed_conversion(false);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::CONVERSION);
   }
 }
 
 TEST_F(SymbolRewriterTest, ExpandSpace) {
-  SymbolRewriter symbol_rewriter(converter_, data_manager_.get());
+  SymbolRewriter symbol_rewriter(*data_manager_);
   Segments segments;
   const ConversionRequest request;
 
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key(" ");
-  Segment::Candidate *candidate = segment->add_candidate();
+  converter::Candidate* candidate = segment->add_candidate();
   candidate->key = " ";
   candidate->value = " ";
   candidate->content_key = " ";
   candidate->content_value = " ";
-  candidate->PushBackInnerSegmentBoundary(1, 1, 1, 1);
+  candidate->inner_segment_boundary = converter::BuildInnerSegmentBoundary(
+      {{1, 1, 1, 1}}, candidate->key, candidate->value);
 
   EXPECT_TRUE(symbol_rewriter.Rewrite(request, &segments));
   EXPECT_LE(2, segment->candidates_size());
 
-  const Segment::Candidate &cand0 = segment->candidate(0);
+  const converter::Candidate& cand0 = segment->candidate(0);
   EXPECT_EQ(cand0.key, " ");
   EXPECT_EQ(cand0.value, " ");
   EXPECT_EQ(cand0.content_key, " ");
   EXPECT_EQ(cand0.content_value, " ");
   ASSERT_EQ(cand0.inner_segment_boundary.size(), 1);
-  EXPECT_EQ(cand0.inner_segment_boundary[0],
-            Segment::Candidate::EncodeLengths(1, 1, 1, 1));
 
-  const char *kFullWidthSpace = "　";
-  const Segment::Candidate &cand1 = segment->candidate(1);
+  const char* kFullWidthSpace = "　";
+  const converter::Candidate& cand1 = segment->candidate(1);
   EXPECT_EQ(cand1.key, " ");
   EXPECT_EQ(cand1.value, kFullWidthSpace);
   EXPECT_EQ(cand1.content_key, " ");
@@ -369,18 +367,46 @@ TEST_F(SymbolRewriterTest, ExpandSpace) {
   EXPECT_TRUE(cand1.inner_segment_boundary.empty());
 }
 
+TEST_F(SymbolRewriterTest, InvalidSizeOfSegments) {
+  const SymbolRewriter rewriter(*data_manager_);
+
+  // Valid case: segment size is 1.
+  {
+    Segments segments;
+    const ConversionRequest request;
+
+    // 1 segment. There are symbols assigned to "おんがく".
+    AddSegment("ぎりしゃ", "test", &segments);
+    EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+  }
+
+  // Invalid case: segment size is not 1.
+  {
+    Segments segments;
+    const ConversionRequest request;
+
+    // 0 segments.
+    EXPECT_FALSE(rewriter.Rewrite(request, &segments));
+
+    // 2 segments. There are no symbols assigned to "おん" or "がく".
+    AddSegment("おん", "test", &segments);
+    AddSegment("がく", "test", &segments);
+    EXPECT_FALSE(rewriter.Rewrite(request, &segments));
+  }
+}
+
 TEST_F(SymbolRewriterTest, ResizeSegmentFailureIsNotFatal) {
-  const MockConverter converter;
-  const SymbolRewriter rewriter(&converter, data_manager_.get());
+  const SymbolRewriter rewriter(*data_manager_);
 
   Segments segments;
   const ConversionRequest request;
   AddSegment("ー", "test", &segments);
   AddSegment(">", "test", &segments);
-  EXPECT_CALL(converter, ResizeSegment(&segments, Ref(request), 0, _))
-      .WillOnce(Return(false));
-
-  EXPECT_FALSE(rewriter.RewriteEntireCandidate(request, &segments));
+  std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+      rewriter.CheckResizeSegmentsRequest(request, segments);
+  ASSERT_TRUE(resize_request.has_value());
+  EXPECT_EQ(resize_request->segment_index, 0);
+  EXPECT_EQ(resize_request->segment_sizes[0], 2);
 }
 
 }  // namespace mozc

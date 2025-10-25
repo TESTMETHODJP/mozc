@@ -40,16 +40,18 @@
 #include <utility>
 #include <vector>
 
-#include "absl/strings/match.h"
+#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
+#include "absl/hash/hash.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "base/config_file_stream.h"
 #include "base/hash.h"
-#include "base/logging.h"
 #include "base/util.h"
-#include "composer/internal/special_key.h"
-#include "data_manager/data_manager_interface.h"
+#include "composer/special_key.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 
@@ -137,13 +139,13 @@ constexpr absl::string_view kSquareOpen = "[";
 constexpr absl::string_view kSquareClose = "]";
 constexpr absl::string_view kMiddleDot = "・";
 
-bool Table::InitializeWithRequestAndConfig(
-    const commands::Request &request, const config::Config &config) {
+bool Table::InitializeWithRequestAndConfig(const commands::Request& request,
+                                           const config::Config& config) {
   case_sensitive_ = false;
   bool result = false;
   if (request.special_romanji_table() !=
       mozc::commands::Request::DEFAULT_TABLE) {
-    const char *table_file_name;
+    const char* table_file_name;
     switch (request.special_romanji_table()) {
       case mozc::commands::Request::TWELVE_KEYS_TO_HIRAGANA:
         table_file_name = k12keysHiraganaTableFile;
@@ -239,7 +241,7 @@ bool Table::InitializeWithRequestAndConfig(
   // Initialize punctuations.
   const config::Config::PunctuationMethod punctuation_method =
       config.punctuation_method();
-  const mozc::composer::Entry *entry = nullptr;
+  const mozc::composer::Entry* entry = nullptr;
 
   // Comma / Kuten
   entry = LookUp(",");
@@ -322,13 +324,13 @@ bool Table::IsLoopingEntry(const absl::string_view input,
   do {
     // If input is a prefix of key, it should be looping.
     // (ex. input="a", pending="abc").
-    if (absl::StartsWith(key, input)) {
+    if (key.starts_with(input)) {
       return true;
     }
 
     size_t key_length = 0;
     bool fixed = false;
-    const Entry *entry = LookUpPrefix(key, &key_length, &fixed);
+    const Entry* entry = LookUpPrefix(key, &key_length, &fixed);
     if (entry == nullptr) {
       return false;
     }
@@ -339,13 +341,13 @@ bool Table::IsLoopingEntry(const absl::string_view input,
   return false;
 }
 
-const Entry *Table::AddRule(const absl::string_view input,
-                            const absl::string_view output,
-                            const absl::string_view pending) {
+const Entry* absl_nullable Table::AddRule(const absl::string_view input,
+                                          const absl::string_view output,
+                                          const absl::string_view pending) {
   return AddRuleWithAttributes(input, output, pending, NO_TABLE_ATTRIBUTE);
 }
 
-const Entry *Table::AddRuleWithAttributes(
+const Entry* absl_nullable Table::AddRuleWithAttributes(
     const absl::string_view escaped_input, const absl::string_view output,
     const absl::string_view escaped_pending, const TableAttributes attributes) {
   if (attributes & NEW_CHUNK) {
@@ -372,13 +374,13 @@ const Entry *Table::AddRuleWithAttributes(
     return nullptr;
   }
 
-  const Entry *old_entry = nullptr;
+  const Entry* old_entry = nullptr;
   if (entries_.LookUp(input, &old_entry)) {
     DeleteEntry(old_entry);
   }
 
   auto entry = std::make_unique<Entry>(input, output, pending, attributes);
-  Entry *entry_ptr = entry.get();
+  Entry* entry_ptr = entry.get();
   entries_.AddEntry(input, entry_ptr);
   entry_set_.insert(std::move(entry));
 
@@ -406,19 +408,19 @@ void Table::DeleteRule(const absl::string_view input) {
   //     - This method is not used.
   //     - This method has no tests.
   //     - This method is private scope.
-  const Entry *old_entry;
+  const Entry* old_entry;
   if (entries_.LookUp(input, &old_entry)) {
     DeleteEntry(old_entry);
   }
   entries_.DeleteEntry(input);
 }
 
-bool Table::LoadFromString(const std::string &str) {
+bool Table::LoadFromString(const std::string& str) {
   std::istringstream is(str);
   return LoadFromStream(&is);
 }
 
-bool Table::LoadFromFile(const char *filepath) {
+bool Table::LoadFromFile(const char* filepath) {
   std::unique_ptr<std::istream> ifs(ConfigFileStream::LegacyOpen(filepath));
   if (ifs == nullptr) {
     return false;
@@ -450,7 +452,7 @@ TableAttributes ParseAttributes(const absl::string_view input) {
 }
 }  // namespace
 
-bool Table::LoadFromStream(std::istream *is) {
+bool Table::LoadFromStream(std::istream* is) {
   DCHECK(is);
   std::string line;
   while (!is->eof()) {
@@ -480,8 +482,8 @@ bool Table::LoadFromStream(std::istream *is) {
   return true;
 }
 
-const Entry *Table::LookUp(const absl::string_view input) const {
-  const Entry *entry = nullptr;
+const Entry* Table::LookUp(const absl::string_view input) const {
+  const Entry* entry = nullptr;
   if (case_sensitive_) {
     entries_.LookUp(input, &entry);
   } else {
@@ -492,9 +494,9 @@ const Entry *Table::LookUp(const absl::string_view input) const {
   return entry;
 }
 
-const Entry *Table::LookUpPrefix(const absl::string_view input,
-                                 size_t *key_length, bool *fixed) const {
-  const Entry *entry = nullptr;
+const Entry* Table::LookUpPrefix(const absl::string_view input,
+                                 size_t* key_length, bool* fixed) const {
+  const Entry* entry = nullptr;
   if (case_sensitive_) {
     entries_.LookUpPrefix(input, &entry, key_length, fixed);
   } else {
@@ -506,7 +508,7 @@ const Entry *Table::LookUpPrefix(const absl::string_view input,
 }
 
 void Table::LookUpPredictiveAll(const absl::string_view input,
-                                std::vector<const Entry *> *results) const {
+                                std::vector<const Entry*>* results) const {
   if (case_sensitive_) {
     entries_.LookUpPredictiveAll(input, results);
   } else {
@@ -542,7 +544,7 @@ bool Table::HasSubRules(const absl::string_view input) const {
   }
 }
 
-void Table::DeleteEntry(const Entry *entry) { entry_set_.erase(entry); }
+void Table::DeleteEntry(const Entry* entry) { entry_set_.erase(entry); }
 
 bool Table::case_sensitive() const { return case_sensitive_; }
 
@@ -551,62 +553,60 @@ void Table::set_case_sensitive(const bool case_sensitive) {
 }
 
 // static
-const Table &Table::GetDefaultTable() {
-  static Table *default_table = nullptr;
-  if (!default_table) {
-    default_table = new Table();
-  }
-  return *default_table;
+const Table& Table::GetDefaultTable() {
+  return *GetSharedDefaultTable();  // NOLINT: The referenced object has static
+                                    // lifetime.
+}
+
+std::shared_ptr<const Table> Table::GetSharedDefaultTable() {
+  static absl::NoDestructor<std::shared_ptr<const Table>> kDefaultSharedTable(
+      new Table());
+  return *kDefaultSharedTable;
 }
 
 // ========================================
 // TableContainer
 // ========================================
 TableManager::TableManager()
-    : custom_roman_table_fingerprint_(Fingerprint32("")) {}
+    : custom_roman_table_fingerprint_(CityFingerprint("")) {}
 
-const Table *TableManager::GetTable(const mozc::commands::Request &request,
-                                    const mozc::config::Config &config) {
+std::shared_ptr<const Table> TableManager::GetTable(
+    const mozc::commands::Request& request,
+    const mozc::config::Config& config) {
   // calculate the hash depending on the request and the config
-  uint32_t hash = request.special_romanji_table();
-  hash = hash * (mozc::config::Config_PreeditMethod_PreeditMethod_MAX + 1) +
-         config.preedit_method();
-  hash = hash * (mozc::config::Config_PunctuationMethod_PunctuationMethod_MAX +
-                 1) +
-         config.punctuation_method();
-  hash = hash * (mozc::config::Config_SymbolMethod_SymbolMethod_MAX + 1) +
-         config.symbol_method();
+  const size_t hash =
+      absl::HashOf(request.special_romanji_table(), config.preedit_method(),
+                   config.punctuation_method(), config.symbol_method());
 
   // When custom_roman_table is set, force to create new table.
   bool update_custom_roman_table = false;
   if ((config.preedit_method() == config::Config::ROMAN) &&
       config.has_custom_roman_table() && !config.custom_roman_table().empty()) {
-    const uint32_t custom_roman_table_fingerprint =
-        Fingerprint32(config.custom_roman_table());
+    const uint64_t custom_roman_table_fingerprint =
+        CityFingerprint(config.custom_roman_table());
     if (custom_roman_table_fingerprint != custom_roman_table_fingerprint_) {
       update_custom_roman_table = true;
       custom_roman_table_fingerprint_ = custom_roman_table_fingerprint;
     }
   }
 
-  const auto iterator = table_map_.find(hash);
-  if (iterator != table_map_.end()) {
+  if (const auto iterator = table_map_.find(hash);
+      iterator != table_map_.end()) {
     if (update_custom_roman_table) {
       // Delete the previous table to update the table.
       table_map_.erase(iterator);
     } else {
-      return iterator->second.get();
+      return iterator->second;
     }
   }
 
-  auto table = std::make_unique<Table>();
+  auto table = std::make_shared<Table>();
   if (!table->InitializeWithRequestAndConfig(request, config)) {
     return nullptr;
   }
 
-  const Table *ret = table.get();
-  table_map_[hash] = std::move(table);
-  return ret;
+  table_map_.emplace(hash, table);
+  return table;
 }
 
 void TableManager::ClearCaches() { table_map_.clear(); }

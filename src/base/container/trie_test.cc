@@ -30,6 +30,7 @@
 #include "base/container/trie.h"
 
 #include <cstddef>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -37,6 +38,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "testing/gunit.h"
 
 namespace mozc {
@@ -289,7 +291,7 @@ TEST(TrieTest, UTF8LongestMatch) {
   EXPECT_FALSE(trie.LongestMatch("お", &value, &key_length));
 }
 
-bool HasData(const std::vector<std::string> &values,
+bool HasData(absl::Span<const std::string> values,
              const absl::string_view value) {
   return absl::c_find(values, value) != values.end();
 }

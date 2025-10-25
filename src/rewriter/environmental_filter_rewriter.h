@@ -56,9 +56,10 @@
 #include <string_view>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "base/text_normalizer.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 
@@ -70,7 +71,7 @@ class CharacterGroupFinder {
   ~CharacterGroupFinder() = default;
 
   // Sets target_codepoints, which represents target group.
-  void Initialize(const std::vector<std::u32string> &target_codepoints);
+  void Initialize(absl::Span<const std::u32string> target_codepoints);
   // Finds targeted character in given target codepoints. If found, returns
   // true. If not found, returns false.
   bool FindMatch(std::u32string_view target) const;
@@ -98,13 +99,12 @@ class EnvironmentalFilterRewriter : public RewriterInterface {
   // This class does not take an ownership of |emoji_data_list|, |token_list|
   // and |value_list|.  If NULL pointer is passed to it, Mozc process
   // terminates with an error.
-  explicit EnvironmentalFilterRewriter(
-      const DataManagerInterface &data_manager);
+  explicit EnvironmentalFilterRewriter(const DataManager& data_manager);
 
-  int capability(const ConversionRequest &request) const override;
+  int capability(const ConversionRequest& request) const override;
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
   void SetNormalizationFlag(TextNormalizer::Flag flag) { flag_ = flag; }
 
  private:
@@ -118,6 +118,8 @@ class EnvironmentalFilterRewriter : public RewriterInterface {
   CharacterGroupFinder finder_e14_0_;
   CharacterGroupFinder finder_e15_0_;
   CharacterGroupFinder finder_e15_1_;
+  CharacterGroupFinder finder_e16_0_;
+  CharacterGroupFinder finder_e17_0_;
 };
 }  // namespace mozc
 #endif  // MOZC_REWRITER_ENVIRONMENTAL_FILTER_REWRITER_H_

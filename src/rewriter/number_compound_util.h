@@ -38,7 +38,7 @@
 
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
-#include "converter/segments.h"
+#include "converter/candidate.h"
 
 namespace mozc {
 
@@ -60,12 +60,12 @@ enum NumberScriptType {
 // "一階" can be split as "一" + "階".  At the same time, script type of
 // number can be obtained.  A sorted array of counter suffix needs to be
 // provided, which can be obtained using data manager; see
-// data_manager/data_manager_interface.h.  Returns false if the input cannot be
+// data_manager/data_manager.h.  Returns false if the input cannot be
 // split.
 bool SplitStringIntoNumberAndCounterSuffix(
-    const SerializedStringArray &suffix_array, absl::string_view input,
-    absl::string_view *number, absl::string_view *counter_suffix,
-    uint32_t *script_type);
+    const SerializedStringArray& suffix_array, absl::string_view input,
+    absl::string_view* number, absl::string_view* counter_suffix,
+    uint32_t* script_type);
 
 // Checks if the given candidate is number, where candidate is considered as a
 // number when satisfying one of the following conditions:
@@ -73,9 +73,9 @@ bool SplitStringIntoNumberAndCounterSuffix(
 //   2) lid is Kanji number
 //   3) lid is general nound and content value consists of number and counter
 //      suffix, where counter suffix needs to be provided as a sorted array.
-bool IsNumber(const SerializedStringArray &suffix_array,
-              const dictionary::PosMatcher &pos_matcher,
-              const Segment::Candidate &cand);
+bool IsNumber(const SerializedStringArray& suffix_array,
+              const dictionary::PosMatcher& pos_matcher,
+              const converter::Candidate& cand);
 
 }  // namespace number_compound_util
 }  // namespace mozc

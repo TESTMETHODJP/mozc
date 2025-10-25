@@ -44,12 +44,13 @@
 
 #include "absl/base/attributes.h"
 #include "absl/flags/flag.h"
-#include "absl/strings/match.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/japanese_util.h"
-#include "base/logging.h"
 #include "base/multifile.h"
 #include "base/util.h"
 #include "base/vlog.h"
@@ -65,37 +66,37 @@ namespace {
 
 using ValueAndKey = std::pair<absl::string_view, absl::string_view>;
 
-ValueAndKey ToValueAndKey(const std::unique_ptr<Token> &token) {
+ValueAndKey ToValueAndKey(const std::unique_ptr<Token>& token) {
   return ValueAndKey(token->value, token->key);
 }
 
 // Functor to sort a sequence of Tokens first by value and then by key.
 struct OrderByValueThenByKey {
-  bool operator()(const std::unique_ptr<Token> &l,
-                  const std::unique_ptr<Token> &r) const {
+  bool operator()(const std::unique_ptr<Token>& l,
+                  const std::unique_ptr<Token>& r) const {
     return ToValueAndKey(l) < ToValueAndKey(r);
   }
 
-  bool operator()(const std::unique_ptr<Token> &token,
-                  const ValueAndKey &value_key) const {
+  bool operator()(const std::unique_ptr<Token>& token,
+                  const ValueAndKey& value_key) const {
     return ToValueAndKey(token) < value_key;
   }
 
-  bool operator()(const ValueAndKey &value_key,
-                  const std::unique_ptr<Token> &token) const {
+  bool operator()(const ValueAndKey& value_key,
+                  const std::unique_ptr<Token>& token) const {
     return value_key < ToValueAndKey(token);
   }
 };
 
 // Functor to sort a sequence of Tokens by value.
 struct OrderByValue {
-  bool operator()(const std::unique_ptr<Token> &token,
+  bool operator()(const std::unique_ptr<Token>& token,
                   absl::string_view value) const {
     return token->value < value;
   }
 
   bool operator()(absl::string_view value,
-                  const std::unique_ptr<Token> &token) const {
+                  const std::unique_ptr<Token>& token) const {
     return value < token->value;
   }
 };
@@ -112,7 +113,7 @@ ValueAndKey ParseReadingCorrectionTSV(
 
 }  // namespace
 
-TextDictionaryLoader::TextDictionaryLoader(const PosMatcher &pos_matcher)
+TextDictionaryLoader::TextDictionaryLoader(const PosMatcher& pos_matcher)
     : zipcode_id_(pos_matcher.GetZipcodeId()),
       isolated_word_id_(pos_matcher.GetIsolatedWordId()) {}
 
@@ -120,22 +121,22 @@ TextDictionaryLoader::TextDictionaryLoader(uint16_t zipcode_id,
                                            uint16_t isolated_word_id)
     : zipcode_id_(zipcode_id), isolated_word_id_(isolated_word_id) {}
 
-bool TextDictionaryLoader::RewriteSpecialToken(Token *token,
+bool TextDictionaryLoader::RewriteSpecialToken(Token* token,
                                                absl::string_view label) const {
   CHECK(token);
   if (label.empty()) {
     return true;
   }
-  if (absl::StartsWith(label, "SPELLING_CORRECTION")) {
+  if (label.starts_with("SPELLING_CORRECTION")) {
     token->attributes = Token::SPELLING_CORRECTION;
     return true;
   }
-  if (absl::StartsWith(label, "ZIP_CODE")) {
+  if (label.starts_with("ZIP_CODE")) {
     token->lid = zipcode_id_;
     token->rid = zipcode_id_;
     return true;
   }
-  if (absl::StartsWith(label, "ENGLISH")) {
+  if (label.starts_with("ENGLISH")) {
     // TODO(noriyukit): Might be better to use special POS for english words.
     token->lid = isolated_word_id_;
     token->rid = isolated_word_id_;
@@ -191,7 +192,7 @@ void TextDictionaryLoader::LoadWithLineLimit(
   //   2. Accessing all the tokens that have the same value: Since tokens are
   //      also sorted in order of value, this can be done by finding a range of
   //      tokens that have the same value.
-  std::sort(tokens_.begin(), tokens_.end(), OrderByValueThenByKey());
+  std::stable_sort(tokens_.begin(), tokens_.end(), OrderByValueThenByKey());
 
   std::vector<std::unique_ptr<Token>> reading_correction_tokens =
       LoadReadingCorrectionTokens(reading_correction_filename, tokens_, &limit);
@@ -207,7 +208,7 @@ void TextDictionaryLoader::LoadWithLineLimit(
 std::vector<std::unique_ptr<Token>>
 TextDictionaryLoader::LoadReadingCorrectionTokens(
     const absl::string_view reading_correction_filename,
-    const std::vector<std::unique_ptr<Token>> &ref_sorted_tokens, int *limit) {
+    absl::Span<const std::unique_ptr<Token>> ref_sorted_tokens, int* limit) {
   // Load reading correction entries.
   std::vector<std::unique_ptr<Token>> tokens;
   int reading_correction_size = 0;
@@ -247,7 +248,7 @@ TextDictionaryLoader::LoadReadingCorrectionTokens(
     // this reading correction entry.  Next, find the token that has the
     // maximum cost in [begin, end).  Note that linear search is sufficiently
     // fast here because the size of the range is small.
-    const Token *max_cost_token = begin->get();
+    const Token* max_cost_token = begin->get();
     for (++begin; begin != end; ++begin) {
       if ((*begin)->cost > max_cost_token->cost) {
         max_cost_token = begin->get();
@@ -280,10 +281,10 @@ TextDictionaryLoader::LoadReadingCorrectionTokens(
   return tokens;
 }
 
-void TextDictionaryLoader::CollectTokens(std::vector<Token *> *res) const {
+void TextDictionaryLoader::CollectTokens(std::vector<Token*>* res) const {
   DCHECK(res);
   res->reserve(res->size() + tokens_.size());
-  for (const std::unique_ptr<Token> &token : tokens_) {
+  for (const std::unique_ptr<Token>& token : tokens_) {
     res->push_back(token.get());
   }
 }
@@ -296,7 +297,7 @@ std::unique_ptr<Token> TextDictionaryLoader::ParseTSVLine(
 }
 
 std::unique_ptr<Token> TextDictionaryLoader::ParseTSV(
-    const std::vector<absl::string_view> &columns) const {
+    absl::Span<const absl::string_view> columns) const {
   CHECK_LE(5, columns.size()) << "Lack of columns: " << columns.size();
 
   auto token = std::make_unique<Token>();

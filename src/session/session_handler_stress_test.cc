@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
 #include "engine/engine_factory.h"
 #include "protocol/commands.pb.h"
 #include "request/request_test_util.h"
@@ -95,7 +96,7 @@ TEST_P(SessionHandlerStressTest, BasicStressTest) {
   while (keyevents_size < kEventsPerShard) {
     keys.clear();
     generator_.GenerateSequence(&keys);
-    for (const commands::KeyEvent &key : keys) {
+    for (const commands::KeyEvent& key : keys) {
       ++keyevents_size;
       EXPECT_TRUE(client_.TestSendKey(key, &output));
       EXPECT_TRUE(client_.SendKey(key, &output));

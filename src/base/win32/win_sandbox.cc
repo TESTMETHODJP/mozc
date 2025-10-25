@@ -45,9 +45,9 @@
 #include <string_view>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "base/logging.h"
 #include "base/strings/zstring_view.h"
 #include "base/system_util.h"
 #include "base/win32/wide_char.h"
@@ -58,7 +58,7 @@ namespace {
 using ::mozc::win32::StrAppendW;
 using ::mozc::win32::StrCatW;
 
-using UniquePACL = wil::unique_any<ACL *, decltype(::LocalFree), ::LocalFree>;
+using UniquePACL = wil::unique_any<ACL*, decltype(::LocalFree), ::LocalFree>;
 
 wil::unique_process_handle OpenEffectiveToken(const DWORD desired_access) {
   wil::unique_process_handle token;
@@ -89,7 +89,7 @@ wil::unique_hlocal_secure_ptr<T> AllocGetTokenInformation(
   }
 
   wil::unique_hlocal_secure_ptr<T> buffer(
-      static_cast<T *>(::LocalAlloc(LPTR, buffer_size)));
+      static_cast<T*>(::LocalAlloc(LPTR, buffer_size)));
   if (buffer == nullptr) {
     return nullptr;
   }
@@ -125,8 +125,8 @@ wil::unique_hlocal_string_secure GetTokenPrimaryGroupSidStringW(
   return nullptr;
 }
 
-bool GetUserSid(std::wstring &token_user_sid,
-                std::wstring &token_primary_group_sid) {
+bool GetUserSid(std::wstring& token_user_sid,
+                std::wstring& token_primary_group_sid) {
   wil::unique_process_handle token = OpenEffectiveToken(TOKEN_QUERY);
   if (!token) {
     LOG(ERROR) << "OpenEffectiveToken failed " << ::GetLastError();
@@ -338,8 +338,8 @@ std::wstring WinSandbox::GetSDDL(ObjectSecurityType shareble_object_type,
   return sddl;
 }
 
-Sid::Sid(const SID *sid) {
-  ::CopySid(sizeof(sid_), sid_, const_cast<SID *>(sid));
+Sid::Sid(const SID* sid) {
+  ::CopySid(sizeof(sid_), sid_, const_cast<SID*>(sid));
 }
 
 Sid::Sid(WELL_KNOWN_SID_TYPE type) {
@@ -347,9 +347,9 @@ Sid::Sid(WELL_KNOWN_SID_TYPE type) {
   ::CreateWellKnownSid(type, nullptr, sid_, &size_sid);
 }
 
-const SID *Sid::GetPSID() const { return reinterpret_cast<const SID *>(sid_); }
+const SID* Sid::GetPSID() const { return reinterpret_cast<const SID*>(sid_); }
 
-SID *Sid::GetPSID() { return reinterpret_cast<SID *>(sid_); }
+SID* Sid::GetPSID() { return reinterpret_cast<SID*>(sid_); }
 
 std::wstring Sid::GetName() const {
   Sid temp_sid(GetPSID());
@@ -359,7 +359,6 @@ std::wstring Sid::GetName() const {
 }
 
 std::wstring Sid::GetAccountName() const {
-  wchar_t *ptr = nullptr;
   DWORD name_size = 0;
   DWORD domain_name_size = 0;
   SID_NAME_USE name_use;
@@ -383,17 +382,15 @@ std::wstring Sid::GetAccountName() const {
   return StrCatW(domain_name_buffer.get(), L"/", name_buffer.get());
 }
 
-// make SecurityAttributes for the named pipe.
-bool WinSandbox::MakeSecurityAttributes(
-    ObjectSecurityType shareble_object_type,
-    SECURITY_ATTRIBUTES *security_attributes) {
+wil::unique_hlocal_security_descriptor WinSandbox::MakeSecurityDescriptor(
+    ObjectSecurityType shareble_object_type) {
   std::wstring token_user_sid;
   std::wstring token_primary_group_sid;
   if (!GetUserSid(token_user_sid, token_primary_group_sid)) {
-    return false;
+    return nullptr;
   }
 
-  const std::wstring &sddl =
+  const std::wstring& sddl =
       GetSDDL(shareble_object_type, token_user_sid, token_primary_group_sid);
 
   // Create self-relative SD
@@ -403,18 +400,13 @@ bool WinSandbox::MakeSecurityAttributes(
     LOG(ERROR)
         << "ConvertStringSecurityDescriptorToSecurityDescriptorW failed: "
         << ::GetLastError();
-    return false;
+    return nullptr;
   }
 
-  // Set up security attributes
-  security_attributes->nLength = sizeof(SECURITY_ATTRIBUTES);
-  security_attributes->lpSecurityDescriptor = self_relative_desc.release();
-  security_attributes->bInheritHandle = FALSE;
-
-  return true;
+  return self_relative_desc;
 }
 
-bool WinSandbox::AddKnownSidToKernelObject(HANDLE object, const SID *known_sid,
+bool WinSandbox::AddKnownSidToKernelObject(HANDLE object, const SID* known_sid,
                                            DWORD inheritance_flag,
                                            ACCESS_MASK access_mask) {
   // We must pass |&descriptor| because 6th argument (|&old_dacl|) is
@@ -445,7 +437,7 @@ bool WinSandbox::AddKnownSidToKernelObject(HANDLE object, const SID *known_sid,
   // of the trustee.
   // http://msdn.microsoft.com/en-us/library/aa379636.aspx
   new_access.Trustee.ptstrName =
-      reinterpret_cast<wchar_t *>(const_cast<SID *>(known_sid));
+      reinterpret_cast<wchar_t*>(const_cast<SID*>(known_sid));
 
   UniquePACL new_dacl;
   error = ::SetEntriesInAcl(1, &new_access, old_dacl, new_dacl.put());
@@ -473,8 +465,8 @@ namespace {
 class LockedDownJob {
  public:
   LockedDownJob() : job_handle_(nullptr) {}
-  LockedDownJob(const LockedDownJob &) = delete;
-  LockedDownJob &operator=(const LockedDownJob &) = delete;
+  LockedDownJob(const LockedDownJob&) = delete;
+  LockedDownJob& operator=(const LockedDownJob&) = delete;
 
   ~LockedDownJob() {
     if (job_handle_ != nullptr) {
@@ -485,7 +477,7 @@ class LockedDownJob {
 
   bool IsValid() const { return (job_handle_ != nullptr); }
 
-  DWORD Init(const wchar_t *job_name, bool allow_ui_operation) {
+  DWORD Init(const wchar_t* job_name, bool allow_ui_operation) {
     if (job_handle_ != nullptr) {
       return ERROR_ALREADY_INITIALIZED;
     }
@@ -542,7 +534,7 @@ class LockedDownJob {
 };
 
 std::optional<wil::unique_process_information> CreateSuspendedRestrictedProcess(
-    std::wstring command_line, const WinSandbox::SecurityInfo &info) {
+    std::wstring command_line, const WinSandbox::SecurityInfo& info) {
   wil::unique_process_handle process_token;
   if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_ALL_ACCESS,
                           process_token.put())) {
@@ -563,11 +555,9 @@ std::optional<wil::unique_process_information> CreateSuspendedRestrictedProcess(
     return std::nullopt;
   }
 
-  PSECURITY_ATTRIBUTES security_attributes_ptr = nullptr;
-  SECURITY_ATTRIBUTES security_attributes = {};
-  if (WinSandbox::MakeSecurityAttributes(WinSandbox::kIPCServerProcess,
-                                         &security_attributes)) {
-    security_attributes_ptr = &security_attributes;
+  wil::unique_hlocal_security_descriptor security_descriptor =
+      WinSandbox::MakeSecurityDescriptor(WinSandbox::kIPCServerProcess);
+  if (security_descriptor) {
     // Override the impersonation thread token's DACL to avoid http://b/1728895
     // On Windows Server, the objects created by a member of
     // the built-in administrators group do not always explicitly
@@ -580,9 +570,9 @@ std::optional<wil::unique_process_information> CreateSuspendedRestrictedProcess(
     // That prevents GetRunLevel() from verifying its own thread identity.
     // Note: Overriding the thread token's
     // DACL will not elevate the thread's running context.
-    if (!::SetKernelObjectSecurity(
-            impersonation_token.get(), DACL_SECURITY_INFORMATION,
-            security_attributes_ptr->lpSecurityDescriptor)) {
+    if (!::SetKernelObjectSecurity(impersonation_token.get(),
+                                   DACL_SECURITY_INFORMATION,
+                                   security_descriptor.get())) {
       const DWORD last_error = ::GetLastError();
       DLOG(ERROR) << "SetKernelObjectSecurity failed. Error: " << last_error;
       return std::nullopt;
@@ -590,14 +580,31 @@ std::optional<wil::unique_process_information> CreateSuspendedRestrictedProcess(
   }
 
   DWORD creation_flags = info.creation_flags | CREATE_SUSPENDED;
-  // Note: If the current process is already in a job, you cannot use
-  // CREATE_BREAKAWAY_FROM_JOB.  See b/1571395
   if (info.use_locked_down_job) {
-    creation_flags |= CREATE_BREAKAWAY_FROM_JOB;
+    // Windows 8 and later allow nested jobs, hence CREATE_BREAKAWAY_FROM_JOB is
+    // optional. Set it only when JOB_OBJECT_LIMIT_BREAKAWAY_OK is set to
+    // minimize the impact on the existing job limitations if possible.
+    // TODO(google/mozc#1376): See if this can be removed or not.
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_info = {};
+    if (::QueryInformationJobObject(nullptr, JobObjectExtendedLimitInformation,
+                                    &job_info, sizeof(job_info), nullptr)) {
+      const DWORD job_flags = job_info.BasicLimitInformation.LimitFlags;
+      if ((job_flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK) != 0) {
+        creation_flags |= CREATE_BREAKAWAY_FROM_JOB;
+      }
+    }
   }
 
-  const wchar_t *startup_directory =
+  const wchar_t* startup_directory =
       (info.in_system_dir ? SystemUtil::GetSystemDir() : nullptr);
+
+  SECURITY_ATTRIBUTES security_attributes = {
+      .nLength = sizeof(SECURITY_ATTRIBUTES),
+      .lpSecurityDescriptor = security_descriptor.get(),
+      .bInheritHandle = FALSE,
+  };
+  SECURITY_ATTRIBUTES* security_attributes_ptr =
+      (security_descriptor ? &security_attributes : nullptr);
 
   STARTUPINFO startup_info = {sizeof(STARTUPINFO)};
   wil::unique_process_information process_info;
@@ -616,10 +623,6 @@ std::optional<wil::unique_process_information> CreateSuspendedRestrictedProcess(
     return std::nullopt;
   }
 
-  if (security_attributes_ptr != nullptr) {
-    ::LocalFree(security_attributes_ptr->lpSecurityDescriptor);
-  }
-
   // Change the token of the main thread of the new process for the
   // impersonation token with more rights.
   if (!::SetThreadToken(&process_info.hThread, impersonation_token.get())) {
@@ -633,8 +636,8 @@ std::optional<wil::unique_process_information> CreateSuspendedRestrictedProcess(
 }
 
 bool SpawnSandboxedProcessImpl(std::wstring_view command_line,
-                               const WinSandbox::SecurityInfo &info,
-                               DWORD &pid) {
+                               const WinSandbox::SecurityInfo& info,
+                               DWORD& pid) {
   LockedDownJob job;
 
   if (info.use_locked_down_job) {
@@ -677,7 +680,7 @@ WinSandbox::SecurityInfo::SecurityInfo()
 
 bool WinSandbox::SpawnSandboxedProcess(absl::string_view path,
                                        absl::string_view arg,
-                                       const SecurityInfo &info, DWORD *pid) {
+                                       const SecurityInfo& info, DWORD* pid) {
   std::wstring wpath = StrCatW(L"\"", win32::Utf8ToWide(path), L"\"");
   if (!arg.empty()) {
     StrAppendW(&wpath, L" ", win32::Utf8ToWide(arg));
@@ -705,8 +708,8 @@ class ScopedTokenInfo {
       return;
     }
     buffer_.reset(new BYTE[num_bytes]);
-    TokenDataType *all_token_groups =
-        reinterpret_cast<TokenDataType *>(buffer_.get());
+    TokenDataType* all_token_groups =
+        reinterpret_cast<TokenDataType*>(buffer_.get());
     if (!::GetTokenInformation(token, TokenClass, all_token_groups, num_bytes,
                                &num_bytes)) {
       const DWORD last_error = ::GetLastError();
@@ -716,10 +719,10 @@ class ScopedTokenInfo {
     }
     initialized_ = true;
   }
-  TokenDataType *get() const {
-    return reinterpret_cast<TokenDataType *>(buffer_.get());
+  TokenDataType* get() const {
+    return reinterpret_cast<TokenDataType*>(buffer_.get());
   }
-  TokenDataType *operator->() const { return get(); }
+  TokenDataType* operator->() const { return get(); }
 
  private:
   std::unique_ptr<BYTE[]> buffer_;
@@ -729,11 +732,11 @@ class ScopedTokenInfo {
 // Wrapper class for the SID_AND_ATTRIBUTES structure.
 class SidAndAttributes {
  public:
-  SidAndAttributes() : sid_(static_cast<SID *>(nullptr)), attributes_(0) {}
+  SidAndAttributes() : sid_(static_cast<SID*>(nullptr)), attributes_(0) {}
   SidAndAttributes(Sid sid, DWORD attributes)
       : sid_(sid), attributes_(attributes) {}
-  const Sid &sid() const { return sid_; }
-  const DWORD &attributes() const { return attributes_; }
+  const Sid& sid() const { return sid_; }
+  const DWORD& attributes() const { return attributes_; }
   bool HasAttribute(DWORD attribute) const {
     return (attributes_ & attribute) == attribute;
   }
@@ -751,7 +754,7 @@ std::vector<SidAndAttributes> GetAllTokenGroups(HANDLE token_handle) {
     return result;
   }
   for (size_t i = 0; i < all_token_groups->GroupCount; ++i) {
-    Sid sid(static_cast<SID *>(all_token_groups->Groups[i].Sid));
+    Sid sid(static_cast<SID*>(all_token_groups->Groups[i].Sid));
     const DWORD attributes = all_token_groups->Groups[i].Attributes;
     result.push_back(SidAndAttributes(sid, attributes));
   }
@@ -808,7 +811,7 @@ std::vector<Sid> FilterSidExceptFor(
 template <size_t NumExceptions>
 std::vector<LUID> FilterPrivilegesExceptFor(
     const absl::Span<const LUID_AND_ATTRIBUTES> source_privileges,
-    const wchar_t *(&exception_privileges)[NumExceptions]) {
+    const wchar_t* (&exception_privileges)[NumExceptions]) {
   std::vector<LUID> result;
   for (size_t i = 0; i < source_privileges.size(); ++i) {
     bool in_the_exception_list = false;
@@ -835,7 +838,7 @@ std::optional<SidAndAttributes> GetUserSid(HANDLE token) {
     return std::nullopt;
   }
 
-  Sid sid(static_cast<SID *>(token_user->User.Sid));
+  Sid sid(static_cast<SID*>(token_user->User.Sid));
   const DWORD attributes = token_user->User.Attributes;
   return SidAndAttributes(sid, attributes);
 }
@@ -934,7 +937,7 @@ wil::unique_process_handle CreateRestrictedTokenImpl(
   return new_token;
 }
 
-bool AddSidToDefaultDacl(HANDLE token, const Sid &sid, ACCESS_MASK access) {
+bool AddSidToDefaultDacl(HANDLE token, const Sid& sid, ACCESS_MASK access) {
   if (token == nullptr) {
     return false;
   }
@@ -969,7 +972,7 @@ bool AddSidToDefaultDacl(HANDLE token, const Sid &sid, ACCESS_MASK access) {
   return (result != FALSE);
 }
 
-const wchar_t *GetPredefinedSidString(
+const wchar_t* GetPredefinedSidString(
     WinSandbox::IntegrityLevel integrity_level) {
   // Defined in the following documents.
   // http://msdn.microsoft.com/en-us/library/cc980032.aspx
@@ -996,7 +999,7 @@ const wchar_t *GetPredefinedSidString(
 
 bool SetTokenIntegrityLevel(HANDLE token,
                             WinSandbox::IntegrityLevel integrity_level) {
-  const wchar_t *sid_string = GetPredefinedSidString(integrity_level);
+  const wchar_t* sid_string = GetPredefinedSidString(integrity_level);
   if (sid_string == nullptr) {
     // do not change the integrity level.
     return true;
@@ -1013,6 +1016,23 @@ bool SetTokenIntegrityLevel(HANDLE token,
       ::SetTokenInformation(token, TokenIntegrityLevel, &label, size);
 
   return (result != FALSE);
+}
+
+constexpr ACCESS_MASK GetAccessMask(
+    WinSandbox::AppContainerVisibilityType type) {
+  const ACCESS_MASK kBaseType =
+      FILE_READ_DATA | FILE_READ_EA | READ_CONTROL | SYNCHRONIZE;
+
+  switch (type) {
+    case WinSandbox::AppContainerVisibilityType::kProgramFiles:
+      // As of Windows 10 Anniversary Update, following access masks
+      // (==0x1200a9) are specified to files under Program Files by default.
+      return FILE_EXECUTE | kBaseType;
+    case WinSandbox::AppContainerVisibilityType::kConfigFile:
+      return FILE_GENERIC_READ | FILE_READ_ATTRIBUTES | kBaseType;
+    default:
+      return kBaseType;
+  }
 }
 
 }  // namespace
@@ -1085,7 +1105,7 @@ std::vector<LUID> WinSandbox::GetPrivilegesToDisable(
     case USER_INTERACTIVE:
     case USER_LIMITED:
     case USER_RESTRICTED: {
-      const wchar_t *kPrivilegeExceptions[] = {
+      const wchar_t* kPrivilegeExceptions[] = {
           SE_CHANGE_NOTIFY_NAME,
       };
       privileges_to_disable =
@@ -1187,7 +1207,7 @@ wil::unique_process_handle WinSandbox::GetRestrictedTokenHandle(
     if (token_user.get() == nullptr) {
       return nullptr;
     }
-    Sid user_sid(static_cast<SID *>(token_user->User.Sid));
+    Sid user_sid(static_cast<SID*>(token_user->User.Sid));
     if (!AddSidToDefaultDacl(new_token.get(), user_sid, GENERIC_ALL)) {
       return nullptr;
     }
@@ -1232,7 +1252,7 @@ wil::unique_process_handle WinSandbox::GetRestrictedTokenHandleForImpersonation(
 }
 
 bool WinSandbox::EnsureAllApplicationPackagesPermisssion(
-    zwstring_view file_name) {
+    zwstring_view file_name, AppContainerVisibilityType type) {
   // Get "All Application Packages" group SID.
   const ATL::CSid all_application_packages(
       Sid(WinBuiltinAnyPackageSid).GetPSID());
@@ -1243,10 +1263,7 @@ bool WinSandbox::EnsureAllApplicationPackagesPermisssion(
     return false;
   }
 
-  // As of Windows 10 Anniversary Update, following access masks (==0x1200a9)
-  // are specified to files under Program Files by default.
-  const ACCESS_MASK kDesiredMask =
-      FILE_READ_DATA | FILE_READ_EA | FILE_EXECUTE | READ_CONTROL | SYNCHRONIZE;
+  const ACCESS_MASK desired_mask = GetAccessMask(type);
 
   // Check if the desired ACE is already specified or not.
   for (UINT i = 0; i < dacl.GetAceCount(); ++i) {
@@ -1256,14 +1273,14 @@ bool WinSandbox::EnsureAllApplicationPackagesPermisssion(
     dacl.GetAclEntry(i, &ace_sid, &access_mask, &ace_type);
     if (ace_sid == all_application_packages &&
         ace_type == ACCESS_ALLOWED_ACE_TYPE &&
-        (access_mask & kDesiredMask) == kDesiredMask) {
+        (access_mask & desired_mask) == desired_mask) {
       // This is the desired ACE.  There is nothing to do.
       return true;
     }
   }
 
   // We are here because there is no desired ACE.  Hence we do add it.
-  if (!dacl.AddAllowedAce(all_application_packages, kDesiredMask,
+  if (!dacl.AddAllowedAce(all_application_packages, desired_mask,
                           ACCESS_ALLOWED_ACE_TYPE)) {
     return false;
   }

@@ -30,30 +30,39 @@
 #ifndef MOZC_PREDICTION_PREDICTOR_H_
 #define MOZC_PREDICTION_PREDICTOR_H_
 
+#include <cstdint>
 #include <memory>
-#include <string>
+#include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "converter/converter_interface.h"
-#include "converter/segments.h"
+#include "converter/immutable_converter_interface.h"
+#include "engine/modules.h"
 #include "prediction/predictor_interface.h"
+#include "prediction/result.h"
 #include "request/conversion_request.h"
 
 namespace mozc::prediction {
 
-class BasePredictor : public PredictorInterface {
+class Predictor : public PredictorInterface {
  public:
-  // Initializes the composite of predictor with given sub-predictors.
-  BasePredictor(std::unique_ptr<PredictorInterface> dictionary_predictor,
-                std::unique_ptr<PredictorInterface> user_history_predictor,
-                const ConverterInterface *converter);
+  Predictor() = default;
+  Predictor(const engine::Modules& modules, const ConverterInterface& converter,
+            const ImmutableConverterInterface& immutable_converters);
+  Predictor(std::unique_ptr<PredictorInterface> dictionary_predictor,
+            std::unique_ptr<PredictorInterface> user_history_predictor);
+
+  std::vector<Result> Predict(const ConversionRequest& request) const;
+
+  absl::string_view GetPredictorName() const override { return "Predictor"; }
 
   // Hook(s) for all mutable operations.
-  void Finish(const ConversionRequest &request, Segments *segments) override;
+  void Finish(const ConversionRequest& request,
+              absl::Span<const Result> results, uint32_t revert_id) override;
 
   // Reverts the last Finish operation.
-  void Revert(Segments *segments) override;
+  void Revert(uint32_t revert_id) override;
 
   // Clears all history data of UserHistoryPredictor.
   bool ClearAllHistory() override;
@@ -68,75 +77,20 @@ class BasePredictor : public PredictorInterface {
   // Syncs user history.
   bool Sync() override;
 
-  // Reloads usre history.
+  // Reloads user history.
   bool Reload() override;
 
   // Waits for syncer to complete.
   bool Wait() override;
 
-  // The following interfaces are implemented in derived classes.
-  // const string &GetPredictorName() const = 0;
-  // bool PredictForRequest(const ConversionRequest &request,
-  //                        Segments *segments) const = 0;
+ private:
+  std::vector<Result> PredictForDesktop(const ConversionRequest& request) const;
 
- protected:
+  std::vector<Result> PredictForMixedConversion(
+      const ConversionRequest& request) const;
+
   std::unique_ptr<PredictorInterface> dictionary_predictor_;
   std::unique_ptr<PredictorInterface> user_history_predictor_;
-
- private:
-  void PopulateReadingOfCommittedCandidateIfMissing(Segments *segments) const;
-
-  const ConverterInterface *converter_;
-};
-
-// TODO(team): The name should be DesktopPredictor
-class DefaultPredictor : public BasePredictor {
- public:
-  static std::unique_ptr<PredictorInterface> CreateDefaultPredictor(
-      std::unique_ptr<PredictorInterface> dictionary_predictor,
-      std::unique_ptr<PredictorInterface> user_history_predictor,
-      const ConverterInterface *converter);
-
-  DefaultPredictor(std::unique_ptr<PredictorInterface> dictionary_predictor,
-                   std::unique_ptr<PredictorInterface> user_history_predictor,
-                   const ConverterInterface *converter);
-  ~DefaultPredictor() override;
-
-  ABSL_MUST_USE_RESULT bool PredictForRequest(
-      const ConversionRequest &request, Segments *segments) const override;
-
-  const std::string &GetPredictorName() const override {
-    return predictor_name_;
-  }
-
- private:
-  const std::string predictor_name_;
-};
-
-class MobilePredictor : public BasePredictor {
- public:
-  static std::unique_ptr<PredictorInterface> CreateMobilePredictor(
-      std::unique_ptr<PredictorInterface> dictionary_predictor,
-      std::unique_ptr<PredictorInterface> user_history_predictor,
-      const ConverterInterface *converter);
-
-  MobilePredictor(std::unique_ptr<PredictorInterface> dictionary_predictor,
-                  std::unique_ptr<PredictorInterface> user_history_predictor,
-                  const ConverterInterface *converter);
-  ~MobilePredictor() override;
-
-  ABSL_MUST_USE_RESULT bool PredictForRequest(
-      const ConversionRequest &request, Segments *segments) const override;
-
-  const std::string &GetPredictorName() const override {
-    return predictor_name_;
-  }
-
-  static ConversionRequest GetRequestForPredict(
-      const ConversionRequest &request, const Segments &segments);
-
- private:
-  const std::string predictor_name_;
 };
 
 }  // namespace mozc::prediction

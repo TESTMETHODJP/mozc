@@ -27,6 +27,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
 def mozc_dataset(
         name,
         outs,
@@ -226,7 +228,7 @@ def mozc_dataset(
         outs = [outs[0]],
         cmd = (
             "$(location //data_manager:dataset_writer_main) " +
-            "--magic='" + magic + "' --output=$@ " + arguments
+            "--magic='" + _byte_array_to_cstring(magic.value) + "' --output=$@ " + arguments
         ),
         tools = ["//data_manager:dataset_writer_main"],
     )
@@ -316,13 +318,16 @@ def mozc_dataset(
         tools = ["//dictionary:gen_pos_matcher_code"],
     )
 
+    def _get_collocation_error_rate(data_tag):
+        return 1e-5 if data_tag != "mock" else 1e-6
+
     native.genrule(
         name = name + "@collocation",
         srcs = [collocation_src],
         outs = ["collocation.data"],
         cmd = (
             "$(location //rewriter:gen_collocation_data_main) " +
-            "--collocation_data=$< --output=$@ --binary_mode"
+            "--collocation_data=$< --output=$@ --binary_mode --error_rate=%f" % _get_collocation_error_rate(tag)
         ),
         tools = ["//rewriter:gen_collocation_data_main"],
     )
@@ -432,15 +437,13 @@ def mozc_dataset(
         cmd = ("$(location //converter:gen_segmenter_code) $(SRCS) > $@"),
         tools = ["//converter:gen_segmenter_code"],
     )
-
-    native.cc_binary(
+    cc_binary(
         name = name + "@segmenter_generator",
         srcs =
             segmenter_generator_srcs +
             [
                 ":" + name + "@segmenter_inl_header",
             ],
-        copts = ["-Wno-parentheses"],
         visibility = ["//tools:__subpackages__"],
         deps = [
             "//base:init_mozc_buildtool",
@@ -711,3 +714,19 @@ def mozc_dataset(
             ),
             tools = ["//rewriter:gen_usage_rewriter_dictionary_main"],
         )
+
+def _byte_array_to_cstring(byte_array):
+    result = ""
+    for byte in byte_array:
+        if byte < 0 or byte > 255:
+            fail("Invalid byte: " + byte)
+        high = byte // 16
+        low = byte % 16
+        result += ("\\x%X%X" % (high, low))
+    return result
+
+def magic_number(byte_array):
+    return struct(
+        value = byte_array,
+        length = len(byte_array),
+    )

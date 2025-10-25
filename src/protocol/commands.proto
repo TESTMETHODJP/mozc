@@ -37,7 +37,7 @@ syntax = "proto2";
 
 package mozc.commands;
 
-import "protocol/candidates.proto";
+import "protocol/candidate_window.proto";
 import "protocol/config.proto";
 import "protocol/engine_builder.proto";
 import "protocol/user_dictionary_storage.proto";
@@ -83,6 +83,7 @@ message KeyEvent {
     HENKAN = 13;
     MUHENKAN = 14;
     // VK_DBE_HIRAGANA(Win), kVK_JIS_Kana(Mac)
+    // The "Katakana Hiragana Romaji" key (w/o modifiers) returns this key code.
     KANA = 15;  // GUI label is "Hiragana".
     HOME = 16;
     END = 17;
@@ -135,6 +136,7 @@ message KeyEvent {
     TEXT_INPUT = 64;  // Meta key event representing any text input.
     HANKAKU = 65;     // GUI label is "Hankaku/Zenkaku".
     KANJI = 66;
+    // The "Katakana Hiragana Romaji" key with Shift returns this key code.
     KATAKANA = 67;  // VK_DBE_KATAKANA(Win)
     CAPS_LOCK = 68;
     // Unsupported keys (e.g. PrtSc, Pause) fall back to UNDEFINED_KEY.
@@ -319,13 +321,14 @@ message SessionCommand {
     // Post-condition:
     // - Preedit text becomes empty.
     SUBMIT = 2;
-    // Select the specified candidate word by id.  This command is
+    // Select the specified candidate word by id. This command is
     // usually used with mouse clicking.
     SELECT_CANDIDATE = 3;
 
-    // Set the focus to the candidate by id.  This is usually used
-    // with mouse dragging.  The difference from SELECT_CANDIDATE is
-    // that HIGHLIGHT_CANDIDATE does not close the candidate window
+    // Set the focus to the candidate by id. This is usually used
+    // with mouse dragging or selection of word usage dictionary.
+    // The difference from SELECT_CANDIDATE is that
+    // HIGHLIGHT_CANDIDATE does not close the candidate window
     // while SELECT_CANDIDATE closes the candidate window.
     HIGHLIGHT_CANDIDATE = 4;
 
@@ -384,8 +387,8 @@ message SessionCommand {
     // Specify the input field type.
     SWITCH_INPUT_FIELD_TYPE = 12;
 
-    // Client side event information for collecting usage statistics
-    USAGE_STATS_EVENT = 13;
+    reserved 13;
+    reserved "USAGE_STATS_EVENT";
 
     // This command is used in only Android.
     // Works UNDO or rewind HIRAGANA characters based on the state.
@@ -444,6 +447,8 @@ message SessionCommand {
   required CommandType type = 1;
 
   // Unique number specifying a candidate word.
+  // Note: This value is NOT an index of the candidate window or the candidate
+  // list. This value is a return value of CandidateWord::id().
   optional int32 id = 2;
 
   // This is used with SWITCH_INPUT_MODE, TURN_ON_IME and TURN_OFF_IME.
@@ -457,38 +462,8 @@ message SessionCommand {
 
   reserved 6;  // Deprecated input_field_type
 
-  // Client side event for collecting usage statistics
-  enum UsageStatsEvent {
-    INFOLIST_WINDOW_SHOW = 1;
-    INFOLIST_WINDOW_HIDE = 2;
-    HANDWRITING_OPEN_EVENT = 3;
-    HANDWRITING_COMMIT_EVENT = 4;
-    CHARACTER_PALETTE_OPEN_EVENT = 5;
-    CHARACTER_PALETTE_COMMIT_EVENT = 6;
-    SOFTWARE_KEYBOARD_LAYOUT_LANDSCAPE = 7;
-    SOFTWARE_KEYBOARD_LAYOUT_PORTRAIT = 8;
-    SUBMITTED_CANDIDATE_ROW_0 = 9;
-    SUBMITTED_CANDIDATE_ROW_1 = 10;
-    SUBMITTED_CANDIDATE_ROW_2 = 11;
-    SUBMITTED_CANDIDATE_ROW_3 = 12;
-    SUBMITTED_CANDIDATE_ROW_4 = 13;
-    SUBMITTED_CANDIDATE_ROW_5 = 14;
-    SUBMITTED_CANDIDATE_ROW_6 = 15;
-    SUBMITTED_CANDIDATE_ROW_7 = 16;
-    SUBMITTED_CANDIDATE_ROW_8 = 17;
-    SUBMITTED_CANDIDATE_ROW_9 = 18;
-    SUBMITTED_CANDIDATE_ROW_GE10 = 19;
-    KEYBOARD_FOLD_EVENT = 20;
-    KEYBOARD_EXPAND_EVENT = 21;
-    MUSHROOM_SELECTION_DIALOG_OPEN_EVENT = 22;
-    reserved 23, 24;  // Deprecated keyboard height stats.
-    SOFTWARE_KEYBOARD_LAYOUT_ADJUSTMENT_ENABLED_LANDSCAPE = 25;
-    SOFTWARE_KEYBOARD_LAYOUT_ADJUSTMENT_ENABLED_PORTRAIT = 26;
-    SOFTWARE_KEYBOARD_LAYOUT_ENGLISH_LANDSCAPE = 27;
-    SOFTWARE_KEYBOARD_LAYOUT_ENGLISH_PORTRAIT = 28;
-  }
-  optional UsageStatsEvent usage_stats_event = 7;
-  optional int32 usage_stats_event_int_value = 9;
+  reserved 7;  // Deprecated usage_stats_event
+  reserved 9;  // Deprecated usage_stats_event_int_value
 
   reserved 8;  // Deprecated caret_rectangle
 
@@ -571,21 +546,12 @@ message Capability {
       [default = NO_TEXT_DELETION_CAPABILITY];
 }
 
-// Next ID: 58
+// Next ID: 134
 // Bundles together some Android experiment flags so that they can be easily
 // retrieved throughout the native code.  These flags are generally specific to
 // the decoder, and are made available when the decoder is initialized.
 message DecoderExperimentParams {
   reserved 1;
-
-  optional int32 mobile_history_prediction_size = 2;
-
-  reserved 3;  // Deprecated enable_strict_candidate_filter
-
-  reserved 4;  // Deprecated enable_new_spatial_scoring
-  reserved 5;  // Deprecated spatial_cost_penalty
-  reserved 6;  // Deprecated spatial_cost_penalty_min_char_length
-  reserved 7;  // Deprecated enrich_partial_candidates
 
   enum VariationCharacterType {
     NO_VARIATION = 0;
@@ -598,93 +564,28 @@ message DecoderExperimentParams {
   // Bitmap of enabled variation character types.
   optional uint32 variation_character_types = 8 [default = 0];
 
-  reserved 9;   // Deprecated enable_number_decoder
-  reserved 10;  // Deprecated cancel_segment_model_penalty_for_prediction
-  reserved 11;  // Deprecated enable_environmental_filter_rewriter
-  reserved 12;  // Deprecated undo_partial_commit
-  reserved 13;  // Deprecated use_actual_converter_for_realtime_conversion
-  reserved 14;  // Deprecated enable_single_kanji_prediction
-  reserved 15;  // Deprecated single_kanji_prediction_cost_offset
+  // Enables final results reranking against literal results.
+  // If zero, the previous implementation is used.
+  optional int32 typing_correction_result_reranker_mode = 95 [default = 0];
 
-  // Parameters for typing correction candidates
-  optional int32 typing_correction_max_count = 17 [default = 3];
-  optional int32 typing_correction_max_rank = 18 [default = 10];
-  optional float typing_correction_identity_score_max_diff = 21 [default = 0.0];
-  optional float typing_correction_top_score_max_diff = 22 [default = 1.0];
-
-  reserved 38;  // Deprecated typing_correction_conversion_cost_max_diff
-  reserved 46;  // Deprecated enable_typing_correction_mixer_v2
-
-  // Trigger literal on top if
-  // correction_score <=
-  //          typing_correction_literal_on_top_correction_score_max_diff
-  //  OR
-  // conversion_cost_diff <=
-  //          typing_correction_literal_on_top_spatial_score_max_diff
-  //  OR
-  // correction_score <=
-  //   typing_correction_literal_on_top_length_score_max_diff
-  //     * (typing_correction_literal_on_top_length_decay^(input_length-3))
-  optional float typing_correction_literal_on_top_correction_score_max_diff = 47
-      [default = 0.5];
-  optional int32 typing_correction_literal_on_top_conversion_cost_max_diff = 48
-      [default = 2000];
-  // Literal candidate is placed at least second position.
-  optional bool typing_correction_literal_at_least_second = 49
-      [default = false];
-  // Character-length based triggering.
-  optional float typing_correction_literal_on_top_length_score_max_diff = 56
-      [default = 0.0];
-  optional float typing_correction_literal_on_top_length_decay = 57
+  // Promote TC/Literal if w * tc_reranker_score + (1.0 - w) lm_diff > 0.0.
+  optional float typing_correction_result_reranker_interpolation_weight = 100
       [default = 0.0];
 
-  // Parameters for completion
-  // The diff against the identity score.
-  optional float typing_completion_identity_score_max_diff = 39
-      [default = -1.0];
-  // The maximum number of characters to complete. If zero, completion is
-  // disabled.
-  optional int32 typing_completion_max_length = 40 [default = 0];
-  // Starts the completion when |query| >= start_length.
-  optional int32 typing_completion_start_length = 41 [default = 4];
+  // Runs Literal-at-least second when original_tc_score + w * tc_reranker_score
+  // > 0.0. otherwise, runs literal-on-top.
+  optional float typing_correction_result_reranker_literal_on_top_weight = 101
+      [default = 0.0];
 
-  reserved 16;  // Deprecated use_typing_correction_diff_cost
-  reserved 19;  // Deprecated typing_correction_cost_offset
-  reserved 20;  // Deprecated cancel_content_word_suffix_penalty
-  reserved 23;  // Deprecated typing_correction_score_offset
-  reserved 24;  // Deprecated typing_correction_move_literal_candidate_to_top
-  reserved 30;  // Deprecated enable_number_style_learning
+  // Uses the typing correction in user history predictor. The size specifies
+  // the maximum number of typing corrections used for query lookup.
+  // When zero, typing_correction is not used.
+  optional int32 typing_correction_apply_user_history_size = 85 [default = 0];
 
   optional bool disable_zero_query_suffix_prediction = 36 [default = false];
 
-  optional bool enable_realtime_conversion_v2 = 37 [default = false];
-
-  optional bool enable_findability_oriented_order = 42 [default = false];
-  optional int32 findability_oriented_order_top_size = 43 [default = 10];
-
-  optional bool apply_user_segment_history_rewriter_for_prediction = 44
-      [default = false];
-  optional bool user_segment_history_rewriter_new_replaceable = 53
-      [default = false];
-  optional bool user_segment_history_rewriter_use_inner_segments = 54
-      [default = false];
-
-  optional bool filter_noisy_number_candidate = 45 [default = false];
-
-  // Parameters for new history prediction triggering.
-  // Trigger history prediction if
-  // (freq - history_prediction_min_freq) -
-  //       history_prediction_remaining_char_length_weight *
-  //       remaining_char_length >= 0.0
-  // We can emulate the following extreme cases with these two parameters.
-  // * Disable all history prediction: (inf, 0)
-  // * Always trigger: (0, 0) (current v1 behavior)
-  // * Exact match only: (0, inf)
-  // * freq >= 2:  (2, 0)
-  optional bool enable_history_prediction_triggering_v2 = 50 [default = true];
-  optional float history_prediction_min_freq = 51 [default = 0.0];
-  optional float history_prediction_remaining_char_length_weight = 52
-      [default = 0.0];
+  // Changes the size of history with character coverage.
+  optional int32 user_history_prediction_max_char_coverage = 82 [default = 0];
 
   // Parameter for space-insertion for English compounds
   // value 0: no insertion. Candidates will be like this.
@@ -700,13 +601,67 @@ message DecoderExperimentParams {
   // - "google"
   // - " google"
   optional int32 english_variation_space_insertion_mode = 55 [default = 0];
+
+
+  optional int32 candidate_consistency_cost_max_diff = 63 [default = 0];
+
+  optional int32 max_composition_event_to_process = 64 [default = 2];
+
+  // Offset to promote Katakana candidates in rewriter.
+  // The promotion will be disabled if the value is negative.
+  optional int32 katakana_promotion_offset = 83 [default = 5];
+
+  // Cost offset for handwriting conversion candidate.
+  // default_value: 10*log(500)
+  optional int32 handwriting_conversion_candidate_cost_offset = 102
+      [default = 1151];
+
+  enum BigramNwpFilteringMode {
+    // Control implementation is used. For example,
+    // - Kanji + Katakana will not be filtered.
+    // - If cost(prefix) > cost(original_entry), the candidate will be filtered.
+    // - The reading of the target candidate should be in the dictionary.
+    // - ,etc
+    DEFAULT = 0;
+    // In addition to the default filtering, filter entry if the character
+    // script type does not change from the prefix.
+    FILTER_SAME_CTYPE = 1;
+    // Filter all bigram candidates.
+    FILTER_ALL = 2;
+  }
+
+  // Threshold for suffix NWP transition cost.
+  // If the transition cost is greater than this value, the candidate will be
+  // filtered.
+  // The candidate will not be filtered if this value is zero.
+  optional int32 suffix_nwp_transition_cost_threshold = 107 [default = 0];
+
+  // Suppress the prediction when value_len >= suppress_min_length
+  // and suggestion frequency is one.
+  // If user_history_suppress_min_length <= 0, this suppression is disabled.
+  // This parameter is only used in mixed conversion mode.
+  optional int32 user_history_suppress_min_length = 130 [default = 0];
+
+  // Demotes the partial candidates so that the top_n results must
+  // be non-partial candidates.
+  optional int32 demote_partial_candidate_top_n = 126 [default = 0];
+  // Maximum length of partial candidates. When 1, only demote
+  // single-value candidates.
+  optional int32 demote_partial_candidate_max_length = 127 [default = 0];
+
+  // Position of the first symbol rewriter candidate (0-origin).
+  optional int32 symbol_rewriter_candidate_position = 132 [default = 3];
+  // Number of candidates to be promoted.
+  // For example, if symbol_rewriter_candidate_position == 0, and
+  // symbol_rewriter_promotion_size == 5, the first 5 candidates are symbols.
+  optional int32 symbol_rewriter_promotion_size = 133 [default = 15];
 }
 
 // Clients' request to the server.
 // Users cannot modify this.
 // In the future each request may be able to be overwritten by Config.
 // The server does not have to obey this request.
-// Next ID: 23
+// Next ID: 25
 message Request {
   // Enable zero query suggestion.
   optional bool zero_query_suggestion = 1
@@ -953,7 +908,8 @@ message Request {
   // WARNING: Although cases are mutually exclusive now, they are not
   // necessarily mutually exclusive. However, the current implementation in
   // NormalizationRewriter assumes they are mutually exclusive.
-  // Next ID: 13
+  // LINT.IfChange
+  // Next ID: 15
   enum AdditionalRenderableCharacterGroup {
     // Do not use this case. This case is reserved for future usage.
     // Because 0th element in enum is used as default value, in order to prevend
@@ -990,6 +946,10 @@ message Request {
     EMOJI_15_0 = 9;
     // Emoji 15.1, released September 2023
     EMOJI_15_1 = 12;
+    // Emoji 16.0, released September 2024
+    EMOJI_16_0 = 13;
+    // Emoji 17.0, released Octorber 2025
+    EMOJI_17_0 = 14;
 
     // Additional Hieroglyphs (U+13000 ~ U+1342E)
     // Unicode 5.2, released October 2009
@@ -998,6 +958,7 @@ message Request {
     // IVS characters in Adobe-Japan1 (U+E0100 ~ U+E010E)
     IVS_CHARACTER = 11;
   }
+  // LINT.ThenChange(rewriter/environmental_filter_rewriter.cc)
 
   // Characters in the union of this list of groups can be contained in
   // candidates.
@@ -1005,6 +966,29 @@ message Request {
   // user selectable.
   repeated AdditionalRenderableCharacterGroup
       additional_renderable_character_groups = 21 [packed = true];
+
+  // Whether the request is from handwriting. Candidates can be optimized
+  // differently for handwriting.
+  // For example, we support 混ぜ書き conversion ("かん字" → "漢字") for
+  // handwriting.
+  optional bool is_handwriting = 22 [default = false];
+
+  // Whether the conversion is performed in incognito mode.
+  // In incognito mode, the conversion is performed without using
+  // user history and user dictionary.
+  // When any of this value and Config::incognito_mode are true,
+  // incognito mode is enabled.
+  // Clients needs to check ConversionRequest::incognito_mode() instead of
+  // this value directly, as the incognito mode can be set in other ways.
+  optional bool is_incognito_mode = 23 [default = false];
+
+  // Whether the client can accept display_value attribute.
+  enum DisplayValueCapability {
+    NOT_SUPPORTED = 0;
+    PLAIN_TEXT = 1;
+  }
+  optional DisplayValueCapability display_value_capability = 24
+      [default = NOT_SUPPORTED];
 }
 
 // Note there is another ApplicationInfo inside RendererCommand.
@@ -1013,41 +997,6 @@ message ApplicationInfo {
   optional uint32 process_id = 1;
   optional uint32 thread_id = 2;
   reserved 3;  // deprecated timezone_offset
-}
-
-// Spellchecker request.
-message CheckSpellingRequest {
-  // spellchecker request.
-  optional string text = 1;
-  // Run spelling correction if
-  // score(suggestion) - score(original) >= score_threshold.
-  // Used to control the precision/recall trade-off.
-  optional float score_threshold = 2;
-
-  reserved 3;  // deprecated disable_model_bias
-
-  // arbitrary experimental flags populated to spellchecker::Options.
-  repeated string experimental_flags = 4;
-}
-
-// Spellchecker response.
-message CheckSpellingResponse {
-  message Correction {
-    // utf-8 byte offsets of the correction.
-    // Needs to convert them to Unicode char offset in Java layer.
-    optional uint32 begin = 1;
-    optional uint32 end = 2;
-
-    // The surface of the correction.
-    // We can verify the correct offsets are given with
-    // request.text().substr(begin, end) == surface.
-    optional string surface = 3;
-
-    // List of suggestions.
-    repeated string suggestions = 4;
-  }
-
-  repeated Correction corrections = 1;
 }
 
 message Input {
@@ -1126,17 +1075,19 @@ message Input {
     SEND_ENGINE_RELOAD_REQUEST = 27;
 
     // Send a spell checking request.
-    CHECK_SPELLING = 28;
+    reserved 28, 29;
+    reserved "CHECK_SPELLING";
+    reserved "RELOAD_SPELL_CHECKER";
 
-    // Sends reload spellchecker.
-    RELOAD_SPELL_CHECKER = 29;
+    // Sends reload supplemental model
+    RELOAD_SUPPLEMENTAL_MODEL = 30;
 
     GET_SERVER_VERSION = 19;
 
     // Number of commands.
     // When new command is added, the command should use below number
     // and NUM_OF_COMMANDS should be incremented.
-    NUM_OF_COMMANDS = 30;
+    NUM_OF_COMMANDS = 31;
   }
   required CommandType type = 1;
 
@@ -1204,7 +1155,7 @@ message Input {
   // This is set to true by default.
   // Note that even if this flag is set to false, when a suggestion is shown
   // in the previous phase, it is possible from the client to submit it.
-  // This works only for suggestions for the key insersion, but not for
+  // This works only for suggestions for the key insertion, but not for
   // others commands, such as predictions or conversions.
   // This flag is used for the performance improvement in terms of the
   // latency.  If you want to suppress the suggestions for the UX improment,
@@ -1213,7 +1164,7 @@ message Input {
 
   optional mozc.EngineReloadRequest engine_reload_request = 15;
 
-  optional CheckSpellingRequest check_spelling_request = 16;
+  reserved 16;  // deprecated check_spelling_request
 }
 
 // Detailed information of Result.
@@ -1352,13 +1303,13 @@ message DeletionRange {
 message Output {
   optional uint64 id = 1 [jstype = JS_STRING];
 
-  // This variable is going to be obsolete.
+  // This variable is going to be obsolete. Please use status(13) instead.
   optional CompositionMode mode = 2;
 
   optional bool consumed = 3;
   optional Result result = 4;
   optional Preedit preedit = 5;
-  optional Candidates candidates = 6;
+  optional CandidateWindow candidate_window = 6;
   optional KeyEvent key = 7;
 
   // when URL is non empty, UI can open the page with a browser,
@@ -1434,8 +1385,7 @@ message Output {
   // For debug. Candidate words removed throuth the conversion process.
   optional CandidateList removed_candidate_words_for_debug = 23;
 
-  // Spellchecker response.
-  optional CheckSpellingResponse check_spelling_response = 24;
+  reserved 24;  // deprecated check_spelling_response
 
   // Candidate words stored in 1D array. The field should be filled without
   // using any personal data.

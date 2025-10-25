@@ -27,54 +27,58 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <cstdint>
+#include "rewriter/usage_rewriter.h"
 
-#include "absl/strings/string_view.h"
 #ifndef NO_USAGE_REWRITER
-
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 
-#include "absl/strings/match.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
-#include "base/logging.h"
 #include "base/util.h"
 #include "base/vlog.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
-#include "rewriter/usage_rewriter.h"
 
 namespace mozc {
 
 using ::mozc::dictionary::DictionaryInterface;
 
-UsageRewriter::UsageRewriter(const DataManagerInterface *data_manager,
-                             const DictionaryInterface *dictionary)
-    : pos_matcher_(data_manager->GetPosMatcherData()),
-      dictionary_(dictionary),
+UsageRewriter::UsageRewriter(const DataManager& data_manager,
+                             const DictionaryInterface& dictionary)
+    : pos_matcher_(data_manager.GetPosMatcherData()),
+      dictionary_(&dictionary),
       base_conjugation_suffix_(nullptr) {
   absl::string_view base_conjugation_suffix_data;
   absl::string_view conjugation_suffix_data;
   absl::string_view conjugation_suffix_index_data;
   absl::string_view usage_items_data;
   absl::string_view string_array_data;
-  data_manager->GetUsageRewriterData(
+  data_manager.GetUsageRewriterData(
       &base_conjugation_suffix_data, &conjugation_suffix_data,
       &conjugation_suffix_index_data, &usage_items_data, &string_array_data);
   base_conjugation_suffix_ =
-      reinterpret_cast<const uint32_t *>(base_conjugation_suffix_data.data());
-  const uint32_t *conjugation_suffix =
-      reinterpret_cast<const uint32_t *>(conjugation_suffix_data.data());
-  const uint32_t *conjugation_suffix_data_index =
-      reinterpret_cast<const uint32_t *>(conjugation_suffix_index_data.data());
+      reinterpret_cast<const uint32_t*>(base_conjugation_suffix_data.data());
+  const uint32_t* conjugation_suffix =
+      reinterpret_cast<const uint32_t*>(conjugation_suffix_data.data());
+  const uint32_t* conjugation_suffix_data_index =
+      reinterpret_cast<const uint32_t*>(conjugation_suffix_index_data.data());
 
-  DCHECK(SerializedStringArray::VerifyData(string_array_data));
-  string_array_.Set(string_array_data);
+  if (SerializedStringArray::VerifyData(string_array_data)) {
+    string_array_.Set(string_array_data);
+  } else {
+    // \0\0\0\0 is the header value of the data size.
+    string_array_.Set({"\0\0\0\0", 4});
+  }
 
   UsageDictItemIterator begin(usage_items_data.data());
   UsageDictItemIterator end(usage_items_data.data() + usage_items_data.size());
@@ -110,19 +114,19 @@ std::string UsageRewriter::GetKanjiPrefixAndOneHiragana(
   bool has_kanji = false;
   bool has_hiragana = false;
   for (ConstChar32Iterator iter(word); !iter.Done(); iter.Next()) {
-    const char32_t w = iter.Get();
-    const Util::ScriptType s = Util::GetScriptType(w);
+    const char32_t codepoint = iter.Get();
+    const Util::ScriptType s = Util::GetScriptType(codepoint);
     if (pos == 0 && s != Util::KANJI) {
       return "";
     } else if (pos >= 0 && pos <= 1 && s == Util::KANJI) {
       // length of kanji <= 2.
       has_kanji = true;
       ++pos;
-      Util::CodepointToUtf8Append(w, &result);
+      Util::CodepointToUtf8Append(codepoint, &result);
       continue;
     } else if (pos > 0 && s == Util::HIRAGANA) {
       has_hiragana = true;
-      Util::CodepointToUtf8Append(w, &result);
+      Util::CodepointToUtf8Append(codepoint, &result);
       break;
     } else {
       return "";
@@ -138,7 +142,7 @@ std::string UsageRewriter::GetKanjiPrefixAndOneHiragana(
 
 UsageRewriter::UsageDictItemIterator
 UsageRewriter::LookupUnmatchedUsageHeuristically(
-    const Segment::Candidate &candidate) const {
+    const converter::Candidate& candidate) const {
   // We check Unknown POS ("名詞,サ変接続") as well, since
   // target verbs/adjectives may be in web dictionary.
   if (!pos_matcher_.IsContentWordWithConjugation(candidate.lid) &&
@@ -160,7 +164,7 @@ UsageRewriter::LookupUnmatchedUsageHeuristically(
   }
   // Check result key part is a prefix of the content_key.
   const absl::string_view key = string_array_[itr->second.key_index()];
-  if (absl::StartsWith(candidate.content_key, key)) {
+  if (candidate.content_key.starts_with(key)) {
     return itr->second;
   }
 
@@ -168,7 +172,7 @@ UsageRewriter::LookupUnmatchedUsageHeuristically(
 }
 
 UsageRewriter::UsageDictItemIterator UsageRewriter::LookupUsage(
-    const Segment::Candidate &candidate) const {
+    const converter::Candidate& candidate) const {
   const absl::string_view key = candidate.content_key;
   const absl::string_view value = candidate.content_value;
   StrPair key_value(key, value);
@@ -180,11 +184,11 @@ UsageRewriter::UsageDictItemIterator UsageRewriter::LookupUsage(
   return LookupUnmatchedUsageHeuristically(candidate);
 }
 
-bool UsageRewriter::Rewrite(const ConversionRequest &request,
-                            Segments *segments) const {
+bool UsageRewriter::Rewrite(const ConversionRequest& request,
+                            Segments* segments) const {
   MOZC_VLOG(2) << segments->DebugString();
 
-  const config::Config &config = request.config();
+  const config::Config& config = request.config();
   // Default value of use_local_usage_dictionary() is true.
   // So if information_list_config() is not available in the config,
   // we don't need to return false here.
@@ -204,7 +208,7 @@ bool UsageRewriter::Rewrite(const ConversionRequest &request,
   int32_t usage_id_for_user_comment = key_value_usageitem_map_.size();
   std::string comment;  // LookupComment rarely returns true.
   for (size_t i = 0; i < segments->conversion_segments_size(); ++i) {
-    Segment *segment = segments->mutable_conversion_segment(i);
+    Segment* segment = segments->mutable_conversion_segment(i);
     DCHECK(segment);
     for (size_t j = 0; j < segment->candidates_size(); ++j) {
       ++usage_id_for_user_comment;
@@ -214,7 +218,7 @@ bool UsageRewriter::Rewrite(const ConversionRequest &request,
         if (dictionary_->LookupComment(segment->candidate(j).content_key,
                                        segment->candidate(j).content_value,
                                        request, &comment)) {
-          Segment::Candidate *candidate = segment->mutable_candidate(j);
+          converter::Candidate* candidate = segment->mutable_candidate(j);
           candidate->usage_id = usage_id_for_user_comment;
           candidate->usage_title = segment->candidate(j).content_value;
           candidate->usage_description = std::move(comment);
@@ -228,7 +232,7 @@ bool UsageRewriter::Rewrite(const ConversionRequest &request,
       // dictionary.
       const UsageDictItemIterator iter = LookupUsage(segment->candidate(j));
       if (iter.IsValid()) {
-        Segment::Candidate *candidate = segment->mutable_candidate(j);
+        converter::Candidate* candidate = segment->mutable_candidate(j);
         DCHECK(candidate);
         candidate->usage_id = iter.usage_id();
 

@@ -36,13 +36,14 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "base/number_util.h"
 #include "base/strings/assign.h"
+#include "base/strings/zstring_view.h"
 #include "base/version.h"
 #include "client/client_interface.h"
 #include "composer/key_parser.h"
@@ -52,9 +53,19 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "testing/gunit.h"
+#include "testing/mozctest.h"
+#include "testing/test_peer.h"
 
 namespace mozc {
 namespace client {
+
+class ClientTestPeer : public testing::TestPeer<Client> {
+ public:
+  explicit ClientTestPeer(Client &client) : testing::TestPeer<Client>(client) {}
+
+  PEER_METHOD(GetHistoryInputs);
+};
+
 namespace {
 
 constexpr char kPrecedingText[] = "preceding_text";
@@ -129,11 +140,9 @@ class TestServerLauncher : public ServerLauncherInterface {
 
   void set_server_program(const absl::string_view server_path) override {}
 
-  const std::string &server_program() const override {
+  zstring_view server_program() const override {
     return placeholder_server_program_path_;
   }
-
-  void set_restricted(bool restricted) override {}
 
   void set_suppress_error_dialog(bool suppress) override {}
 
@@ -170,7 +179,7 @@ class TestServerLauncher : public ServerLauncherInterface {
   absl::flat_hash_map<int, int> error_map_;
 };
 
-class ClientTest : public testing::Test {
+class ClientTest : public testing::TestWithTempUserProfile {
  protected:
   ClientTest() : version_diff_(0) {}
   ClientTest(const ClientTest &) = delete;
@@ -927,18 +936,13 @@ class SessionPlaybackTestServerLauncher : public ServerLauncherInterface {
 
   void set_server_program(const absl::string_view server_path) override {}
 
-  void set_restricted(bool restricted) override {}
-
   void set_suppress_error_dialog(bool suppress) override {}
 
   void set_start_server_result(const bool result) {
     start_server_result_ = result;
   }
 
-  const std::string &server_program() const override {
-    static std::string *path = new std::string();
-    return *path;
-  }
+  zstring_view server_program() const override { return ""; }
 
  private:
   IPCClientFactoryMock *factory_;
@@ -952,7 +956,7 @@ class SessionPlaybackTestServerLauncher : public ServerLauncherInterface {
   absl::flat_hash_map<int, int> error_map_;
 };
 
-class SessionPlaybackTest : public testing::Test {
+class SessionPlaybackTest : public ::testing::Test {
  protected:
   void SetUp() override {
     ipc_client_factory_ = std::make_unique<IPCClientFactoryMock>();
@@ -991,6 +995,8 @@ class SessionPlaybackTest : public testing::Test {
     ipc_client_factory_->SetMockResponse(response);
   }
 
+  ClientTestPeer client_peer() { return ClientTestPeer(*client_); }
+
   std::unique_ptr<IPCClientFactoryMock> ipc_client_factory_;
   std::unique_ptr<IPCClientInterface> ipc_client_;
   std::unique_ptr<Client> client_;
@@ -1015,7 +1021,7 @@ TEST_F(SessionPlaybackTest, PushAndResetHistoryWithNoModeTest) {
   EXPECT_EQ(output.consumed(), mock_output.consumed());
 
   std::vector<commands::Input> history;
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 1);
 
   mock_output.Clear();
@@ -1029,7 +1035,7 @@ TEST_F(SessionPlaybackTest, PushAndResetHistoryWithNoModeTest) {
   EXPECT_EQ(output.consumed(), mock_output.consumed());
 
   // history should be reset.
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 0);
 }
 
@@ -1061,7 +1067,7 @@ TEST_F(SessionPlaybackTest, PushAndResetHistoryWithModeTest) {
   EXPECT_EQ(output.mode(), commands::HIRAGANA);
 
   std::vector<commands::Input> history;
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 2);
 
   mock_output.Clear();
@@ -1072,7 +1078,7 @@ TEST_F(SessionPlaybackTest, PushAndResetHistoryWithModeTest) {
   SetMockOutput(mock_output);
   EXPECT_TRUE(client_->SendKey(key_event, &output));
   EXPECT_EQ(output.consumed(), mock_output.consumed());
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
 #ifdef __APPLE__
   // history is reset, but initializer should be added because the last mode
   // is not DIRECT.
@@ -1115,7 +1121,7 @@ TEST_F(SessionPlaybackTest, PushAndResetHistoryWithDirectTest) {
   EXPECT_EQ(output.mode(), commands::DIRECT);
 
   std::vector<commands::Input> history;
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 2);
 
   mock_output.Clear();
@@ -1128,7 +1134,7 @@ TEST_F(SessionPlaybackTest, PushAndResetHistoryWithDirectTest) {
   EXPECT_EQ(output.consumed(), mock_output.consumed());
 
   // history is reset, and initializer should not be added.
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 0);
 }
 
@@ -1153,7 +1159,7 @@ TEST_F(SessionPlaybackTest, PlaybackHistoryTest) {
   EXPECT_EQ(output.consumed(), mock_output.consumed());
 
   std::vector<commands::Input> history;
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 2);
 
   // Invalid id
@@ -1164,11 +1170,11 @@ TEST_F(SessionPlaybackTest, PlaybackHistoryTest) {
 
 #ifndef DEBUG
   // PlaybackHistory and push history
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 3);
 #else   // DEBUG
   // PlaybackHistory, dump history(including reset), and add last input
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 1);
 #endif  // DEBUG
 }
@@ -1208,7 +1214,7 @@ TEST_F(SessionPlaybackTest, SetModeInitializerTest) {
   EXPECT_EQ(output.mode(), commands::FULL_KATAKANA);
 
   std::vector<commands::Input> history;
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 3);
 
   mock_output.Clear();
@@ -1219,7 +1225,7 @@ TEST_F(SessionPlaybackTest, SetModeInitializerTest) {
   SetMockOutput(mock_output);
   EXPECT_TRUE(client_->SendKey(key_event, &output));
   EXPECT_EQ(output.consumed(), mock_output.consumed());
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
 #ifdef __APPLE__
   // history is reset, but initializer should be added.
   // TODO(team): fix b/10250883 to remove this special treatment.
@@ -1253,7 +1259,7 @@ TEST_F(SessionPlaybackTest, ConsumedTest) {
   EXPECT_EQ(output.consumed(), mock_output.consumed());
 
   std::vector<commands::Input> history;
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 2);
 
   mock_output.set_consumed(false);
@@ -1263,7 +1269,7 @@ TEST_F(SessionPlaybackTest, ConsumedTest) {
   EXPECT_EQ(output.consumed(), mock_output.consumed());
 
   // Do not push unconsumed input
-  client_->GetHistoryInputs(&history);
+  client_peer().GetHistoryInputs(&history);
   EXPECT_EQ(history.size(), 2);
 }
 }  // namespace client

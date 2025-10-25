@@ -32,15 +32,14 @@
 #include <cstring>
 #include <string>
 
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "base/const.h"
-#include "base/file_stream.h"
-#include "base/file_util.h"
-#include "base/logging.h"
+#include "base/file_stream.h"  // IWYU pragma: keep, for debug build
+#include "base/file_util.h"  // IWYU pragma: keep, for debug build
 #include "base/process.h"
-#include "base/run_level.h"
 #include "base/system_util.h"
 #include "base/vlog.h"
 #include "client/client.h"
@@ -97,7 +96,6 @@ const std::string LoadServerFlags() {
 // initialize default path
 ServerLauncher::ServerLauncher()
     : server_program_(SystemUtil::GetServerPath()),
-      restricted_(false),
       suppress_error_dialog_(false) {}
 
 ServerLauncher::~ServerLauncher() = default;
@@ -115,26 +113,8 @@ bool ServerLauncher::StartServer(ClientInterface *client) {
 
   std::string arg;
 
-#ifdef _WIN32
-  // When mozc is not used as a default IME and some applications (like notepad)
-  // are registered in "Start up", mozc_server may not be launched successfully.
-  // This is because the Explorer launches start-up processes inside a group job
-  // and the process inside a job cannot make our sandboxed child processes.
-  // The group job is unregistered after 60 secs (default).
-  //
-  // Here we relax the sandbox restriction if process is in a job.
-  // In order to keep security, the mozc_server is launched
-  // with restricted mode.
-
-  const bool process_in_job = RunLevel::IsProcessInJob();
-  if (process_in_job || restricted_) {
-    LOG(WARNING) << "Parent process is in job. start with restricted mode";
-    arg += "--restricted";
-  }
-#endif  // _WIN32
-
 #ifdef DEBUG
-  // In order to test the Session treatment (timeout/size constratins),
+  // In order to test the Session treatment (timeout/size constraints),
   // Server flags can be configurable on DEBUG build
   if (!arg.empty()) {
     arg += " ";
@@ -153,9 +133,7 @@ bool ServerLauncher::StartServer(ClientInterface *client) {
   info.primary_level = WinSandbox::USER_NON_ADMIN;
   info.impersonation_level = WinSandbox::USER_RESTRICTED_SAME_ACCESS;
   info.integrity_level = WinSandbox::INTEGRITY_LEVEL_LOW;
-  // If the current process is in a job, you cannot use
-  // CREATE_BREAKAWAY_FROM_JOB. b/1571395
-  info.use_locked_down_job = !process_in_job;
+  info.use_locked_down_job = true;
   info.allow_ui_operation = false;
   info.in_system_dir = true;  // use system dir not to lock current directory
   info.creation_flags = CREATE_DEFAULT_ERROR_MODE | CREATE_NO_WINDOW;

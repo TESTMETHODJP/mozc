@@ -36,20 +36,26 @@
 #include <wil/com.h>
 #include <wil/resource.h>
 
+#include <concepts>
 #include <new>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 
-#include "absl/meta/type_traits.h"
+#include "absl/base/nullability.h"
+#include "base/win32/hresult.h"
 #include "base/win32/hresultor.h"
 
 namespace mozc::win32 {
 
+// A concept to check if a type is a COM interface.
+template <typename I>
+concept ComInterface = std::derived_from<I, IUnknown> && std::is_abstract_v<I>;
+
 // MakeComPtr is like std::make_unique but for COM pointers. Returns nullptr if
 // new fails.
 template <typename T, typename... Args>
-wil::com_ptr_nothrow<T> MakeComPtr(Args &&...args) {
+wil::com_ptr_nothrow<T> MakeComPtr(Args&&... args) {
   static_assert(std::is_base_of_v<IUnknown, T>, "T must implement IUnknown.");
 
   return wil::com_ptr_nothrow<T>(new (std::nothrow)
@@ -71,24 +77,16 @@ wil::com_ptr_nothrow<Interface> ComCreateInstance() {
   return ComCreateInstance<Interface>(__uuidof(T));
 }
 
-namespace com_internal {
-
-template <typename Ptr, typename Interface,
-          std::enable_if_t<std::is_pointer_v<Ptr> &&
-                               std::is_base_of_v<IUnknown, Interface>,
-                           std::nullptr_t> = nullptr>
-using is_convertible =
-    std::is_convertible<absl::remove_cvref_t<Ptr>, Interface *>;
-
-}  // namespace com_internal
-
 // Returns the result of QueryInterface as HResultOr<wil::com_ptr_nothrow<T>>.
 template <typename T, typename U>
-HResultOr<wil::com_ptr_nothrow<T>> ComQueryHR(U &&source) {
+HResultOr<wil::com_ptr_nothrow<T>> ComQueryHR(U&& source) {
+  static_assert(ComInterface<T>, "T must be a COM interface.");
+
   wil::com_ptr_nothrow<T> result;
-  // Workaround as WIL doen't detect convertible queries with VC++2017.
-  auto ptr = wil::com_raw_ptr(std::forward<U>(source));
-  if constexpr (com_internal::is_convertible<decltype(ptr), T>::value) {
+  // Workaround as WIL doesn't detect convertible queries with VC++2017.
+  auto* ptr = wil::com_raw_ptr(std::forward<U>(source));
+  if constexpr (std::derived_from<std::remove_pointer_t<decltype(ptr)>, T>) {
+    // The constructor of wil::com_ptr calls AddRef().
     return ptr;
   } else {
     const HRESULT hr = wil::com_query_to_nothrow<T>(std::move(ptr), &result);
@@ -100,12 +98,15 @@ HResultOr<wil::com_ptr_nothrow<T>> ComQueryHR(U &&source) {
 }
 
 // Returns the result of QueryInterface as wil::com_ptr_nothrow<T>.
-// Prefer this function to wil::try_com_query_nothrow for brevity.
+// Use this function instead of wil::try_com_query_nothrow.
 template <typename T, typename U>
-wil::com_ptr_nothrow<T> ComQuery(U &&source) {
-  // Workaround as WIL doen't detect convertible queries with VC++2017.
-  auto ptr = wil::com_raw_ptr(std::forward<U>(source));
-  if constexpr (com_internal::is_convertible<decltype(ptr), T>::value) {
+wil::com_ptr_nothrow<T> ComQuery(U&& source) {
+  static_assert(ComInterface<T>, "T must be a COM interface.");
+
+  // Workaround as WIL doesn't detect convertible queries with VC++2017.
+  auto* ptr = wil::com_raw_ptr(std::forward<U>(source));
+  if constexpr (std::derived_from<std::remove_pointer_t<decltype(ptr)>, T>) {
+    // The constructor of wil::com_ptr calls AddRef().
     return ptr;
   } else {
     return wil::try_com_query_nothrow<T>(std::move(ptr));
@@ -113,9 +114,9 @@ wil::com_ptr_nothrow<T> ComQuery(U &&source) {
 }
 
 // Similar to ComQuery but returns nullptr if source is nullptr.
-// Prefer this function to wil::try_com_copy_nothrow for brevity.
+// Use this function instead of wil::try_com_copy_nothrow.
 template <typename T, typename U>
-wil::com_ptr_nothrow<T> ComCopy(U &&source) {
+wil::com_ptr_nothrow<T> ComCopy(U&& source) {
   if (source) {
     return ComQuery<T>(std::forward<U>(source));
   } else {
@@ -130,8 +131,71 @@ inline wil::unique_bstr MakeUniqueBSTR(const std::wstring_view source) {
   return wil::unique_bstr(SysAllocStringLen(source.data(), source.size()));
 }
 
-inline wil::unique_bstr MakeUniqueBSTR(const wchar_t *source) {
+inline wil::unique_bstr MakeUniqueBSTR(const wchar_t* source) {
   return wil::unique_bstr(SysAllocString(source));
+}
+
+// Saves the value to the out parameter of a COM method.
+//
+// Return values:
+//   - S_OK: success.
+//   - E_INVALIDARG: the out parameter is null.
+//   - E_OUTOFMEMORY: the value is a null pointer.
+//
+// Note: this behavior is different from IUnknown methods. Check COM interface
+// documentation to make sure the returned error codes are correct.
+template <typename T, typename U>
+HResult SaveToOutParam(T value, U* absl_nullable out);
+template <typename T, typename U>
+HResult SaveToOutParam(T* absl_nullable value, U** absl_nullable out);
+template <typename T, typename U>
+HResult SaveToOutParam(wil::com_ptr_nothrow<T> value, U** absl_nullable out) {
+  return SaveToOutParam<T, U>(value.detach(), out);
+}
+template <typename T>
+HResult SaveToOutParam(
+    wil::unique_any_t<T> value,
+    typename wil::unique_any_t<T>::pointer* absl_nullable out) {
+  return SaveToOutParam(value.release(), out);
+}
+
+// Saves the value to the out parameter of a COM method. It's a noop if the
+// out parameter is nullptr.
+template <typename T, typename U>
+  requires std::integral<T> && std::integral<U>
+void SaveToOptionalOutParam(T value, U* absl_nullable out);
+
+// Implementations.
+
+template <typename T, typename U>
+HResult SaveToOutParam(T value, U* absl_nullable out) {
+  static_assert(std::convertible_to<T, U>);
+  if (out == nullptr) {
+    return HResultInvalidArg();
+  }
+  *out = value;
+  return HResultOk();
+}
+
+template <typename T, typename U>
+HResult SaveToOutParam(T* absl_nullable value, U** absl_nullable out) {
+  if (out == nullptr) {
+    return HResultInvalidArg();
+  }
+  if (value == nullptr) {
+    return HResultOutOfMemory();
+  }
+  *out = value;
+  return HResultOk();
+}
+
+template <typename T, typename U>
+  requires std::integral<T> && std::integral<U>
+void SaveToOptionalOutParam(T value, U* absl_nullable out) {
+  static_assert(std::convertible_to<T, U>);
+  if (out != nullptr) {
+    *out = value;
+  }
 }
 
 }  // namespace mozc::win32

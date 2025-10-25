@@ -32,12 +32,10 @@
 
 #import "CandidateView.h"
 
+#include "absl/log/log.h"
 #include "base/coordinates.h"
-#include "base/logging.h"
 #include "protocol/commands.pb.h"
 #include "renderer/mac/CandidateWindow.h"
-
-using mozc::commands::Candidates;
 
 namespace mozc {
 namespace renderer {
@@ -66,9 +64,9 @@ const mozc::renderer::TableLayout* CandidateWindow::GetTableLayout() const {
   return [candidate_view tableLayout];
 }
 
-void CandidateWindow::SetCandidates(const Candidates& candidates) {
-  DLOG(INFO) << "CandidateWindow::SetCandidates";
-  if (candidates.candidate_size() == 0) {
+void CandidateWindow::SetCandidateWindow(const commands::CandidateWindow& candidate_window) {
+  DLOG(INFO) << "CandidateWindow::SetCandidateWindow";
+  if (candidate_window.candidate_size() == 0) {
     return;
   }
 
@@ -76,7 +74,7 @@ void CandidateWindow::SetCandidates(const Candidates& candidates) {
     InitWindow();
   }
   CandidateView* candidate_view = (CandidateView*)view_;
-  [candidate_view setCandidates:&candidates];
+  [candidate_view setCandidateWindow:&candidate_window];
   [candidate_view setNeedsDisplay:YES];
   NSSize size = [candidate_view updateLayout];
   ResizeWindow(size.width, size.height);
@@ -87,6 +85,6 @@ void CandidateWindow::ResetView() {
   view_ = [[CandidateView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
 }
 
-}  // namespace mozc::renderer::mac
-}  // namespace mozc::renderer
+}  // namespace mac
+}  // namespace renderer
 }  // namespace mozc

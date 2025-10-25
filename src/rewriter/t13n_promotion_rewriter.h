@@ -35,6 +35,8 @@
 #ifndef MOZC_REWRITER_T13N_PROMOTION_REWRITER_H_
 #define MOZC_REWRITER_T13N_PROMOTION_REWRITER_H_
 
+#include "converter/segments.h"
+#include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 
 namespace mozc {
@@ -44,9 +46,9 @@ class T13nPromotionRewriter : public RewriterInterface {
   T13nPromotionRewriter();
   ~T13nPromotionRewriter() override;
 
-  int capability(const ConversionRequest &request) const override;
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  int capability(const ConversionRequest& request) const override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 };
 
 }  // namespace mozc

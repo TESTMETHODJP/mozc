@@ -49,7 +49,12 @@ def ParseArguments() -> argparse.Namespace:
   parser.add_argument('--productbuild', action='store_true')
   parser.add_argument('--noqt', action='store_true')
   parser.add_argument('--oss', action='store_true')
+  parser.add_argument('--channel', default='dev')
   parser.add_argument('--work_dir')
+  # '-' means pseudo identity.
+  # https://github.com/bazelbuild/rules_apple/blob/3.5.1/apple/internal/codesigning_support.bzl#L42
+  # https://developer.apple.com/documentation/security/seccodesignatureflags/1397793-adhoc
+  parser.add_argument('--codesign_identity', default='-')
   return parser.parse_args()
 
 
@@ -61,7 +66,8 @@ def RemoveQtFrameworks(app_dir: str, app_name: str) -> None:
 
   for framework in frameworks:
     shutil.rmtree(
-        os.path.join(app_dir, f'Contents/Frameworks/{framework}.framework/'))
+        os.path.join(app_dir, f'Contents/Frameworks/{framework}.framework/')
+    )
     cmd = [
         'install_name_tool',
         '-change',
@@ -80,8 +86,9 @@ def SymlinkQtFrameworks(app_dir: str) -> None:
     #   QtCore.framwwork/QtCore@ -> Versions/A/QtCore
     #   QtCore.framwwork/Resources@ -> Versions/A/Resources
     #   QtCore.framework/Versions/Current@ -> A
-    framework_dir = os.path.join(app_dir,
-                                 f'Contents/Frameworks/{framework}.framework/')
+    framework_dir = os.path.join(
+        app_dir, f'Contents/Frameworks/{framework}.framework/'
+    )
 
     # Restore symlinks. Bazel uses zip without consideration of symlinks.
     # It changes symlink files to normal files. The following logics remove
@@ -115,8 +122,6 @@ def TweakQtApps(top_dir: str, oss: bool) -> None:
   ]
   for app in sub_qt_apps:
     app_dir = os.path.join(top_dir, f'{name}.app/Contents/Resources/{app}.app')
-    # Remove _CodeSignature to be invalidated.
-    shutil.rmtree(os.path.join(app_dir, 'Contents/_CodeSignature'))
     RemoveQtFrameworks(app_dir, app)
 
     # Remove the Frameworks directory, if it's empty.
@@ -124,48 +129,50 @@ def TweakQtApps(top_dir: str, oss: bool) -> None:
     if not any(os.scandir(framework_dir)):
       os.rmdir(framework_dir)
 
-  main_qt_apps = [
-      'ConfigDialog.app',
-      'DictionaryTool.app',
-      f'{name}.app/Contents/Resources/ConfigDialog.app',
-  ]
-  for app in main_qt_apps:
-    app_dir = os.path.join(top_dir, app)
-    SymlinkQtFrameworks(app_dir)
+  qt_app = f'{top_dir}/{name}.app/Contents/Resources/ConfigDialog.app'
+  SymlinkQtFrameworks(qt_app)
 
 
-def TweakForProductbuild(top_dir: str, tweak_qt: bool, oss: bool) -> None:
+def TweakForProductbuild(
+    top_dir: str, tweak_qt: bool, oss: bool, channel: str
+) -> None:
   """Tweak file paths for the productbuild command."""
   orig_dir = os.getcwd()
   os.chdir(top_dir)
 
   if oss:
+    is_dev_channel = False
     name = 'Mozc'
     folder = 'Mozc'
-    domain = 'org.mozc'
   else:
+    is_dev_channel = channel == 'dev'
     name = 'GoogleJapaneseInput'
     folder = 'GoogleJapaneseInput.localized'
-    domain = 'com.google'
 
   renames = [
       (f'Uninstall{name}.app', f'root/Applications/{folder}/'),
       (f'{name}.app', 'root/Library/Input Methods/'),
-      (
-          f'{domain}.inputmethod.Japanese.Converter.plist',
-          'root/Library/LaunchAgents/',
-      ),
-      (
-          f'{domain}.inputmethod.Japanese.Renderer.plist',
-          'root/Library/LaunchAgents/',
-      ),
+      ('LaunchAgents', 'root/Library/'),
       ('ActivatePane.bundle', 'Plugins/'),
       ('InstallerSections.plist', 'Plugins/'),
       ('postflight.sh', 'scripts/postinstall'),
       ('preflight.sh', 'scripts/preinstall'),
   ]
-  if not oss:
+
+  # For the dev channel, add the dev confirm section to the installer.
+  if is_dev_channel:
     renames += [('DevConfirmPane.bundle', 'Plugins/')]
+  else:
+    shutil.rmtree('DevConfirmPane.bundle')
+    # Remove the dev confirm section from InstallerSections.plist
+    contents = []
+    with open('InstallerSections.plist', 'r') as f:
+      for line in f:
+        if 'DevConfirmPane' in line:
+          continue
+        contents.append(line)
+    with open('InstallerSections.plist', 'w') as f:
+      f.write(''.join(contents))
 
   for src, dst in renames:
     if dst.endswith('/'):
@@ -190,6 +197,46 @@ def TweakForProductbuild(top_dir: str, tweak_qt: bool, oss: bool) -> None:
   os.chdir(orig_dir)
 
 
+def Codesign(top_dir: str, identity: str) -> None:
+  """Codesign the installer files."""
+  # remove existing _CodeSignature before overwriting the codesigns.
+  dir_name = '_CodeSignature'
+  for cur_dir, dirs, _ in os.walk(top_dir):  # symbolic links are not followed.
+    if dir_name in dirs:
+      shutil.rmtree(os.path.join(cur_dir, dir_name))
+      dirs.remove(dir_name)  # skip walking the removed directory.
+
+  args = [
+      '--force',
+      '--options=runtime',
+      '--sign',
+      identity,
+      '--keychain',
+      'login.keychain',
+  ]
+
+  # codesign libqcocoa.dylib
+  file_name = 'libqcocoa.dylib'
+  for cur_dir, _, files in os.walk(top_dir):  # symbolic links are not followed.
+    if file_name in files:
+      path = os.path.join(cur_dir, file_name)
+      codesign = ['/usr/bin/codesign', *args, path]
+      util.RunOrDie(codesign)
+
+  # codesign apps
+  # Walk the directory from the bottom to the top. This is necessary because
+  # the sub apps should be signed before the main app.
+  # Note, os.walk does not folow symbolic links.
+  for cur_dir, dirs, _ in os.walk(top_dir, topdown=False):
+    for dir_name in dirs:
+      path = os.path.join(cur_dir, dir_name)
+      ext = os.path.splitext(dir_name)[1]
+      is_app = ext in ['.app', '.bundle', '.framework']
+      if is_app and not os.path.islink(path):
+        codesign = ['/usr/bin/codesign', *args, path]
+        util.RunOrDie(codesign)
+
+
 def TweakInstallerFiles(args: argparse.Namespace, work_dir: str) -> None:
   """Tweak the zip file of installer files to optimize the structure."""
   # Remove top_dir if it already exists.
@@ -206,7 +253,8 @@ def TweakInstallerFiles(args: argparse.Namespace, work_dir: str) -> None:
     TweakQtApps(top_dir, args.oss)
 
   if args.productbuild:
-    TweakForProductbuild(top_dir, tweak_qt, args.oss)
+    TweakForProductbuild(top_dir, tweak_qt, args.oss, args.channel)
+    Codesign(top_dir, args.codesign_identity)
 
   # Create a zip file with the zip command.
   # It's not easy to contain symlinks with shutil.make_archive.
@@ -227,6 +275,7 @@ def main():
   else:
     with tempfile.TemporaryDirectory() as work_dir:
       TweakInstallerFiles(args, work_dir)
+
 
 if __name__ == '__main__':
   main()

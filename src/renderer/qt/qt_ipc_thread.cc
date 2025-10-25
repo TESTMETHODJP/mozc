@@ -30,8 +30,9 @@
 #include "renderer/qt/qt_ipc_thread.h"
 
 #include <string>
+#include <utility>
 
-#include "base/logging.h"
+#include "absl/log/log.h"
 #include "renderer/qt/qt_ipc_server.h"
 
 namespace mozc {
@@ -39,7 +40,8 @@ namespace renderer {
 
 void QtIpcThread::run() {
   QtIpcServer ipc;
-  ipc.SetCallback([&](std::string command){ emit EmitUpdated(command); });
+  ipc.SetCallback(
+      [&](std::string command) { emit EmitUpdated(std::move(command)); });
   if (!ipc.Connected()) {
     LOG(ERROR) << "cannot start server";
     return;

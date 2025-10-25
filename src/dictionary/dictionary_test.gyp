@@ -57,30 +57,11 @@
         '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
         '<(mozc_oss_src_dir)/testing/testing.gyp:mozctest',
         '<(mozc_oss_src_dir)/testing/testing.gyp:testing_util',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_base.gyp:usage_stats',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_test.gyp:usage_stats_testing_util',
         'dictionary.gyp:dictionary',
         'dictionary.gyp:dictionary_test_util',
-        'dictionary_base.gyp:pos_matcher',
         'dictionary_base.gyp:user_dictionary',
         'dictionary_base.gyp:user_pos',
-      ],
-      'variables': {
-        'test_size': 'small',
-      },
-    },
-    {
-      'target_name': 'suppression_dictionary_test',
-      'type': 'executable',
-      'sources': [
-        'suppression_dictionary_test.cc',
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/base/absl.gyp:absl_time',
-        '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
-        '<(mozc_oss_src_dir)/base/base.gyp:base',
-        '<(mozc_oss_src_dir)/testing/testing.gyp:gtest_main',
-        'dictionary_base.gyp:suppression_dictionary',
+        'pos_matcher.gyp:pos_matcher',
       ],
       'variables': {
         'test_size': 'small',
@@ -109,7 +90,6 @@
       'type': 'none',
       'dependencies': [
         'dictionary_test',
-        'suppression_dictionary_test',
         'text_dictionary_loader_test',
       ],
     },

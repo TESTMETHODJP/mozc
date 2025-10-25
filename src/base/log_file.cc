@@ -44,15 +44,15 @@ namespace {
 
 class LogFileSink : public absl::LogSink {
  public:
-  explicit LogFileSink(const std::string &path) : file_(path) {}
+  explicit LogFileSink(const std::string& path) : file_(path) {}
 
-  void Send(const absl::LogEntry &entry) override {
-    absl::MutexLock lock(&mutex_);
+  void Send(const absl::LogEntry& entry) override {
+    absl::MutexLock lock(mutex_);
     file_ << entry.text_message_with_prefix_and_newline();
   }
 
   void Flush() override {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     file_.flush();
   }
 
@@ -63,11 +63,11 @@ class LogFileSink : public absl::LogSink {
 
 }  // namespace
 
-void RegisterLogFileSink(const std::string &path) {
-#if !defined(MOZC_NO_LOGGING) && !defined(__ANDROID__)
+void RegisterLogFileSink(const std::string& path) {
+#if !defined(NDEBUG) && !defined(__ANDROID__)
   absl::InitializeLog();
   absl::AddLogSink(new LogFileSink(path));
-#endif  // !MOZC_NO_LOGGING && !__ANDROID__
+#endif  // !NDEBUG && !__ANDROID__
 }
 
 }  // namespace mozc

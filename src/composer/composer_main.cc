@@ -47,14 +47,13 @@ ABSL_FLAG(std::string, table, "system://romanji-hiragana.tsv",
 using ::mozc::commands::Request;
 using ::mozc::config::Config;
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
 
-  mozc::composer::Table table;
-  table.LoadFromFile(absl::GetFlag(FLAGS_table).c_str());
-  std::unique_ptr<mozc::composer::Composer> composer(
-      new mozc::composer::Composer(&table, &Request::default_instance(),
-                                   &Config::default_instance()));
+  auto table = std::make_shared<mozc::composer::Table>();
+  table->LoadFromFile(absl::GetFlag(FLAGS_table).c_str());
+  auto composer = std::make_unique<mozc::composer::Composer>(
+      table, Request::default_instance(), Config::default_instance());
 
   std::string command;
   std::string left, focused, right;

@@ -40,19 +40,13 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "composer/table.h"
-#include "dictionary/user_dictionary_session_handler.h"
 #include "engine/engine_interface.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "session/common.h"
-#include "session/internal/keymap.h"
+#include "session/keymap.h"
 #include "session/session.h"
-#include "session/session_handler_interface.h"
-#include "session/session_observer_handler.h"
-#include "session/session_observer_interface.h"
 #include "storage/lru_cache.h"
-#include "testing/friend_test.h"
-
 
 #ifndef MOZC_DISABLE_SESSION_WATCHDOG
 #include "session/session_watch_dog.h"
@@ -60,81 +54,72 @@
 
 namespace mozc {
 
-class SessionHandler : public SessionHandlerInterface {
+class SessionHandler {
  public:
   explicit SessionHandler(std::unique_ptr<EngineInterface> engine);
-  SessionHandler(const SessionHandler &) = delete;
-  SessionHandler &operator=(const SessionHandler &) = delete;
-  ~SessionHandler() override = default;
+  SessionHandler(const SessionHandler&) = delete;
+  SessionHandler& operator=(const SessionHandler&) = delete;
+  ~SessionHandler() = default;
 
   // Returns true if SessionHandle is available.
-  bool IsAvailable() const override;
+  bool IsAvailable() const;
 
-  bool EvalCommand(commands::Command *command) override;
+  bool EvalCommand(commands::Command* command);
 
   // Starts watch dog timer to cleanup sessions.
-  void StartWatchDog() override;
+  void StartWatchDog();
 
   // NewSession returns new Session.
   std::unique_ptr<session::Session> NewSession();
 
-  void AddObserver(session::SessionObserverInterface *observer) override;
-  absl::string_view GetDataVersion() const override {
-    return engine_->GetDataVersion();
-  }
+  absl::string_view GetDataVersion() const { return engine_->GetDataVersion(); }
 
-  const EngineInterface &engine() const { return *engine_; }
+  const EngineInterface& engine() const { return *engine_; }
 
  private:
-  FRIEND_TEST(SessionHandlerTest, KeyMapTest);
-  FRIEND_TEST(SessionHandlerTest, EngineUpdateSuccessfulScenarioTest);
-  FRIEND_TEST(SessionHandlerTest, EngineRollbackDataTest);
-
+  friend class KeyMapManagerAccessorTestPeer;
 
   using SessionMap =
       mozc::storage::LruCache<SessionID, std::unique_ptr<session::Session>>;
   using SessionElement = SessionMap::Element;
 
   // Updates the config, if the |command| contains the config.
-  void MaybeUpdateConfig(commands::Command *command);
+  void MaybeUpdateConfig(commands::Command* command);
 
-  bool CreateSession(commands::Command *command);
-  bool DeleteSession(commands::Command *command);
-  bool TestSendKey(commands::Command *command);
-  bool SendKey(commands::Command *command);
-  bool SendCommand(commands::Command *command);
+  bool CreateSession(commands::Command* command);
+  bool DeleteSession(commands::Command* command);
+  bool TestSendKey(commands::Command* command);
+  bool SendKey(commands::Command* command);
+  bool SendCommand(commands::Command* command);
   // Syncs internal data to local file system and wait for finish.
-  bool SyncData(commands::Command *command);
-  bool ClearUserHistory(commands::Command *command);
-  bool ClearUserPrediction(commands::Command *command);
-  bool ClearUnusedUserPrediction(commands::Command *command);
-  bool Shutdown(commands::Command *command);
+  bool SyncData(commands::Command* command);
+  bool ClearUserHistory(commands::Command* command);
+  bool ClearUserPrediction(commands::Command* command);
+  bool ClearUnusedUserPrediction(commands::Command* command);
+  bool Shutdown(commands::Command* command);
   // Reloads all the sessions.
   // Before that, UpdateSessions() is called to update them.
-  bool Reload(commands::Command *command);
+  bool Reload(commands::Command* command);
   // Reloads and waits for reloader finish.
-  bool ReloadAndWait(commands::Command *command);
-  bool GetConfig(commands::Command *command);
-  bool SetConfig(commands::Command *command);
+  bool ReloadAndWait(commands::Command* command);
+  bool GetConfig(commands::Command* command);
+  bool SetConfig(commands::Command* command);
   // Updates all the sessions by UpdateSessions() with given |request|.
-  bool SetRequest(commands::Command *command);
-  // Sets the given config, request, and derivative information
-  // to all the sessions.
-  // Then updates config_ and request_.
-  // This method doesn't reload the sessions.
-  void UpdateSessions(const config::Config &config,
-                      const commands::Request &request);
+  bool SetRequest(commands::Command* command);
+  // Update sessions if ConfigHandler::GetSharedConfig() is updated
+  // or `request` is not null. This method doesn't reload the sessions.
+  void UpdateSessions(
+      std::unique_ptr<const commands::Request> request = nullptr);
 
-  bool Cleanup(commands::Command *command);
-  bool SendUserDictionaryCommand(commands::Command *command);
-  bool SendEngineReloadRequest(commands::Command *command);
-  bool NoOperation(commands::Command *command);
-  bool CheckSpelling(commands::Command *command);
-  bool ReloadSpellChecker(commands::Command *command);
-  bool GetServerVersion(commands::Command *command) const;
+  bool Cleanup(commands::Command* command);
+  bool SendUserDictionaryCommand(commands::Command* command);
+  bool SendEngineReloadRequest(commands::Command* command);
+  bool NoOperation(commands::Command* command);
+  bool ReloadSupplementalModel(commands::Command* command);
+  bool GetServerVersion(commands::Command* command) const;
 
   // Replaces engine_ with a new instance if it is ready.
-  void MaybeReloadEngine(commands::Command *command);
+  void MaybeReloadEngine(commands::Command* command);
 
   SessionID CreateNewSessionID();
   bool DeleteSessionID(SessionID id);
@@ -150,14 +135,22 @@ class SessionHandler : public SessionHandlerInterface {
   absl::Time last_create_session_time_ = absl::InfinitePast();
 
   std::unique_ptr<EngineInterface> engine_;
-  std::unique_ptr<session::SessionObserverHandler> observer_handler_;
-  std::unique_ptr<user_dictionary::UserDictionarySessionHandler>
-      user_dictionary_session_handler_;
   std::unique_ptr<composer::TableManager> table_manager_;
-  std::unique_ptr<const commands::Request> request_;
-  std::unique_ptr<const config::Config> config_;
-  std::unique_ptr<keymap::KeyMapManager> key_map_manager_;
 
+  // Uses shared_ptr for the following reason.
+  // 1. config_ is shared across multiple sub-components whose life cycle is
+  //    mostly unpredictable and updated dynamically.
+  // 2. Avoid copying of config from ConfigHandler to SessionHandler.
+  // 3. Easily to identify whether the config_ is updated. Only a comparison of
+  //    pointers is required, not a comparison of content.
+  // config_, request_, and key_map_manager_ are not view-only objects but
+  // mutable pointers dynamically updated via setter methods. The current design
+  // is not recommended as it can easily lead to dangling pointers (e.g.,
+  // forgetting to call a setter method). The style guide recommends
+  // std::shared_ptr when implementing shared objects.
+  std::shared_ptr<const commands::Request> request_;
+  std::shared_ptr<const config::Config> config_;
+  std::shared_ptr<keymap::KeyMapManager> key_map_manager_;
 
   absl::BitGen bitgen_;
 };

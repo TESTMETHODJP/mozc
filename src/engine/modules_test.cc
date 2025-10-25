@@ -32,95 +32,96 @@
 #include <memory>
 #include <utility>
 
-#include "absl/status/status.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_mock.h"
 #include "dictionary/pos_matcher.h"
-#include "dictionary/suppression_dictionary.h"
-#include "dictionary/user_dictionary_stub.h"
-#include "prediction/rescorer_interface.h"
-#include "prediction/rescorer_mock.h"
-#include "testing/gmock.h"
+#include "engine/supplemental_model_interface.h"
 #include "testing/gunit.h"
 
 namespace mozc {
 namespace engine {
 
-TEST(ModulesTest, Init) {
-  Modules modules;
-
-  EXPECT_EQ(modules.GetPosMatcher(), nullptr);
-  EXPECT_EQ(modules.GetSuppressionDictionary(), nullptr);
-  EXPECT_EQ(modules.GetMutableSuppressionDictionary(), nullptr);
-  EXPECT_EQ(modules.GetSegmenter(), nullptr);
-  EXPECT_EQ(modules.GetUserDictionary(), nullptr);
-  EXPECT_EQ(modules.GetPosGroup(), nullptr);
-  EXPECT_EQ(modules.GetRescorer(), nullptr);
-
-  ASSERT_OK(modules.Init(std::make_unique<testing::MockDataManager>()));
-
-  EXPECT_NE(modules.GetPosMatcher(), nullptr);
-  EXPECT_NE(modules.GetSuppressionDictionary(), nullptr);
-  EXPECT_NE(modules.GetMutableSuppressionDictionary(), nullptr);
-  EXPECT_NE(modules.GetSegmenter(), nullptr);
-  EXPECT_NE(modules.GetUserDictionary(), nullptr);
-  EXPECT_NE(modules.GetPosGroup(), nullptr);
-  // Rescorer is not initialized by MockDataManager.
-  EXPECT_EQ(modules.GetRescorer(), nullptr);
+TEST(ModulesTest, CreateTest) {
+  std::unique_ptr<const engine::Modules> modules =
+      Modules::Create(std::make_unique<testing::MockDataManager>()).value();
 }
 
-TEST(ModulesTest, Preset) {
-  Modules modules;
+TEST(ModulesTest, BuildTwiceTest) {
+  ModulesPresetBuilder builder;
+
+  EXPECT_TRUE(builder.Build(std::make_unique<testing::MockDataManager>()).ok());
+  EXPECT_FALSE(
+      builder.Build(std::make_unique<testing::MockDataManager>()).ok());
+}
+
+TEST(ModulesTest, PresetTest) {
+  testing::MockDataManager mock_data_manager;
 
   // PosMatcher
-  auto pos_matcher = std::make_unique<dictionary::PosMatcher>();
-  const dictionary::PosMatcher *pos_matcher_ptr = pos_matcher.get();
-  EXPECT_NE(pos_matcher_ptr, nullptr);
-  modules.PresetPosMatcher(std::move(pos_matcher));
-
-  // SuppressionDictionary
-  auto suppression_dictionary =
-      std::make_unique<dictionary::SuppressionDictionary>();
-  const dictionary::SuppressionDictionary *suppression_dictionary_ptr =
-      suppression_dictionary.get();
-  EXPECT_NE(suppression_dictionary_ptr, nullptr);
-  modules.PresetSuppressionDictionary(std::move(suppression_dictionary));
+  auto pos_matcher = std::make_unique<dictionary::PosMatcher>(
+      mock_data_manager.GetPosMatcherData());
+  const dictionary::PosMatcher* pos_matcher_ptr = pos_matcher.get();
 
   // UserDictionary
-  auto user_dictionary = std::make_unique<dictionary::UserDictionaryStub>();
-  const dictionary::UserDictionaryStub *user_dictionary_ptr =
+  auto user_dictionary = std::make_unique<dictionary::MockUserDictionary>();
+  const dictionary::MockUserDictionary* user_dictionary_ptr =
       user_dictionary.get();
-  EXPECT_NE(user_dictionary_ptr, nullptr);
-  modules.PresetUserDictionary(std::move(user_dictionary));
 
   // SuffixDictionary
   auto suffix_dictionary = std::make_unique<dictionary::MockDictionary>();
-  const dictionary::DictionaryInterface *suffix_dictionary_ptr =
+  const dictionary::DictionaryInterface* suffix_dictionary_ptr =
       suffix_dictionary.get();
-  EXPECT_NE(suffix_dictionary_ptr, nullptr);
-  modules.PresetSuffixDictionary(std::move(suffix_dictionary));
 
   // Dictionary
   auto dictionary = std::make_unique<dictionary::MockDictionary>();
-  const dictionary::DictionaryInterface *dictionary_ptr = dictionary.get();
-  EXPECT_NE(dictionary_ptr, nullptr);
-  modules.PresetDictionary(std::move(dictionary));
+  const dictionary::DictionaryInterface* dictionary_ptr = dictionary.get();
 
-  // Rescorer
-  auto rescorer = std::make_unique<prediction::MockRescorer>();
-  const prediction::RescorerInterface *rescorer_ptr = rescorer.get();
-  EXPECT_NE(rescorer_ptr, nullptr);
-  modules.PresetRescorer(std::move(rescorer));
+  std::unique_ptr<const engine::Modules> modules =
+      ModulesPresetBuilder()
+          .PresetPosMatcher(std::move(pos_matcher))
+          .PresetUserDictionary(std::move(user_dictionary))
+          .PresetSuffixDictionary(std::move(suffix_dictionary))
+          .PresetDictionary(std::move(dictionary))
+          .Build(std::make_unique<testing::MockDataManager>())
+          .value();
 
-  ASSERT_OK(modules.Init(std::make_unique<testing::MockDataManager>()));
+  EXPECT_EQ(&modules->GetPosMatcher(), pos_matcher_ptr);
+  EXPECT_EQ(&modules->GetUserDictionary(), user_dictionary_ptr);
+  EXPECT_EQ(&modules->GetSuffixDictionary(), suffix_dictionary_ptr);
+  EXPECT_EQ(&modules->GetDictionary(), dictionary_ptr);
+}
 
-  EXPECT_EQ(modules.GetPosMatcher(), pos_matcher_ptr);
-  EXPECT_EQ(modules.GetSuppressionDictionary(), suppression_dictionary_ptr);
-  EXPECT_EQ(modules.GetUserDictionary(), user_dictionary_ptr);
-  EXPECT_EQ(modules.GetSuffixDictionary(), suffix_dictionary_ptr);
-  EXPECT_EQ(modules.GetDictionary(), dictionary_ptr);
-  EXPECT_EQ(modules.GetRescorer(), rescorer_ptr);
+TEST(ModulesTest, SupplementalModelTest) {
+  std::unique_ptr<Modules> modules1 =
+      Modules::Create(std::make_unique<testing::MockDataManager>()).value();
+  std::unique_ptr<Modules> modules2 =
+      Modules::Create(std::make_unique<testing::MockDataManager>()).value();
+
+  // Returns the same non-null static instance by default.
+  EXPECT_TRUE(&modules1->GetSupplementalModel());
+  EXPECT_EQ(&modules1->GetSupplementalModel(),
+            &modules2->GetSupplementalModel());
+
+  auto supplemental_model = std::make_unique<SupplementalModelStub>();
+  // TODO(taku): Avoid sharing the pointer of std::unique_ptr.
+  const SupplementalModelInterface* supplemental_model_ptr =
+      supplemental_model.get();
+  std::unique_ptr<Modules> modules3 =
+      ModulesPresetBuilder()
+          .PresetSupplementalModel(std::move(supplemental_model))
+          .Build(std::make_unique<testing::MockDataManager>())
+          .value();
+
+  EXPECT_NE(&modules1->GetSupplementalModel(),
+            &modules3->GetSupplementalModel());
+  EXPECT_EQ(supplemental_model_ptr, &modules3->GetSupplementalModel());
+
+  // The default static instance is used again.
+  std::unique_ptr<Modules> modules4 =
+      Modules::Create(std::make_unique<testing::MockDataManager>()).value();
+  EXPECT_EQ(&modules1->GetSupplementalModel(),
+            &modules4->GetSupplementalModel());
 }
 
 }  // namespace engine

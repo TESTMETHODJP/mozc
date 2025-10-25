@@ -44,10 +44,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/log.h"
+#include "absl/types/span.h"
 #include "base/const.h"
 #include "base/file_util.h"
-#include "base/logging.h"
-#include "base/protobuf/protobuf.h"
+#include "base/protobuf/message.h"
 #include "base/system_util.h"
 #include "base/win32/wide_char.h"
 #include "win32/cache_service/win32_service_state.pb.h"
@@ -204,7 +205,7 @@ bool IsServiceRunning(const ScopedSCHandle &service_handle) {
 }
 
 bool StartServiceInternal(const ScopedSCHandle &service_handle,
-                          const std::vector<std::wstring> &arguments) {
+                          absl::Span<const std::wstring> arguments) {
   if (arguments.empty()) {
     if (!::StartService(service_handle.get(), 0, nullptr)) {
       LOG(ERROR) << "StartService failed: " << ::GetLastError();

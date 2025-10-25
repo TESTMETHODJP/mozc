@@ -29,13 +29,15 @@
 
 #include "prediction/suggestion_filter.h"
 
+#include <cstdint>
 #include <string>
 #include <utility>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "base/hash.h"
-#include "base/logging.h"
 #include "base/util.h"
 #include "storage/existence_filter.h"
 
@@ -63,7 +65,7 @@ SuggestionFilter SuggestionFilter::CreateOrDie(
 bool SuggestionFilter::IsBadSuggestion(const absl::string_view text) const {
   std::string lower_text(text);
   Util::LowerString(&lower_text);
-  return filter_.Exists(Fingerprint(lower_text));
+  return filter_.Exists(lower_text);
 }
 
 }  // namespace mozc

@@ -41,6 +41,9 @@
 namespace mozc {
 namespace dictionary {
 
+// DictionaryInterface only defines pure immutable lookup operations.
+// mutable operations, e.g., Reload, Load are defined
+// in the subclass UserDictionaryInterface.
 class DictionaryInterface {
  public:
   // Callback interface for dictionary traversal (currently implemented only for
@@ -101,7 +104,7 @@ class DictionaryInterface {
     // Called back when a token is decoded.
     virtual ResultType OnToken(absl::string_view key,
                                absl::string_view expanded_key,
-                               const Token &token_info) {
+                               const Token& token_info) {
       return TRAVERSE_CONTINUE;
     }
 
@@ -120,33 +123,33 @@ class DictionaryInterface {
   // Looks up values whose keys start from the key.
   // (e.g. key = "abc" -> {"abc": "ABC", "abcd": "ABCD"})
   virtual void LookupPredictive(absl::string_view key,
-                                const ConversionRequest &conversion_request,
-                                Callback *callback) const = 0;
+                                const ConversionRequest& conversion_request,
+                                Callback* callback) const = 0;
 
   // Looks up values whose keys are prefixes of the key.
   // (e.g. key = "abc" -> {"abc": "ABC", "a": "A"})
   virtual void LookupPrefix(absl::string_view key,
-                            const ConversionRequest &conversion_request,
-                            Callback *callback) const = 0;
+                            const ConversionRequest& conversion_request,
+                            Callback* callback) const = 0;
 
   // Looks up values whose keys are same with the key.
   // (e.g. key = "abc" -> {"abc": "ABC"})
   virtual void LookupExact(absl::string_view key,
-                           const ConversionRequest &conversion_request,
-                           Callback *callback) const = 0;
+                           const ConversionRequest& conversion_request,
+                           Callback* callback) const = 0;
 
   // For reverse lookup, the reading is stored in Token::value and the word
   // is stored in Token::key.
   virtual void LookupReverse(absl::string_view str,
-                             const ConversionRequest &conversion_request,
-                             Callback *callback) const = 0;
+                             const ConversionRequest& conversion_request,
+                             Callback* callback) const = 0;
 
   // Looks up a user comment from a pair of key and value.  When (key, value)
   // doesn't exist in this dictionary or user comment is empty, bool is
   // returned and string is kept as-is.
   virtual bool LookupComment(absl::string_view key, absl::string_view value,
-                             const ConversionRequest &conversion_request,
-                             std::string *comment) const {
+                             const ConversionRequest& conversion_request,
+                             std::string* comment) const {
     return false;
   }
 
@@ -155,12 +158,6 @@ class DictionaryInterface {
   // part of the interface.
   virtual void PopulateReverseLookupCache(absl::string_view str) const {}
   virtual void ClearReverseLookupCache() const {}
-
-  // Sync mutable dictionary data into local disk.
-  virtual bool Sync() { return true; }
-
-  // Reload dictionary data from local disk.
-  virtual bool Reload() { return true; }
 
  protected:
   // Do not allow instantiation
@@ -179,7 +176,19 @@ class UserDictionaryInterface : public DictionaryInterface {
 
   // Loads dictionary from UserDictionaryStorage.
   // mainly for unit testing
-  virtual bool Load(const user_dictionary::UserDictionaryStorage &storage) = 0;
+  virtual bool Load(const user_dictionary::UserDictionaryStorage& storage) = 0;
+
+  // Suppress `key` and `value` with suppression dictionary.
+  // Suppression entries are defined in the user dictionary with a special
+  // POS.
+  virtual bool IsSuppressedEntry(absl::string_view key,
+                                 absl::string_view value) const = 0;
+
+  // Return true if the dictionary has at least one suppression entry.
+  virtual bool HasSuppressedEntries() const = 0;
+
+  // Reload dictionary data from local disk.
+  virtual bool Reload() { return true; }
 };
 
 }  // namespace dictionary

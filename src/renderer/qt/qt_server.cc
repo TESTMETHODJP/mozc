@@ -29,7 +29,9 @@
 
 #include "renderer/qt/qt_server.h"
 
+#if defined(__linux__) && !defined(__ANDROID__)
 #include <stdlib.h>
+#endif  // __linux__ && !__ANDROID__
 
 #include <QApplication>
 #include <QMetaType>
@@ -38,13 +40,17 @@
 #include <string>
 
 #include "absl/flags/flag.h"
-#include "base/logging.h"
+#include "absl/log/log.h"
 #include "base/system_util.h"
 #include "base/vlog.h"
-#include "config/config_handler.h"
 #include "ipc/named_event.h"
+#include "protocol/config.pb.h"
 #include "protocol/renderer_command.pb.h"
 #include "renderer/qt/qt_ipc_thread.h"
+
+#ifndef NDEBUG
+#include "config/config_handler.h"
+#endif  // NDEBUG
 
 // By default, mozc_renderer quits when user-input continues to be
 // idle for 10min.
@@ -71,23 +77,20 @@ std::string GetServiceName() {
 }
 }  // namespace
 
-QtServer::QtServer()
-    : timeout_(0) {
+QtServer::QtServer() : timeout_(0) {
   if (absl::GetFlag(FLAGS_restricted)) {
     absl::SetFlag(&FLAGS_timeout,
                   // set 60 sec with restricted mode
                   std::min(absl::GetFlag(FLAGS_timeout), 60));
   }
 
-  timeout_ = 1000 * std::max(3, std::min(24 * 60 * 60,
-                                         absl::GetFlag(FLAGS_timeout)));
+  timeout_ = 1000 * std::clamp(absl::GetFlag(FLAGS_timeout), 3, 24 * 60 * 60);
   MOZC_VLOG(2) << "timeout is set to be : " << timeout_;
 
-#ifndef MOZC_NO_LOGGING
-  config::Config config;
-  config::ConfigHandler::GetConfig(&config);
-  mozc::internal::SetConfigVLogLevel(config.verbose_level());
-#endif  // MOZC_NO_LOGGING
+#ifndef NDEBUG
+  mozc::internal::SetConfigVLogLevel(
+      config::ConfigHandler::GetSharedConfig()->verbose_level());
+#endif  // NDEBUG
 }
 
 QtServer::~QtServer() = default;
@@ -106,9 +109,11 @@ void QtServer::Update(std::string command) {
 }
 
 int QtServer::StartServer(int argc, char **argv) {
+#if defined(__linux__) && !defined(__ANDROID__)
   // |QWidget::move()| never works with wayland platform backend. Always use
   // 'xcb' platform backend.  https://github.com/google/mozc/issues/794
   ::setenv("QT_QPA_PLATFORM", "xcb", 1);
+#endif  // __linux__ && !__ANDROID__
 
   qRegisterMetaType<std::string>("std::string");
   QApplication app(argc, argv);
@@ -124,8 +129,7 @@ int QtServer::StartServer(int argc, char **argv) {
   return app.exec();
 }
 
-bool QtServer::ExecCommandInternal(
-    const commands::RendererCommand &command) {
+bool QtServer::ExecCommandInternal(const commands::RendererCommand &command) {
   MOZC_VLOG(2) << command;
 
   return renderer_.ExecCommand(command);

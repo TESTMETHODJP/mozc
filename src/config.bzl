@@ -35,6 +35,8 @@
 
 BRANDING = "Mozc"
 
+BAZEL_TOOLS_PREFIX = "@bazel_tools"
+
 LINUX_MOZC_BROWSER_COMMAND = "/usr/bin/xdg-open"
 LINUX_MOZC_ICONS_DIR = "/usr/share/icons/mozc"
 LINUX_MOZC_SERVER_DIR = "/usr/lib/mozc"
@@ -47,7 +49,29 @@ EMACS_MOZC_CLIENT_DIR = "/usr/share/emacs/site-lisp/emacs-mozc"
 EMACS_MOZC_HELPER_DIR = "/usr/bin"
 
 MACOS_BUNDLE_ID_PREFIX = "org.mozc.inputmethod.Japanese"
-MACOS_MIN_OS_VER = "11.0"
+MACOS_MIN_OS_VER = "12.0"
+
+# identity for codesign. The value passed to the --sign option of the codesign command.
+#
+# pseudo identity for local development
+# '-' means pseudo identity.
+# https://github.com/bazelbuild/rules_apple/blob/3.5.1/apple/internal/codesigning_support.bzl#L42
+# https://developer.apple.com/documentation/security/seccodesignatureflags/1397793-adhoc
+MACOS_CODESIGN_IDENTITY_PSEUDO = "-"
+
+# identity for continuous testing build
+MACOS_CODESIGN_IDENTITY_TESTING = MACOS_CODESIGN_IDENTITY_PSEUDO
+
+# identyty for external release build
+MACOS_CODESIGN_IDENTITY_RELEASE = MACOS_CODESIGN_IDENTITY_PSEUDO
+
+# identity for installer codesign
+MACOS_CODESIGN_IDENTITY_INSTALLER_TESTING = MACOS_CODESIGN_IDENTITY_PSEUDO
+MACOS_CODESIGN_IDENTITY_INSTALLER_RELEASE = MACOS_CODESIGN_IDENTITY_PSEUDO
+
+# keychain for installer codesign
+MACOS_KEYCHAIN_INSTALLER_TESTING = ""
+MACOS_KEYCHAIN_INSTALLER_RELEASE = ""
 
 ## Qt path for macOS
 # The paths are the default paths of Qt 6.5.2 installed by "make install".

@@ -31,6 +31,7 @@
 
 #include <string>
 
+#include "absl/status/statusor.h"
 #include "base/file_util.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
@@ -43,9 +44,8 @@ namespace {
 #include "base/embedded_file_test_data.inc"
 
 TEST(EmbeddedFileTest, Basic) {
-  const absl::StatusOr<std::string> expected =
-      FileUtil::GetContents(testing::GetSourceFileOrDie(
-          {MOZC_SRC_COMPONENTS("base"), "embedded_file.h"}));
+  const absl::StatusOr<std::string> expected = FileUtil::GetContents(
+      testing::GetSourceFileOrDie({"base", "embedded_file.h"}));
   ASSERT_OK(expected);
   EXPECT_EQ(LoadEmbeddedFile(kEmbeddedFileTestData), *expected);
 }

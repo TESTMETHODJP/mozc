@@ -38,13 +38,12 @@
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
-#include "absl/strings/match.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
-#include "base/logging.h"
 #include "base/strings/assign.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 
 namespace mozc {
 namespace dictionary {
@@ -82,7 +81,7 @@ bool UserPos::IsValidPos(absl::string_view pos) const {
   return std::binary_search(begin(), end(), iter.index());
 }
 
-bool UserPos::GetPosIds(absl::string_view pos, uint16_t *id) const {
+bool UserPos::GetPosIds(absl::string_view pos, uint16_t* id) const {
   const auto str_iter =
       std::lower_bound(string_array_.begin(), string_array_.end(), pos);
   if (str_iter == string_array_.end() || *str_iter != pos) {
@@ -98,7 +97,7 @@ bool UserPos::GetPosIds(absl::string_view pos, uint16_t *id) const {
 
 bool UserPos::GetTokens(absl::string_view key, absl::string_view value,
                         absl::string_view pos, absl::string_view locale,
-                        std::vector<Token> *tokens) const {
+                        std::vector<Token>* tokens) const {
   if (key.empty() || value.empty() || pos.empty() || tokens == nullptr) {
     return false;
   }
@@ -118,8 +117,7 @@ bool UserPos::GetTokens(absl::string_view key, absl::string_view value,
   tokens->resize(size);
 
   // TODO(taku)  Change the cost by seeing cost_type
-  const bool is_non_ja_locale =
-      !locale.empty() && !absl::StartsWith(locale, "ja");
+  const bool is_non_ja_locale = !locale.empty() && !locale.starts_with("ja");
 
   constexpr absl::string_view kIsolatedWordPos = "短縮よみ";
   constexpr absl::string_view kSuggestionOnlyPos = "サジェストのみ";
@@ -154,8 +152,7 @@ bool UserPos::GetTokens(absl::string_view key, absl::string_view value,
 
     if (base_key_suffix.size() < key.size() &&
         base_value_suffix.size() < value.size() &&
-        absl::EndsWith(key, base_key_suffix) &&
-        absl::EndsWith(value, base_value_suffix)) {
+        key.ends_with(base_key_suffix) && value.ends_with(base_value_suffix)) {
       key_stem.remove_suffix(base_key_suffix.size());
       value_stem.remove_suffix(base_value_suffix.size());
     }
@@ -176,7 +173,7 @@ bool UserPos::GetTokens(absl::string_view key, absl::string_view value,
 }
 
 std::unique_ptr<UserPos> UserPos::CreateFromDataManager(
-    const DataManagerInterface &manager) {
+    const DataManager& manager) {
   absl::string_view token_array_data, string_array_data;
   manager.GetUserPosData(&token_array_data, &string_array_data);
   return std::make_unique<UserPos>(token_array_data, string_array_data);

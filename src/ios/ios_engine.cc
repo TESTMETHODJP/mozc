@@ -43,11 +43,9 @@
 #include "data_manager/data_manager.h"
 #include "engine/engine.h"
 #include "engine/engine_interface.h"
-#include "engine/minimal_engine.h"
 #include "protocol/commands.pb.h"
 #include "protocol/user_dictionary_storage.pb.h"
 #include "session/session_handler.h"
-#include "session/session_handler_interface.h"
 
 namespace mozc {
 namespace ios {
@@ -60,24 +58,24 @@ const char *kIosSystemDictionaryName = "iOS_system_dictionary";
 
 std::unique_ptr<EngineInterface> CreateMobileEngine(
     const std::string &data_file_path) {
-  absl::StatusOr<std::unique_ptr<DataManager>> data_manager =
+  absl::StatusOr<std::unique_ptr<const DataManager>> data_manager =
       DataManager::CreateFromFile(data_file_path);
   if (!data_manager.ok()) {
     LOG(ERROR)
         << "Fallback to MinimalEngine due to data manager creation error: "
         << data_manager.status();
-    return std::make_unique<MinimalEngine>();
+    return Engine::CreateEngine();
   }
-  auto engine = Engine::CreateMobileEngine(*std::move(data_manager));
+  auto engine = Engine::CreateEngine(*std::move(data_manager));
   if (!engine.ok()) {
     LOG(ERROR) << "Failed to create an engine: " << engine.status()
                << ". Fallback to MinimalEngine";
-    return std::make_unique<MinimalEngine>();
+    return Engine::CreateEngine();
   }
   return *std::move(engine);
 }
 
-std::unique_ptr<SessionHandlerInterface> CreateSessionHandler(
+std::unique_ptr<SessionHandler> CreateSessionHandler(
     const std::string &data_file_path) {
   std::unique_ptr<EngineInterface> engine = CreateMobileEngine(data_file_path);
   return std::make_unique<SessionHandler>(std::move(engine));
@@ -179,8 +177,7 @@ bool IosEngine::SetMobileRequest(const std::string &keyboard_layout,
 }
 
 void IosEngine::FillMobileConfig(config::Config *config) {
-  config->Clear();
-  config::ConfigHandler::GetConfig(config);
+  *config = config::ConfigHandler::GetCopiedConfig();
   config->set_session_keymap(config::Config::MOBILE);
   config->set_use_kana_modifier_insensitive_conversion(true);
   config->set_space_character_form(config::Config::FUNDAMENTAL_HALF_WIDTH);
@@ -277,10 +274,12 @@ bool IosEngine::MaybeCreateNewChunk(commands::Command *command)
   input->set_type(commands::Input::SEND_COMMAND);
   commands::SessionCommand *session_command = input->mutable_command();
   session_command->set_type(commands::SessionCommand::STOP_KEY_TOGGLING);
+  // TODO(b/438604511): Use try_lock when Abseil LTS supports it.
   if (!mutex_.TryLock()) {
     return false;
   }
   const bool ret = session_handler_->EvalCommand(command);
+  // TODO(b/438604511): Use unlock when Abseil LTS supports it.
   mutex_.Unlock();
   return ret;
 }
@@ -297,6 +296,7 @@ bool IosEngine::SendSessionCommand(
 }
 
 bool IosEngine::EvalCommandLockGuarded(commands::Command *command) {
+  // TODO(b/438604511): Use mutex_ (w/o &) when Abseil LTS supports it.
   absl::MutexLock l(&mutex_);
   if (command->input().has_command()) {
     previous_command_ = command->input().command().type();

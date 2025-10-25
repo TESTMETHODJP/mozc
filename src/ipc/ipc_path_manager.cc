@@ -40,14 +40,14 @@
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
-#include "base/const.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/port.h"
 #include "base/process_mutex.h"
 #include "base/random.h"
@@ -75,6 +75,7 @@
 // clang-format on
 #include <wil/resource.h>
 
+#include "base/const.h"
 #include "base/unverified_sha1.h"
 #include "base/win32/wide_char.h"
 #include "base/win32/win_util.h"
@@ -148,12 +149,12 @@ class IPCPathManagerMap {
   IPCPathManagerMap() = default;
 
   ~IPCPathManagerMap() {
-    absl::MutexLock l(&mutex_);
+    absl::MutexLock l(mutex_);
     manager_map_.clear();
   }
 
   IPCPathManager *GetIPCPathManager(const absl::string_view name) {
-    absl::MutexLock l(&mutex_);
+    absl::MutexLock l(mutex_);
     const auto it = manager_map_.find(name);
     if (it != manager_map_.end()) {
       return it->second.get();
@@ -180,7 +181,7 @@ IPCPathManager *IPCPathManager::GetIPCPathManager(
 }
 
 bool IPCPathManager::CreateNewPathName() {
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
   return CreateNewPathNameUnlocked();
 }
 
@@ -192,7 +193,7 @@ bool IPCPathManager::CreateNewPathNameUnlocked() {
 }
 
 bool IPCPathManager::SavePathName() {
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
   if (path_mutex_) {
     return true;
   }
@@ -307,13 +308,13 @@ uint32_t IPCPathManager::GetServerProcessId() const {
 }
 
 void IPCPathManager::Clear() {
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
   ipc_path_info_.Clear();
 }
 
 bool IPCPathManager::IsValidServer(uint32_t pid,
                                    const absl::string_view server_path) {
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
   if (pid == 0) {
     // For backward compatibility.
     return true;
@@ -430,7 +431,7 @@ bool IPCPathManager::ShouldReload() const {
     // are automatically removed.
     return false;
   } else {
-    absl::MutexLock l(&mutex_);
+    absl::MutexLock l(mutex_);
     time_t last_modified = GetIPCFileTimeStamp();
     if (last_modified == last_modified_) {
       return false;
@@ -456,7 +457,7 @@ time_t IPCPathManager::GetIPCFileTimeStamp() const {
 }
 
 bool IPCPathManager::LoadPathNameInternal() {
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
 
   // try the new file name first.
   const std::string filename = GetIPCKeyFileName(name_);

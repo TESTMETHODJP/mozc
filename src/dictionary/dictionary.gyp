@@ -38,7 +38,6 @@
       'type': 'none',
       'dependencies': [
         '<(mozc_oss_src_dir)/base/base.gyp:base',
-        'dictionary_base.gyp:suppression_dictionary',
         'dictionary_base.gyp:user_dictionary',
         'dictionary_impl',
         'single_kanji_dictionary',
@@ -86,8 +85,7 @@
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:commands_proto',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:config_proto',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:user_dictionary_storage_proto',
-        'dictionary_base.gyp:pos_matcher',
-        'dictionary_base.gyp:suppression_dictionary',
+        'pos_matcher.gyp:pos_matcher',
       ],
     },
     {
@@ -102,7 +100,7 @@
         '<(mozc_oss_src_dir)/base/absl.gyp:absl_strings',
         '<(mozc_oss_src_dir)/base/base.gyp:base',
         '<(mozc_oss_src_dir)/data_manager/data_manager_base.gyp:data_manager',
-        'dictionary_base.gyp:pos_matcher',
+        'pos_matcher.gyp:pos_matcher',
         'system/system_dictionary.gyp:system_dictionary_builder',
       ],
       'msvs_settings': {

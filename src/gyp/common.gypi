@@ -44,8 +44,8 @@
     'compiler_host%': '',
 
     # Versioning stuff for Mac.
-    'mac_sdk%': '13.3',
-    'mac_deployment_target%': '11.0',
+    'mac_sdk%': '15.0',
+    'mac_deployment_target%': '12.0',
 
     # warning_cflags will be shared with Mac and Linux.
     'warning_cflags': [
@@ -138,7 +138,6 @@
         'defines': [
           'NDEBUG',
           'QT_NO_DEBUG',
-          'MOZC_NO_LOGGING',
           'ABSL_MIN_LOG_LEVEL=100',
           'IGNORE_HELP_FLAG',
           'IGNORE_INVALID_FLAG'

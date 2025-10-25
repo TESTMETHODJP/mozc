@@ -31,12 +31,13 @@
 
 #include <cstddef>
 #include <memory>
+#include <set>
 #include <string>
 
-#include "absl/strings/match.h"
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "config/config_handler.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "protocol/commands.pb.h"
@@ -50,21 +51,21 @@ namespace mozc {
 namespace {
 
 void AddSegment(const absl::string_view key, const absl::string_view value,
-                Segments *segments) {
+                Segments* segments) {
   segments->Clear();
-  Segment *seg = segments->push_back_segment();
+  Segment* seg = segments->push_back_segment();
   seg->set_key(key);
-  Segment::Candidate *candidate = seg->add_candidate();
+  converter::Candidate* candidate = seg->add_candidate();
   candidate->value = std::string(key);
   candidate->content_key = std::string(key);
   candidate->content_value = std::string(value);
 }
 
-bool HasEmoticon(const Segments &segments) {
+bool HasEmoticon(const Segments& segments) {
   CHECK_EQ(segments.segments_size(), 1);
   for (size_t i = 0; i < segments.segment(0).candidates_size(); ++i) {
-    const Segment::Candidate &candidate = segments.segment(0).candidate(i);
-    if (absl::StartsWith(candidate.description, "顔文字")) {
+    const converter::Candidate& candidate = segments.segment(0).candidate(i);
+    if (candidate.description.starts_with("顔文字")) {
       return true;
     }
   }
@@ -80,12 +81,11 @@ TEST_F(EmoticonRewriterTest, BasicTest) {
   std::unique_ptr<EmoticonRewriter> emoticon_rewriter =
       EmoticonRewriter::CreateFromDataManager(mock_data_manager_);
 
-  config::Config config;
-  config::ConfigHandler::GetDefaultConfig(&config);
-  ConversionRequest request;
-  request.set_config(&config);
+  config::Config config = config::ConfigHandler::DefaultConfig();
   {
     config.set_use_emoticon_conversion(true);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetConfig(config).Build();
 
     Segments segments;
     AddSegment("test", "test", &segments);
@@ -111,6 +111,8 @@ TEST_F(EmoticonRewriterTest, BasicTest) {
 
   {
     config.set_use_emoticon_conversion(false);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetConfig(config).Build();
 
     Segments segments;
     AddSegment("test", "test", &segments);
@@ -135,21 +137,43 @@ TEST_F(EmoticonRewriterTest, BasicTest) {
   }
 }
 
+TEST_F(EmoticonRewriterTest, RandomTest) {
+  std::unique_ptr<EmoticonRewriter> emoticon_rewriter =
+      EmoticonRewriter::CreateFromDataManager(mock_data_manager_);
+
+  config::Config config = config::ConfigHandler::DefaultConfig();
+  config.set_use_emoticon_conversion(true);
+  const ConversionRequest request =
+      ConversionRequestBuilder().SetConfig(config).Build();
+
+  std::set<std::string> variants;
+  for (int i = 0; i < 100; ++i) {
+    Segments segments;
+    AddSegment("ふくわらい", "test", &segments);
+    emoticon_rewriter->Rewrite(request, &segments);
+    EXPECT_TRUE(HasEmoticon(segments));
+    variants.emplace(segments.segment(0).candidate(1).value);
+  }
+  EXPECT_GT(variants.size(), 1);
+}
+
 TEST_F(EmoticonRewriterTest, MobileEnvironmentTest) {
   std::unique_ptr<EmoticonRewriter> rewriter =
       EmoticonRewriter::CreateFromDataManager(mock_data_manager_);
 
   commands::Request request;
-  ConversionRequest convreq;
-  convreq.set_request(&request);
 
   {
     request.set_mixed_conversion(true);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter->capability(convreq), RewriterInterface::ALL);
   }
 
   {
     request.set_mixed_conversion(false);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter->capability(convreq), RewriterInterface::CONVERSION);
   }
 }

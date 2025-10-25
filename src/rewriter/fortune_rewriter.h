@@ -30,20 +30,20 @@
 #ifndef MOZC_REWRITER_FORTUNE_REWRITER_H_
 #define MOZC_REWRITER_FORTUNE_REWRITER_H_
 
+#include "converter/segments.h"
 #include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 
 class ConversionRequest;
-class Segments;
 
 class FortuneRewriter : public RewriterInterface {
  public:
   FortuneRewriter();
   ~FortuneRewriter() override;
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  bool Rewrite(const ConversionRequest& request,
+               converter::Segments* segments) const override;
 };
 
 }  // namespace mozc

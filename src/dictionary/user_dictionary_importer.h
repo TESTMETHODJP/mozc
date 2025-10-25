@@ -30,7 +30,6 @@
 #ifndef MOZC_DICTIONARY_USER_DICTIONARY_IMPORTER_H_
 #define MOZC_DICTIONARY_USER_DICTIONARY_IMPORTER_H_
 
-#include <cstddef>
 #include <string>
 
 #include "absl/strings/string_view.h"
@@ -38,14 +37,14 @@
 
 namespace mozc {
 
-// An utilitiy class for importing user dictionary from different devices,
+// An utility class for importing user dictionary from different devices,
 // including text files and MS-IME, Kotoeri, and ATOK(optional) user
 // dictionaries.
 class UserDictionaryImporter {
  public:
   UserDictionaryImporter() = delete;
-  UserDictionaryImporter(const UserDictionaryImporter &) = delete;
-  UserDictionaryImporter &operator=(const UserDictionaryImporter &) = delete;
+  UserDictionaryImporter(const UserDictionaryImporter&) = delete;
+  UserDictionaryImporter& operator=(const UserDictionaryImporter&) = delete;
 
   // A raw entry to be read.
   struct RawEntry {
@@ -67,8 +66,8 @@ class UserDictionaryImporter {
   class InputIteratorInterface {
    public:
     InputIteratorInterface() = default;
-    InputIteratorInterface(const InputIteratorInterface &) = delete;
-    InputIteratorInterface &operator=(const InputIteratorInterface &) = delete;
+    InputIteratorInterface(const InputIteratorInterface&) = delete;
+    InputIteratorInterface& operator=(const InputIteratorInterface&) = delete;
     virtual ~InputIteratorInterface() = default;
 
     // Return true if the input iterator is available.
@@ -76,7 +75,7 @@ class UserDictionaryImporter {
 
     // Return true if entry is read successfully.
     // Next method doesn't have to convert the POS of entry.
-    virtual bool Next(RawEntry *raw_entry) = 0;
+    virtual bool Next(RawEntry* raw_entry) = 0;
   };
 
   // An abstract class for reading a text file per line.  It runs over
@@ -86,8 +85,8 @@ class UserDictionaryImporter {
   class TextLineIteratorInterface {
    public:
     TextLineIteratorInterface() = default;
-    TextLineIteratorInterface(const TextLineIteratorInterface &) = delete;
-    TextLineIteratorInterface &operator=(const TextLineIteratorInterface &) =
+    TextLineIteratorInterface(const TextLineIteratorInterface&) = delete;
+    TextLineIteratorInterface& operator=(const TextLineIteratorInterface&) =
         delete;
     virtual ~TextLineIteratorInterface() = default;
 
@@ -97,7 +96,7 @@ class UserDictionaryImporter {
     // Read a line and convert its encoding to UTF-8.
     // The TextLineIteratorInterface class takes a responsibility of character
     // set conversion. |line| must always be stored in UTF-8.
-    virtual bool Next(std::string *line) = 0;
+    virtual bool Next(std::string* line) = 0;
 
     // Reset the current position.
     virtual void Reset() = 0;
@@ -111,17 +110,14 @@ class UserDictionaryImporter {
   class StringTextLineIterator : public TextLineIteratorInterface {
    public:
     explicit StringTextLineIterator(absl::string_view data);
-    StringTextLineIterator(const StringTextLineIterator &) = delete;
-    StringTextLineIterator &operator=(const StringTextLineIterator &) = delete;
-    ~StringTextLineIterator() override;
 
     bool IsAvailable() const override;
-    bool Next(std::string *line) override;
+    bool Next(std::string* line) override;
     void Reset() override;
 
    private:
     const absl::string_view data_;
-    size_t position_;
+    absl::string_view::const_iterator first_;
   };
 
   // List of IMEs.
@@ -156,23 +152,20 @@ class UserDictionaryImporter {
   static EncodingType GuessEncodingType(absl::string_view str);
 
   // Guess encoding type of a file.
-  static EncodingType GuessFileEncodingType(const std::string &filename);
+  static EncodingType GuessFileEncodingType(const std::string& filename);
 
   // A special input iterator to read entries from TextLineIteratorInterface.
   class TextInputIterator : public InputIteratorInterface {
    public:
-    TextInputIterator(IMEType ime_type, TextLineIteratorInterface *iter);
-    TextInputIterator(const TextInputIterator &) = delete;
-    TextInputIterator &operator=(const TextInputIterator &) = delete;
-    ~TextInputIterator() override = default;
+    TextInputIterator(IMEType ime_type, TextLineIteratorInterface* iter);
 
     bool IsAvailable() const override;
-    bool Next(RawEntry *entry) override;
+    bool Next(RawEntry* entry) override;
     IMEType ime_type() const { return ime_type_; }
 
    private:
     IMEType ime_type_;
-    TextLineIteratorInterface *iter_;
+    TextLineIteratorInterface* iter_;
     std::string first_line_;
   };
 
@@ -186,18 +179,18 @@ class UserDictionaryImporter {
   };
 
   // Convert POS's of other IME's into Mozc's.
-  static bool ConvertEntry(const RawEntry &from,
-                           user_dictionary::UserDictionary::Entry *to);
+  static bool ConvertEntry(const RawEntry& from,
+                           user_dictionary::UserDictionary::Entry* to);
 
   // Import a dictionary from InputIteratorInterface.
   // This is the most generic interface.
-  static ErrorType ImportFromIterator(InputIteratorInterface *iter,
-                                      user_dictionary::UserDictionary *dic);
+  static ErrorType ImportFromIterator(InputIteratorInterface* iter,
+                                      user_dictionary::UserDictionary* dic);
 
   // Import a dictionary from TextLineIterator.
   static ErrorType ImportFromTextLineIterator(
-      IMEType ime_type, TextLineIteratorInterface *iter,
-      user_dictionary::UserDictionary *dic);
+      IMEType ime_type, TextLineIteratorInterface* iter,
+      user_dictionary::UserDictionary* dic);
 };
 
 }  // namespace mozc

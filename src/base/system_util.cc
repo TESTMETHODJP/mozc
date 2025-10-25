@@ -33,12 +33,13 @@
 #include <cstring>
 #include <string>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "base/const.h"
 #include "base/environ.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/singleton.h"
 
 #ifdef __ANDROID__
@@ -86,7 +87,7 @@ class UserProfileDirectoryImpl final {
   ~UserProfileDirectoryImpl() = default;
 
   std::string GetDir();
-  void SetDir(const std::string &dir);
+  void SetDir(const std::string& dir);
 
  private:
   std::string GetUserProfileDirectory() const;
@@ -96,7 +97,7 @@ class UserProfileDirectoryImpl final {
 };
 
 std::string UserProfileDirectoryImpl::GetDir() {
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
   if (!dir_.empty()) {
     return dir_;
   }
@@ -113,8 +114,8 @@ std::string UserProfileDirectoryImpl::GetDir() {
   return dir_;
 }
 
-void UserProfileDirectoryImpl::SetDir(const std::string &dir) {
-  absl::MutexLock l(&mutex_);
+void UserProfileDirectoryImpl::SetDir(const std::string& dir) {
+  absl::MutexLock l(mutex_);
   dir_ = dir;
 }
 
@@ -127,7 +128,7 @@ class LocalAppDataDirectoryCache {
   }
   HRESULT result() const { return result_; }
   const bool succeeded() const { return SUCCEEDED(result_); }
-  const std::string &path() const { return path_; }
+  const std::string& path() const { return path_; }
 
  private:
   // b/5707813 implies that TryGetLocalAppData causes an exception and makes
@@ -140,7 +141,7 @@ class LocalAppDataDirectoryCache {
   // Since Mozc uses /EHs option in common.gypi, we must admit potential
   // memory leakes when any non-C++ exception occues in TryGetLocalAppData.
   // See http://msdn.microsoft.com/en-us/library/1deeycx5.aspx
-  static HRESULT __declspec(nothrow) SafeTryGetLocalAppData(std::string *dir) {
+  static HRESULT __declspec(nothrow) SafeTryGetLocalAppData(std::string* dir) {
     __try {
       return TryGetLocalAppData(dir);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -148,7 +149,7 @@ class LocalAppDataDirectoryCache {
     }
   }
 
-  static HRESULT TryGetLocalAppData(std::string *dir) {
+  static HRESULT TryGetLocalAppData(std::string* dir) {
     if (dir == nullptr) {
       return E_FAIL;
     }
@@ -165,7 +166,7 @@ class LocalAppDataDirectoryCache {
     return TryGetLocalAppDataLow(dir);
   }
 
-  static HRESULT TryGetLocalAppDataForAppContainer(std::string *dir) {
+  static HRESULT TryGetLocalAppDataForAppContainer(std::string* dir) {
     // User profiles for processes running under AppContainer seem to be as
     // follows, while the scheme is not officially documented.
     //   "%LOCALAPPDATA%\Packages\<package sid>\..."
@@ -193,13 +194,13 @@ class LocalAppDataDirectoryCache {
     return S_OK;
   }
 
-  static HRESULT TryGetLocalAppDataLow(std::string *dir) {
+  static HRESULT TryGetLocalAppDataLow(std::string* dir) {
     if (dir == nullptr) {
       return E_FAIL;
     }
     dir->clear();
 
-    wchar_t *task_mem_buffer = nullptr;
+    wchar_t* task_mem_buffer = nullptr;
     const HRESULT result = ::SHGetKnownFolderPath(FOLDERID_LocalAppDataLow, 0,
                                                   nullptr, &task_mem_buffer);
     if (FAILED(result)) {
@@ -286,8 +287,8 @@ std::string UserProfileDirectoryImpl::GetUserProfileDirectory() const {
   // 3. Otherwise
   //    use "$HOME/.config/mozc" as the default value of $XDG_CONFIG_HOME
   // https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
-  const char *home = Environ::GetEnv("HOME");
-  if (home == nullptr) {
+  const std::string home = Environ::GetEnv("HOME");
+  if (home.empty()) {
     char buf[1024];
     struct passwd pw, *ppw;
     const uid_t uid = geteuid();
@@ -303,8 +304,8 @@ std::string UserProfileDirectoryImpl::GetUserProfileDirectory() const {
     return old_dir;
   }
 
-  const char *xdg_config_home = Environ::GetEnv("XDG_CONFIG_HOME");
-  if (xdg_config_home) {
+  const std::string xdg_config_home = Environ::GetEnv("XDG_CONFIG_HOME");
+  if (!xdg_config_home.empty()) {
     return FileUtil::JoinPath(xdg_config_home, "mozc");
   }
   return FileUtil::JoinPath(home, ".config/mozc");
@@ -333,7 +334,7 @@ std::string SystemUtil::GetLoggingDirectory() {
 #endif  // __APPLE__
 }
 
-void SystemUtil::SetUserProfileDirectory(const std::string &path) {
+void SystemUtil::SetUserProfileDirectory(const std::string& path) {
   Singleton<UserProfileDirectoryImpl>::get()->SetDir(path);
 }
 
@@ -347,7 +348,7 @@ class ProgramFilesX86Cache {
   }
   const bool succeeded() const { return SUCCEEDED(result_); }
   const HRESULT result() const { return result_; }
-  const std::string &path() const { return path_; }
+  const std::string& path() const { return path_; }
 
  private:
   // b/5707813 implies that the Shell API causes an exception in some cases.
@@ -359,8 +360,8 @@ class ProgramFilesX86Cache {
   // Since Mozc uses /EHs option in common.gypi, we must admit potential
   // memory leakes when any non-C++ exception occues in TryProgramFilesPath.
   // See http://msdn.microsoft.com/en-us/library/1deeycx5.aspx
-  static HRESULT __declspec(nothrow)
-      SafeTryProgramFilesPath(std::string *path) {
+  static HRESULT __declspec(nothrow) SafeTryProgramFilesPath(
+      std::string* path) {
     __try {
       return TryProgramFilesPath(path);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -368,31 +369,19 @@ class ProgramFilesX86Cache {
     }
   }
 
-  static HRESULT TryProgramFilesPath(std::string *path) {
+  static HRESULT TryProgramFilesPath(std::string* path) {
     if (path == nullptr) {
       return E_FAIL;
     }
     path->clear();
 
     wchar_t program_files_path_buffer[MAX_PATH] = {};
-#if defined(_M_X64)
-    // In 64-bit processes (such as Text Input Prosessor DLL for 64-bit apps),
-    // CSIDL_PROGRAM_FILES points 64-bit Program Files directory. In this case,
-    // we should use CSIDL_PROGRAM_FILESX86 to find server, renderer, and other
-    // binaries' path.
+    // For historical reasons Mozc executables have been installed under
+    // %ProgramFiles(x86)%.
+    // TODO(https://github.com/google/mozc/issues/1086): Stop using "(x86)".
     const HRESULT result =
         ::SHGetFolderPathW(nullptr, CSIDL_PROGRAM_FILESX86, nullptr,
                            SHGFP_TYPE_CURRENT, program_files_path_buffer);
-#elif defined(_M_IX86)
-    // In 32-bit processes (such as server, renderer, and other binaries),
-    // CSIDL_PROGRAM_FILES always points 32-bit Program Files directory
-    // even if they are running in 64-bit Windows.
-    const HRESULT result =
-        ::SHGetFolderPathW(nullptr, CSIDL_PROGRAM_FILES, nullptr,
-                           SHGFP_TYPE_CURRENT, program_files_path_buffer);
-#else  // !_M_X64 && !_M_IX86
-#error "Unsupported CPU architecture"
-#endif  // _M_X64, _M_IX86, and others
     if (FAILED(result)) {
       return result;
     }
@@ -408,11 +397,47 @@ class ProgramFilesX86Cache {
   HRESULT result_;
   std::string path_;
 };
+
+constexpr wchar_t kMozcTipClsid[] =
+    L"SOFTWARE\\Classes\\CLSID\\"
+#ifdef GOOGLE_JAPANESE_INPUT_BUILD
+    L"{D5A86FD5-5308-47EA-AD16-9C4EB160EC3C}"
+#else   // GOOGLE_JAPANESE_INPUT_BUILD
+    L"{10A67BC8-22FA-4A59-90DC-2546652C56BF}"
+#endif  // GOOGLE_JAPANESE_INPUT_BUILD
+    L"\\InprocServer32";
+
+std::string GetMozcInstallDirFromRegistry() {
+  // TSF requires the path of "mozc_tip64.dll" to be registered in the registry,
+  // which tells us Mozc's installation directory.
+  HKEY key = nullptr;
+  LSTATUS result = ::RegOpenKeyExW(HKEY_LOCAL_MACHINE, kMozcTipClsid, 0,
+                                   KEY_READ | KEY_WOW64_64KEY, &key);
+  if (result != ERROR_SUCCESS) {
+    return "";
+  }
+
+  DWORD type = 0;
+  wchar_t buffer[MAX_PATH] = {};
+  DWORD buffer_size = sizeof(buffer);
+  result = ::RegQueryValueExW(key, nullptr, nullptr, &type,
+                              reinterpret_cast<LPBYTE>(buffer), &buffer_size);
+  ::RegCloseKey(key);
+  if (result != ERROR_SUCCESS || type != REG_SZ) {
+    return "";
+  }
+  return FileUtil::Dirname(win32::WideToUtf8(buffer));
+}
+
 }  // namespace
 #endif  // _WIN32
 
 std::string SystemUtil::GetServerDirectory() {
 #ifdef _WIN32
+  const std::string install_dir_from_registry = GetMozcInstallDirFromRegistry();
+  if (!install_dir_from_registry.empty()) {
+    return install_dir_from_registry;
+  }
   DCHECK(SUCCEEDED(Singleton<ProgramFilesX86Cache>::get()->result()));
 #if defined(GOOGLE_JAPANESE_INPUT_BUILD)
   return FileUtil::JoinPath(
@@ -500,8 +525,12 @@ std::string SystemUtil::GetUserNameAsString() {
   DCHECK_NE(FALSE, result);
   return win32::WideToUtf8(wusername);
 #else   // _WIN32
-  const int bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
-  CHECK_NE(bufsize, -1);
+  int bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+  if (bufsize == -1) {
+    // Not all linux systems have _SC_GETPW_R_SIZE_MAX.
+    // e.g. musl libc returns -1.
+    bufsize = 1024;
+  }
   absl::FixedArray<char> buf(bufsize);
   struct passwd pw, *ppw;
   CHECK_EQ(0, getpwuid_r(geteuid(), &pw, buf.data(), buf.size(), &ppw));
@@ -515,7 +544,7 @@ namespace {
 class UserSidImpl {
  public:
   UserSidImpl();
-  const std::string &get() { return sid_; }
+  const std::string& get() { return sid_; }
 
  private:
   std::string sid_;
@@ -601,13 +630,13 @@ std::string GetObjectNameAsString(HANDLE handle) {
     return "";
   }
 
-  char *result = buf.get();
+  char* result = buf.get();
   result[return_size - 1] = '\0';  // just make sure nullptr terminated
 
   return result;
 }
 
-bool GetCurrentSessionId(uint32_t *session_id) {
+bool GetCurrentSessionId(uint32_t* session_id) {
   DCHECK(session_id);
   *session_id = 0;
   DWORD id = 0;
@@ -662,11 +691,7 @@ std::string GetSessionIdString() {
 
 std::string SystemUtil::GetDesktopNameAsString() {
 #if defined(__linux__) || defined(__wasm__)
-  const char *display = Environ::GetEnv("DISPLAY");
-  if (display == nullptr) {
-    return "";
-  }
-  return display;
+  return Environ::GetEnv("DISPLAY");
 #endif  // __linux__ || __wasm__
 
 #if defined(__APPLE__)
@@ -674,19 +699,19 @@ std::string SystemUtil::GetDesktopNameAsString() {
 #endif  // __APPLE__
 
 #if defined(_WIN32)
-  const std::string &session_id = GetSessionIdString();
+  const std::string& session_id = GetSessionIdString();
   if (session_id.empty()) {
     DLOG(ERROR) << "Failed to retrieve session id";
     return "";
   }
 
-  const std::string &window_station_name = GetProcessWindowStationName();
+  const std::string& window_station_name = GetProcessWindowStationName();
   if (window_station_name.empty()) {
     DLOG(ERROR) << "Failed to retrieve window station name";
     return "";
   }
 
-  const std::string &desktop_name = GetInputDesktopName();
+  const std::string& desktop_name = GetInputDesktopName();
   if (desktop_name.empty()) {
     DLOG(ERROR) << "Failed to retrieve desktop name";
     return "";
@@ -713,11 +738,11 @@ class SystemDirectoryCache {
     system_dir_ = path_buffer_;
   }
   const bool succeeded() const { return system_dir_ != nullptr; }
-  const wchar_t *system_dir() const { return system_dir_; }
+  const wchar_t* system_dir() const { return system_dir_; }
 
  private:
   wchar_t path_buffer_[MAX_PATH];
-  wchar_t *system_dir_;
+  wchar_t* system_dir_;
 };
 
 }  // namespace
@@ -736,7 +761,7 @@ bool SystemUtil::EnsureVitalImmutableDataIsAvailable() {
   return true;
 }
 
-const wchar_t *SystemUtil::GetSystemDir() {
+const wchar_t* SystemUtil::GetSystemDir() {
   DCHECK(Singleton<SystemDirectoryCache>::get()->succeeded());
   return Singleton<SystemDirectoryCache>::get()->system_dir();
 }
@@ -749,7 +774,7 @@ std::string SystemUtil::GetOSVersionString() {
   std::string ret = "Windows";
   OSVERSIONINFOEX osvi = {0};
   osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
-  if (GetVersionEx(reinterpret_cast<OSVERSIONINFO *>(&osvi))) {
+  if (GetVersionEx(reinterpret_cast<OSVERSIONINFO*>(&osvi))) {
     ret += ".";
     ret += std::to_string(static_cast<uint32_t>(osvi.dwMajorVersion));
     ret += ".";
@@ -799,8 +824,7 @@ uint64_t SystemUtil::GetTotalPhysicalMemory() {
       sysctl(mib, std::size(mib), &total_memory, &size, nullptr, 0);
   if (error == -1) {
     const int error = errno;
-    LOG(ERROR) << "sysctl with hw.memsize failed. "
-               << "errno: " << error;
+    LOG(ERROR) << "sysctl with hw.memsize failed. " << "errno: " << error;
     return 0;
   }
   return total_memory;

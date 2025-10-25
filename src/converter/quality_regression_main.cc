@@ -35,15 +35,20 @@
 #include <vector>
 
 #include "absl/flags/flag.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/file/temp_dir.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
 #include "base/system_util.h"
 #include "converter/quality_regression_util.h"
 #include "engine/engine.h"
 #include "engine/eval_engine_factory.h"
+#include "protocol/commands.pb.h"
+#include "request/request_test_util.h"
 
 ABSL_FLAG(std::vector<std::string>, test_files, {}, "regression test files");
 ABSL_FLAG(std::string, data_file, "", "engine data file");
@@ -57,14 +62,21 @@ using ::mozc::Engine;
 using ::mozc::TempDirectory;
 using ::mozc::quality_regression::QualityRegressionUtil;
 
-absl::Status Run(std::ostream &out, const Engine &engine,
-                 const std::vector<QualityRegressionUtil::TestItem> &items) {
+absl::Status Run(std::ostream& out, const Engine& engine,
+                 absl::string_view engine_type,
+                 absl::Span<const QualityRegressionUtil::TestItem> items) {
   QualityRegressionUtil util(engine.GetConverter());
-  for (const QualityRegressionUtil::TestItem &item : items) {
+  if (engine_type == "mobile") {
+    mozc::commands::Request request;
+    mozc::request_test_util::FillMobileRequest(&request);
+    util.SetRequest(request);
+  }
+  for (const QualityRegressionUtil::TestItem& item : items) {
     std::string actual_value;
     const absl::StatusOr<bool> result =
         util.ConvertAndTest(item, &actual_value);
     if (!result.ok()) {
+      LOG(INFO) << "Failed to convert: " << item.key;
       return result.status();
     }
     out << (result.value() ? "OK:\t" : "FAILED:\t") << item.key << "\t"
@@ -79,7 +91,7 @@ absl::Status Run(std::ostream &out, const Engine &engine,
 
 }  // namespace
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
   absl::StatusOr<TempDirectory> temp_dir =
       TempDirectory::Default().CreateTempDirectory();
@@ -88,8 +100,7 @@ int main(int argc, char **argv) {
 
   absl::StatusOr<std::unique_ptr<Engine>> create_result =
       mozc::CreateEvalEngine(absl::GetFlag(FLAGS_data_file),
-                             absl::GetFlag(FLAGS_data_type),
-                             absl::GetFlag(FLAGS_engine_type));
+                             absl::GetFlag(FLAGS_data_type));
   if (!create_result.ok()) {
     LOG(ERROR) << create_result.status();
     return static_cast<int>(create_result.status().code());
@@ -106,9 +117,11 @@ int main(int argc, char **argv) {
   absl::Status status;
   if (!absl::GetFlag(FLAGS_output).empty()) {
     std::ofstream out(absl::GetFlag(FLAGS_output));
-    status = Run(out, *create_result.value(), items);
+    status = Run(out, *create_result.value(), absl::GetFlag(FLAGS_engine_type),
+                 items);
   } else {
-    status = Run(std::cout, *create_result.value(), items);
+    status = Run(std::cout, *create_result.value(),
+                 absl::GetFlag(FLAGS_engine_type), items);
   }
   if (!status.ok()) {
     LOG(ERROR) << status;

@@ -29,9 +29,6 @@
 
 #include "data_manager/oss/oss_data_manager.h"
 
-#include <string>
-#include <utility>
-
 #include "data_manager/data_manager_test_base.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
@@ -49,19 +46,23 @@ class OssDataManagerTest : public DataManagerTestBase {
   OssDataManagerTest()
       : DataManagerTestBase(
             new OssDataManager, kLSize, kRSize, IsBoundaryInternal,
-            mozc::testing::GetSourceFileOrDie({MOZC_DICT_DIR_COMPONENTS,
-                                               "dictionary_oss",
-                                               "connection_single_column.txt"}),
+            mozc::testing::GetSourceFileOrDie(
+                {"data", "dictionary_oss", "connection_single_column.txt"}),
             1,
             mozc::testing::GetSourceFilesInDirOrDie(
-                {MOZC_DICT_DIR_COMPONENTS, "dictionary_oss"},
+                {"data", "dictionary_oss"},
+#ifdef MOZC_GYP_BUILD
                 {"dictionary00.txt", "dictionary01.txt", "dictionary02.txt",
                  "dictionary03.txt", "dictionary04.txt", "dictionary05.txt",
                  "dictionary06.txt", "dictionary07.txt", "dictionary08.txt",
-                 "dictionary09.txt"}),
+                 "dictionary09.txt"}
+#else   // MOZC_GYP_BUILD
+                {"aux_dictionary.txt", "dictionary.txt"}
+#endif  // MOZC_GYP_BUILD
+                ),
             mozc::testing::GetSourceFilesInDirOrDie(
-                {MOZC_DICT_DIR_COMPONENTS, "dictionary_oss"},
-                {"suggestion_filter.txt"})) {}
+                {"data", "dictionary_oss"}, {"suggestion_filter.txt"})) {
+  }
 };
 
 TEST_F(OssDataManagerTest, AllTests) { RunAllTests(); }

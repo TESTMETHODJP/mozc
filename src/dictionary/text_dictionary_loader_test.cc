@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "base/file/temp_dir.h"
 #include "base/file_util.h"
 #include "data_manager/testing/mock_data_manager.h"
@@ -41,9 +42,20 @@
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
+#include "testing/test_peer.h"
 
 namespace mozc {
 namespace dictionary {
+
+class TextDictionaryLoaderTestPeer
+    : public testing::TestPeer<TextDictionaryLoader> {
+ public:
+  explicit TextDictionaryLoaderTestPeer(TextDictionaryLoader& loader)
+      : testing::TestPeer<TextDictionaryLoader>(loader) {}
+
+  PEER_METHOD(RewriteSpecialToken);
+};
+
 namespace {
 
 constexpr char kTextLines[] =
@@ -75,7 +87,7 @@ class TextDictionaryLoaderTest : public ::testing::Test {
 TEST_F(TextDictionaryLoaderTest, BasicTest) {
   {
     std::unique_ptr<TextDictionaryLoader> loader = CreateTextDictionaryLoader();
-    std::vector<Token *> tokens;
+    std::vector<Token*> tokens;
     loader->CollectTokens(&tokens);
     EXPECT_TRUE(tokens.empty());
   }
@@ -86,7 +98,7 @@ TEST_F(TextDictionaryLoaderTest, BasicTest) {
   {
     std::unique_ptr<TextDictionaryLoader> loader = CreateTextDictionaryLoader();
     loader->Load(filename, "");
-    const std::vector<std::unique_ptr<Token>> &tokens = loader->tokens();
+    absl::Span<const std::unique_ptr<Token>> tokens = loader->tokens();
 
     EXPECT_EQ(tokens.size(), 3);
 
@@ -115,7 +127,7 @@ TEST_F(TextDictionaryLoaderTest, BasicTest) {
   {
     std::unique_ptr<TextDictionaryLoader> loader = CreateTextDictionaryLoader();
     loader->LoadWithLineLimit(filename, "", 2);
-    const std::vector<std::unique_ptr<Token>> &tokens = loader->tokens();
+    absl::Span<const std::unique_ptr<Token>> tokens = loader->tokens();
 
     EXPECT_EQ(tokens.size(), 2);
 
@@ -140,7 +152,7 @@ TEST_F(TextDictionaryLoaderTest, BasicTest) {
     // open twice -- tokens are cleared everytime
     loader->Load(filename, "");
     loader->Load(filename, "");
-    const std::vector<std::unique_ptr<Token>> &tokens = loader->tokens();
+    absl::Span<const std::unique_ptr<Token>> tokens = loader->tokens();
     EXPECT_EQ(tokens.size(), 3);
   }
 
@@ -149,11 +161,12 @@ TEST_F(TextDictionaryLoaderTest, BasicTest) {
 
 TEST_F(TextDictionaryLoaderTest, RewriteSpecialTokenTest) {
   std::unique_ptr<TextDictionaryLoader> loader = CreateTextDictionaryLoader();
+  TextDictionaryLoaderTestPeer loader_peer(*loader);
   {
     Token token;
     token.lid = 100;
     token.rid = 200;
-    EXPECT_TRUE(loader->RewriteSpecialToken(&token, ""));
+    EXPECT_TRUE(loader_peer.RewriteSpecialToken(&token, ""));
     EXPECT_EQ(token.lid, 100);
     EXPECT_EQ(token.rid, 200);
     EXPECT_EQ(token.attributes, Token::NONE);
@@ -163,7 +176,7 @@ TEST_F(TextDictionaryLoaderTest, RewriteSpecialTokenTest) {
     Token token;
     token.lid = 100;
     token.rid = 200;
-    EXPECT_TRUE(loader->RewriteSpecialToken(&token, "SPELLING_CORRECTION"));
+    EXPECT_TRUE(loader_peer.RewriteSpecialToken(&token, "SPELLING_CORRECTION"));
     EXPECT_EQ(token.lid, 100);
     EXPECT_EQ(token.rid, 200);
     EXPECT_EQ(token.attributes, Token::SPELLING_CORRECTION);
@@ -173,7 +186,7 @@ TEST_F(TextDictionaryLoaderTest, RewriteSpecialTokenTest) {
     Token token;
     token.lid = 100;
     token.rid = 200;
-    EXPECT_TRUE(loader->RewriteSpecialToken(&token, "ZIP_CODE"));
+    EXPECT_TRUE(loader_peer.RewriteSpecialToken(&token, "ZIP_CODE"));
     EXPECT_EQ(token.lid, pos_matcher_.GetZipcodeId());
     EXPECT_EQ(token.rid, pos_matcher_.GetZipcodeId());
     EXPECT_EQ(token.attributes, Token::NONE);
@@ -183,7 +196,7 @@ TEST_F(TextDictionaryLoaderTest, RewriteSpecialTokenTest) {
     Token token;
     token.lid = 100;
     token.rid = 200;
-    EXPECT_TRUE(loader->RewriteSpecialToken(&token, "ENGLISH:RATED"));
+    EXPECT_TRUE(loader_peer.RewriteSpecialToken(&token, "ENGLISH:RATED"));
     EXPECT_EQ(token.lid, pos_matcher_.GetIsolatedWordId());
     EXPECT_EQ(token.rid, pos_matcher_.GetIsolatedWordId());
     EXPECT_EQ(token.attributes, Token::NONE);
@@ -193,7 +206,7 @@ TEST_F(TextDictionaryLoaderTest, RewriteSpecialTokenTest) {
     Token token;
     token.lid = 100;
     token.rid = 200;
-    EXPECT_FALSE(loader->RewriteSpecialToken(&token, "foo"));
+    EXPECT_FALSE(loader_peer.RewriteSpecialToken(&token, "foo"));
     EXPECT_EQ(token.lid, 100);
     EXPECT_EQ(token.rid, 200);
     EXPECT_EQ(token.attributes, Token::NONE);
@@ -234,7 +247,7 @@ TEST_F(TextDictionaryLoaderTest, ReadingCorrectionTest) {
   FileUnlinker reading_correction_unlinker(reading_correction_filename);
 
   loader->Load(dic_filename, reading_correction_filename);
-  const std::vector<std::unique_ptr<Token>> &tokens = loader->tokens();
+  absl::Span<const std::unique_ptr<Token>> tokens = loader->tokens();
   ASSERT_EQ(tokens.size(), 4);
   EXPECT_EQ(tokens[3]->key, "foobar_error");
   EXPECT_EQ(tokens[3]->value, "foobar");

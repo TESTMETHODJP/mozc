@@ -30,6 +30,7 @@
 #ifndef MOZC_BASE_RANDOM_H_
 #define MOZC_BASE_RANDOM_H_
 
+#include <concepts>
 #include <cstddef>
 #include <string>
 #include <type_traits>
@@ -49,16 +50,15 @@ class Random {
   Random() = default;
   // Construct using an existing BitGen, std::seed_eq, or any other value that
   // absl::BitGen can construct from.
-  template <typename Rng,
-            std::enable_if_t<!std::is_same_v<std::decay_t<Rng>, Random>,
-                             std::nullptr_t> = nullptr>
-  explicit Random(Rng &&rng) : bitgen_(std::forward<Rng>(rng)) {}
+  template <typename Rng>
+    requires(!std::same_as<std::remove_cvref_t<Rng>, Random>)
+  explicit Random(Rng&& rng) : bitgen_(std::forward<Rng>(rng)) {}
 
   // Disallow copy, allow move.
-  Random(const Random &) = delete;
-  Random &operator=(const Random &) = delete;
-  Random(Random &&) = default;
-  Random &operator=(Random &&) = default;
+  Random(const Random&) = delete;
+  Random& operator=(const Random&) = delete;
+  Random(Random&&) = default;
+  Random& operator=(Random&&) = default;
 
   // Pass through the underlying absl::BitGen UBRG attributes.
   static constexpr result_type min() { return absl::BitGen::min(); }

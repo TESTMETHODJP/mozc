@@ -30,6 +30,7 @@
 #ifndef MOZC_REWRITER_VERSION_REWRITER_H_
 #define MOZC_REWRITER_VERSION_REWRITER_H_
 
+#include <cstddef>
 #include <string>
 
 #include "absl/container/flat_hash_map.h"
@@ -46,15 +47,15 @@ class VersionRewriter : public RewriterInterface {
  public:
   explicit VersionRewriter(absl::string_view data_version);
 
-  int capability(const ConversionRequest &request) const override {
+  int capability(const ConversionRequest& request) const override {
     if (request.request().mixed_conversion()) {
       return RewriterInterface::ALL;
     }
     return RewriterInterface::CONVERSION;
   }
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 
  private:
   struct VersionEntry {

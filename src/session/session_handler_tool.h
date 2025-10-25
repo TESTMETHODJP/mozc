@@ -32,6 +32,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,12 +40,10 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "engine/engine_interface.h"
-#include "engine/user_data_manager_interface.h"
-#include "protocol/candidates.pb.h"
+#include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "session/session_handler_interface.h"
-#include "session/session_observer_interface.h"
+#include "session/session_handler.h"
 
 namespace mozc {
 namespace session {
@@ -53,50 +52,55 @@ namespace session {
 class SessionHandlerTool {
  public:
   explicit SessionHandlerTool(std::unique_ptr<EngineInterface> engine);
-  SessionHandlerTool(const SessionHandlerTool &) = delete;
-  SessionHandlerTool &operator=(const SessionHandlerTool &) = delete;
+  SessionHandlerTool(const SessionHandlerTool&) = delete;
+  SessionHandlerTool& operator=(const SessionHandlerTool&) = delete;
 
   bool CreateSession();
   bool DeleteSession();
   bool CleanUp();
   bool ClearUserPrediction();
-  bool SendKey(const commands::KeyEvent &key, commands::Output *output) {
+  bool ClearUserHistory();
+  bool SendKey(const commands::KeyEvent& key, commands::Output* output) {
     return SendKeyWithOption(key, commands::Input::default_instance(), output);
   }
-  bool SendKeyWithOption(const commands::KeyEvent &key,
-                         const commands::Input &option,
-                         commands::Output *output);
-  bool TestSendKey(const commands::KeyEvent &key, commands::Output *output) {
+  bool SendKeyWithOption(const commands::KeyEvent& key,
+                         const commands::Input& option,
+                         commands::Output* output);
+  bool TestSendKey(const commands::KeyEvent& key, commands::Output* output) {
     return TestSendKeyWithOption(key, commands::Input::default_instance(),
                                  output);
   }
-  bool TestSendKeyWithOption(const commands::KeyEvent &key,
-                             const commands::Input &option,
-                             commands::Output *output);
+  bool TestSendKeyWithOption(const commands::KeyEvent& key,
+                             const commands::Input& option,
+                             commands::Output* output);
   bool UpdateComposition(absl::Span<const std::string> args,
-                         commands::Output *output);
-  bool SelectCandidate(uint32_t id, commands::Output *output);
-  bool SubmitCandidate(uint32_t id, commands::Output *output);
+                         commands::Output* output);
+  bool SelectCandidate(uint32_t id, commands::Output* output);
+  bool SubmitCandidate(uint32_t id, commands::Output* output);
 
   bool Reload();
   bool ResetContext();
-  bool UndoOrRewind(commands::Output *output);
+  bool UndoOrRewind(commands::Output* output);
+  // Try to delete the candidate from the history.
+  // The target candidate is specified with the |id|. If |id| is not specified,
+  // the current focused candidate will be specified.
+  bool DeleteCandidateFromHistory(std::optional<int> id,
+                                  commands::Output* output);
   bool SwitchInputMode(commands::CompositionMode composition_mode);
-  bool SetRequest(const commands::Request &request, commands::Output *output);
-  bool SetConfig(const config::Config &config, commands::Output *output);
+  bool SetRequest(const commands::Request& request, commands::Output* output);
+  bool SetConfig(const config::Config& config, commands::Output* output);
   bool SyncData();
   void SetCallbackText(absl::string_view text);
-  bool ReloadSpellchecker(absl::string_view model_path);
+  bool ReloadSupplementalModel(absl::string_view model_path);
 
  private:
-  bool EvalCommand(commands::Input *input, commands::Output *output);
-  bool EvalCommandInternal(commands::Input *input, commands::Output *output,
+  bool EvalCommand(commands::Input* input, commands::Output* output);
+  bool EvalCommandInternal(commands::Input* input, commands::Output* output,
                            bool allow_callback);
 
   uint64_t id_;  // Session ID
-  std::unique_ptr<SessionObserverInterface> usage_observer_;
-  UserDataManagerInterface *data_manager_;
-  std::unique_ptr<SessionHandlerInterface> handler_;
+  EngineInterface* engine_ = nullptr;
+  std::unique_ptr<SessionHandler> handler_;
   std::string callback_text_;
 };
 
@@ -112,21 +116,21 @@ class SessionHandlerInterpreter final {
   void SyncDataToStorage();
   void ClearUserPrediction();
   void ClearUsageStats();
-  const commands::Output &LastOutput() const;
-  const commands::CandidateWord &GetCandidateByValue(
+  const commands::Output& LastOutput() const;
+  const commands::CandidateWord& GetCandidateByValue(
       absl::string_view value) const;
-  bool GetCandidateIdByValue(absl::string_view value, uint32_t *id) const;
+  bool GetCandidateIdByValue(absl::string_view value, uint32_t* id) const;
   std::vector<uint32_t> GetCandidateIdsByValue(absl::string_view value) const;
   std::vector<uint32_t> GetRemovedCandidateIdsByValue(
       absl::string_view value) const;
   std::vector<std::string> Parse(absl::string_view line);
   absl::Status Eval(absl::Span<const std::string> args);
-  void SetRequest(const commands::Request &request);
-  void ReloadSpellchecker(absl::string_view model_path);
+  void SetRequest(const commands::Request& request);
+  void ReloadSupplementalModel(absl::string_view model_path);
 
  private:
   std::unique_ptr<SessionHandlerTool> client_;
-  std::unique_ptr<config::Config> config_;
+  config::Config config_;
   std::unique_ptr<commands::Output> last_output_;
   std::unique_ptr<commands::Request> request_;
 };

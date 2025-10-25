@@ -30,17 +30,6 @@
 // Qt component of configure dialog for Mozc
 #include "gui/config_dialog/config_dialog.h"
 
-#if defined(__ANDROID__) || defined(__wasm__)
-#error "This platform is not supported."
-#endif  // __ANDROID__ || __wasm__
-
-#ifdef _WIN32
-// clang-format off
-#include <windows.h>
-#include <QGuiApplication>
-// clang-format on
-#endif  // _WIN32
-
 #include <QMessageBox>
 #include <algorithm>
 #include <cstdint>
@@ -50,9 +39,9 @@
 #include <sstream>
 #include <string>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "base/config_file_stream.h"
-#include "base/logging.h"
-#include "base/run_level.h"
 #include "client/client.h"
 #include "config/config_handler.h"
 #include "config/stats_config_util.h"
@@ -60,15 +49,25 @@
 #include "gui/config_dialog/keymap_editor.h"
 #include "gui/config_dialog/roman_table_editor.h"
 #include "protocol/config.pb.h"
-#include "session/internal/keymap.h"
+#include "session/keymap.h"
+
+#if defined(__ANDROID__) || defined(__wasm__)
+#error "This platform is not supported."
+#endif  // __ANDROID__ || __wasm__
+
+#ifdef _WIN32
+// clang-format off
+#include <windows.h>
+#include <QGuiApplication>
+// clang-format on
+
+#include "base/run_level.h"
+#include "gui/base/win_util.h"
+#endif  // _WIN32
 
 #ifdef __APPLE__
 #include "base/mac/mac_util.h"
 #endif  // __APPLE__
-
-#ifdef _WIN32
-#include "gui/base/win_util.h"
-#endif  // _WIN32
 
 namespace {
 template <typename T>
@@ -111,7 +110,7 @@ ConfigDialog::ConfigDialog()
   miscStartupWidget->setVisible(false);
 #endif  // __linux__
 
-#ifdef MOZC_NO_LOGGING
+#ifdef NDEBUG
   // disable logging options
   miscLoggingWidget->setVisible(false);
 
@@ -120,7 +119,7 @@ ConfigDialog::ConfigDialog()
   constexpr int kMiscTabIndex = 6;
   configDialogTabWidget->removeTab(kMiscTabIndex);
 #endif  // __linux__
-#endif  // MOZC_NO_LOGGING
+#endif  // NDEBUG
 
   suggestionsSizeSpinBox->setRange(1, 9);
 
@@ -552,7 +551,7 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
   SET_CHECKBOX(realtimeConversionCheckBox, use_realtime_conversion);
 
   suggestionsSizeSpinBox->setValue(
-      std::max(1, std::min<int>(9, config.suggestions_size())));
+      std::clamp<int>(config.suggestions_size(), 1, 9));
 
   // tab5
   SetSendStatsCheckBox();

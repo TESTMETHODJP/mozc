@@ -30,24 +30,20 @@
 #ifndef MOZC_REWRITER_DICE_REWRITER_H_
 #define MOZC_REWRITER_DICE_REWRITER_H_
 
-#include "absl/random/random.h"
+#include "converter/segments.h"
 #include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 
 class ConversionRequest;
-class Segments;
 
 class DiceRewriter : public RewriterInterface {
  public:
   DiceRewriter();
   ~DiceRewriter() override;
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
-
- private:
-  mutable absl::BitGen bitgen_;
+  bool Rewrite(const ConversionRequest& request,
+               converter::Segments* segments) const override;
 };
 
 }  // namespace mozc

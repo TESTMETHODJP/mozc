@@ -43,16 +43,27 @@ message UserHistory {
     optional string value = 2 [default = ""];
     optional string description = 6 [default = ""];
 
-    // how many times the candidate is selected via suggestion
+    // how many times the candidate is selected.
     optional uint32 suggestion_freq = 3 [default = 0];
 
-    // how many times the candidate is selected via conversion
-    optional uint32 conversion_freq = 5 [default = 0];
+    // This field is kept for backward compatibility.
+    // We do not distinguish suggestion and conversion mode.
+    // When loading old proto, max(conversion_freq_deprecated, suggestion_freq)
+    // is set to suggestion_freq.
+    optional uint32 conversion_freq_deprecated = 5 [default = 0];
+
+    // how many times the candidate is shown on commit event
+    optional uint32 shown_freq = 22 [default = 0];
 
     optional uint64 last_access_time = 4 [default = 0];
 
     // list entries which were input just after this entry.
-    repeated NextEntry next_entries = 7;
+    // This field is no longer used. uses `next_entry_fps`.
+    repeated NextEntry next_entries_deprecated = 7 [deprecated = true];
+
+    // list of entry-fps that were input just after this entry.
+    // uses fixed64 and packed as Fp cannot be compressed.
+    repeated fixed64 next_entry_fps = 23 [packed = true];
 
     // internally used in UserHistoryPredictor.
     optional bool bigram_boost = 20 [default = false];
@@ -63,13 +74,10 @@ message UserHistory {
     // This entry is removed.
     optional bool removed = 8 [default = false];
 
-    enum EntryType {
-      DEFAULT_ENTRY = 0;
-      CLEAN_ALL_EVENT = 1;
-      CLEAN_UNUSED_EVENT = 2;
-    }
+    // Inner segment boundary. See converter/inner_segment.h
+    repeated fixed32 inner_segment_boundary = 24;
 
-    optional EntryType entry_type = 9 [default = DEFAULT_ENTRY];
+    reserved 9;  // Deprecated entry_type
   }
 
   repeated Entry entries = 6;

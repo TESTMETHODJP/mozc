@@ -34,173 +34,48 @@
 #include <oleauto.h>
 #include <wil/com.h>
 
-#include <cstddef>
-#include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "base/win32/com.h"
-#include "win32/tip/tip_dll_module.h"
+#include "win32/tip/tip_candidate_string.h"
+#include "win32/tip/tip_enum_candidates.h"
 
 namespace mozc {
 namespace win32 {
 namespace tsf {
-namespace {
 
-class CandidateStringImpl final : public TipComImplements<ITfCandidateString> {
- public:
-  CandidateStringImpl(ULONG index, std::wstring value)
-      : index_(index), value_(std::move(value)) {}
+STDMETHODIMP TipCandidateList::EnumCandidates(
+    IEnumTfCandidates **absl_nullable enum_candidate) {
+  return SaveToOutParam(MakeComPtr<TipEnumCandidates>(candidates_),
+                        enum_candidate);
+}
 
- private:
-  // The ITfCandidateString interface methods.
-  STDMETHODIMP GetString(BSTR *str) override {
-    if (str == nullptr) {
-      return E_INVALIDARG;
-    }
-    *str = ::SysAllocStringLen(value_.data(), value_.size());
-    return S_OK;
+STDMETHODIMP TipCandidateList::GetCandidate(
+    ULONG index, ITfCandidateString **absl_nullable candidate_string) {
+  if (index >= candidates_.size()) {
+    return E_FAIL;
   }
+  return SaveToOutParam(
+      MakeComPtr<TipCandidateString>(index, candidates_[index]),
+      candidate_string);
+}
 
-  STDMETHODIMP GetIndex(ULONG *index) override {
-    if (index == nullptr) {
-      return E_INVALIDARG;
-    }
-    *index = index_;
-    return S_OK;
+STDMETHODIMP TipCandidateList::GetCandidateNum(ULONG *absl_nullable count) {
+  return SaveToOutParam(candidates_.size(), count);
+}
+
+STDMETHODIMP TipCandidateList::SetResult(ULONG index,
+                                         TfCandidateResult candidate_result) {
+  if (candidates_.size() <= index) {
+    return E_INVALIDARG;
   }
-
-  const ULONG index_;
-  const std::wstring value_;
-};
-
-class EnumTfCandidatesImpl final : public TipComImplements<IEnumTfCandidates> {
- public:
-  explicit EnumTfCandidatesImpl(std::vector<std::wstring> candidates)
-      : candidates_(std::move(candidates)), current_(0) {}
-
- private:
-  STDMETHODIMP Clone(IEnumTfCandidates **enum_candidates) override {
-    if (enum_candidates == nullptr) {
-      return E_INVALIDARG;
-    }
-    auto impl = MakeComPtr<EnumTfCandidatesImpl>(candidates_);
-    if (!impl) {
-      return E_OUTOFMEMORY;
-    }
-    *enum_candidates = impl.detach();
-    return S_OK;
+  if (candidate_result == CAND_FINALIZED && on_finalize_) {
+    std::move(on_finalize_)(index, candidates_[index]);
+    on_finalize_ = nullptr;
   }
-
-  STDMETHODIMP Next(ULONG count, ITfCandidateString **candidate_string,
-                    ULONG *fetched_count) override {
-    if (candidate_string == nullptr) {
-      return E_INVALIDARG;
-    }
-    ULONG dummy = 0;
-    if (fetched_count == nullptr) {
-      fetched_count = &dummy;
-    }
-    const auto candidates_size = candidates_.size();
-    *fetched_count = 0;
-    for (ULONG i = 0; i < count; ++i) {
-      if (current_ >= candidates_size) {
-        *fetched_count = i;
-        return S_FALSE;
-      }
-      candidate_string[i] =
-          MakeComPtr<CandidateStringImpl>(current_, candidates_[current_])
-              .detach();
-      ++current_;
-    }
-    *fetched_count = count;
-    return S_OK;
-  }
-
-  STDMETHODIMP Reset() override {
-    current_ = 0;
-    return S_OK;
-  }
-
-  STDMETHODIMP Skip(ULONG count) override {
-    if ((candidates_.size() - current_) < count) {
-      current_ = candidates_.size();
-      return S_FALSE;
-    }
-    current_ += count;
-    return S_OK;
-  }
-
-  std::vector<std::wstring> candidates_;
-  size_t current_;
-};
-
-class CandidateListImpl final : public TipComImplements<ITfCandidateList> {
- public:
-  CandidateListImpl(std::vector<std::wstring> candidates,
-                    std::unique_ptr<TipCandidateListCallback> callback)
-      : candidates_(std::move(candidates)), callback_(std::move(callback)) {}
-
- private:
-  // The ITfCandidateList interface methods.
-  STDMETHODIMP EnumCandidates(IEnumTfCandidates **enum_candidate) override {
-    if (enum_candidate == nullptr) {
-      return E_INVALIDARG;
-    }
-    auto impl = MakeComPtr<EnumTfCandidatesImpl>(candidates_);
-    if (!impl) {
-      return E_OUTOFMEMORY;
-    }
-    *enum_candidate = impl.detach();
-    return S_OK;
-  }
-
-  STDMETHODIMP GetCandidate(ULONG index,
-                            ITfCandidateString **candidate_string) override {
-    if (candidate_string == nullptr) {
-      return E_INVALIDARG;
-    }
-    if (index >= candidates_.size()) {
-      return E_FAIL;
-    }
-    *candidate_string =
-        MakeComPtr<CandidateStringImpl>(index, candidates_[index]).detach();
-    return S_OK;
-  }
-
-  STDMETHODIMP GetCandidateNum(ULONG *count) override {
-    if (count == nullptr) {
-      return E_INVALIDARG;
-    }
-    *count = static_cast<ULONG>(candidates_.size());
-    return S_OK;
-  }
-
-  STDMETHODIMP SetResult(ULONG index,
-                         TfCandidateResult candidate_result) override {
-    if (candidates_.size() <= index) {
-      return E_INVALIDARG;
-    }
-    if (candidate_result == CAND_FINALIZED && callback_) {
-      callback_->OnFinalize(index, candidates_[index]);
-      callback_.reset();
-    }
-    return S_OK;
-  }
-
-  std::vector<std::wstring> candidates_;
-  std::unique_ptr<TipCandidateListCallback> callback_;
-};
-
-}  // namespace
-
-// static
-wil::com_ptr_nothrow<ITfCandidateList> TipCandidateList::New(
-    std::vector<std::wstring> candidates,
-    std::unique_ptr<TipCandidateListCallback> callback) {
-  return MakeComPtr<CandidateListImpl>(std::move(candidates),
-                                       std::move(callback));
+  return S_OK;
 }
 
 }  // namespace tsf

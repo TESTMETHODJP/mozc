@@ -32,6 +32,7 @@
 
 #include <vector>
 
+#include "absl/types/span.h"
 #include "composer/key_event_util.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
@@ -41,17 +42,17 @@ namespace mozc {
 class KeyInfoUtil {
  public:
   KeyInfoUtil() = delete;
-  KeyInfoUtil(const KeyInfoUtil &) = delete;
-  KeyInfoUtil &operator=(const KeyInfoUtil &) = delete;
+  KeyInfoUtil(const KeyInfoUtil&) = delete;
+  KeyInfoUtil& operator=(const KeyInfoUtil&) = delete;
 
   // Returns a sorted list of KeyInformation that is assigned in DIRECT mode.
   static std::vector<KeyInformation> ExtractSortedDirectModeKeys(
-      const config::Config &config);
+      const config::Config& config);
 
   // Returns true if |sorted_keys| contains |key_event|. |sorted_keys| must be
   // sorted.
-  static bool ContainsKey(const std::vector<KeyInformation> &sorted_keys,
-                          const commands::KeyEvent &key_event);
+  static bool ContainsKey(absl::Span<const KeyInformation> sorted_keys,
+                          const commands::KeyEvent& key_event);
 };
 
 }  // namespace mozc

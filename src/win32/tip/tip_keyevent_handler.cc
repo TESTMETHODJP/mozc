@@ -37,7 +37,8 @@
 #include <memory>
 #include <string>
 
-#include "base/logging.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "base/win32/wide_char.h"
 #include "client/client_interface.h"
 #include "protocol/commands.pb.h"
@@ -282,11 +283,6 @@ void FillMozcContextForOnKey(TipTextService *text_service, ITfContext *context,
   FillMozcContextCommon(text_service, context, mozc_context);
   TipSurroundingTextInfo info;
   if (!TipSurroundingText::Get(text_service, context, &info)) {
-    return;
-  }
-  if (info.is_transitory) {
-    // Ignore transitory context as it may not contain correct
-    // surrounding text info.
     return;
   }
   if (info.has_preceding_text) {

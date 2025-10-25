@@ -93,6 +93,8 @@
 // suffix array.
 
 #include <algorithm>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <ios>
 #include <iostream>
@@ -102,16 +104,17 @@
 #include <utility>
 #include <vector>
 
-#include "absl/base/config.h"
 #include "absl/container/btree_map.h"
 #include "absl/flags/flag.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/container/serialized_string_array.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
 
 ABSL_FLAG(std::string, usage_data_file, "", "usage data file");
 ABSL_FLAG(std::string, cforms_file, "", "cforms file");
@@ -141,15 +144,15 @@ struct UsageItem {
   std::string meaning;
 };
 
-bool UsageItemKeynameCmp(const UsageItem &l, const UsageItem &r) {
+bool UsageItemKeynameCmp(const UsageItem& l, const UsageItem& r) {
   return l.key < r.key;
 }
 
 // Load cforms_file
 void LoadConjugation(
-    const std::string &filename,
-    absl::btree_map<std::string, std::vector<ConjugationType>> *output,
-    std::map<std::string, ConjugationType> *baseform_map) {
+    const std::string& filename,
+    absl::btree_map<std::string, std::vector<ConjugationType>>* output,
+    std::map<std::string, ConjugationType>* baseform_map) {
   InputFileStream ifs(filename);
   CHECK(ifs.good());
 
@@ -175,9 +178,9 @@ void LoadConjugation(
 }
 
 // Load usage_data_file
-void LoadUsage(const std::string &filename,
-               std::vector<UsageItem> *usage_entries,
-               std::vector<std::string> *conjugation_list) {
+void LoadUsage(const std::string& filename,
+               std::vector<UsageItem>* usage_entries,
+               std::vector<std::string>* conjugation_list) {
   InputFileStream ifs(filename);
 
   if (!ifs.good()) {
@@ -222,8 +225,8 @@ void LoadUsage(const std::string &filename,
 
 // remove "基本形"'s conjugation suffix
 void RemoveBaseformConjugationSuffix(
-    const std::map<std::string, ConjugationType> &baseform_map,
-    std::vector<UsageItem> *usage_entries) {
+    const std::map<std::string, ConjugationType>& baseform_map,
+    std::vector<UsageItem>* usage_entries) {
   for (std::vector<UsageItem>::iterator usage_itr = usage_entries->begin();
        usage_itr != usage_entries->end(); ++usage_itr) {
     const std::map<std::string, ConjugationType>::const_iterator baseform_itr =
@@ -231,7 +234,7 @@ void RemoveBaseformConjugationSuffix(
     if (baseform_itr == baseform_map.end()) {
       continue;
     }
-    const ConjugationType &type = baseform_itr->second;
+    const ConjugationType& type = baseform_itr->second;
 
     if (usage_itr->key.length() <= type.key_suffix.length()) {
       LOG(WARNING) << "key:[" << usage_itr->key << "] is not longer then "
@@ -250,7 +253,7 @@ void RemoveBaseformConjugationSuffix(
   }
 }
 
-uint32_t Lookup(const absl::btree_map<std::string, uint32_t> &m,
+uint32_t Lookup(const absl::btree_map<std::string, uint32_t>& m,
                 const absl::string_view key) {
   const auto iter = m.find(key);
   CHECK(iter != m.end()) << "Cannot find key=" << key;
@@ -258,7 +261,7 @@ uint32_t Lookup(const absl::btree_map<std::string, uint32_t> &m,
 }
 
 void Convert() {
-  static_assert(ABSL_IS_LITTLE_ENDIAN);
+  static_assert(std::endian::native == std::endian::little);
 
   // Load cforms_file
   absl::btree_map<std::string, std::vector<ConjugationType>> inflection_map;
@@ -272,7 +275,8 @@ void Convert() {
   LoadUsage(absl::GetFlag(FLAGS_usage_data_file), &usage_entries,
             &conjugation_list);
   RemoveBaseformConjugationSuffix(baseform_map, &usage_entries);
-  std::sort(usage_entries.begin(), usage_entries.end(), UsageItemKeynameCmp);
+  std::stable_sort(usage_entries.begin(), usage_entries.end(),
+                   UsageItemKeynameCmp);
 
   // Assign unique index to every string data.  The same string share the same
   // index, so the data is slightly compressed.
@@ -280,24 +284,24 @@ void Convert() {
   {
     // Collect all the strings while assigning temporary index 0.
     string_index[""] = 0;
-    for (const auto &kv : baseform_map) {
+    for (const auto& kv : baseform_map) {
       string_index[kv.second.value_suffix] = 0;
       string_index[kv.second.key_suffix] = 0;
     }
-    for (const auto &kv : inflection_map) {
-      for (const auto &conj_type : kv.second) {
+    for (const auto& kv : inflection_map) {
+      for (const auto& conj_type : kv.second) {
         string_index[conj_type.value_suffix] = 0;
         string_index[conj_type.key_suffix] = 0;
       }
     }
-    for (const auto &item : usage_entries) {
+    for (const auto& item : usage_entries) {
       string_index[item.key] = 0;
       string_index[item.value] = 0;
       string_index[item.meaning] = 0;
     }
     // Assign index.
     uint32_t index = 0;
-    for (auto &kv : string_index) {
+    for (auto& kv : string_index) {
       kv.second = index++;
     }
   }
@@ -307,13 +311,13 @@ void Convert() {
     OutputFileStream ostream(
         absl::GetFlag(FLAGS_output_base_conjugation_suffix),
         std::ios_base::out | std::ios_base::binary);
-    for (const auto &conj : conjugation_list) {
+    for (const auto& conj : conjugation_list) {
       const uint32_t key_suffix_index =
           Lookup(string_index, baseform_map[conj].key_suffix);
       const uint32_t value_suffix_index =
           Lookup(string_index, baseform_map[conj].value_suffix);
-      ostream.write(reinterpret_cast<const char *>(&key_suffix_index), 4);
-      ostream.write(reinterpret_cast<const char *>(&value_suffix_index), 4);
+      ostream.write(reinterpret_cast<const char*>(&key_suffix_index), 4);
+      ostream.write(reinterpret_cast<const char*>(&value_suffix_index), 4);
     }
   }
 
@@ -324,26 +328,26 @@ void Convert() {
                              std::ios_base::out | std::ios_base::binary);
     int out_count = 0;
     for (size_t i = 0; i < conjugation_list.size(); ++i) {
-      const std::vector<ConjugationType> &conjugations =
+      absl::Span<const ConjugationType> conjugations =
           inflection_map[conjugation_list[i]];
       conjugation_index[i] = out_count;
       if (conjugations.empty()) {
         const uint32_t index = Lookup(string_index, "");
-        ostream.write(reinterpret_cast<const char *>(&index), 4);
-        ostream.write(reinterpret_cast<const char *>(&index), 4);
+        ostream.write(reinterpret_cast<const char*>(&index), 4);
+        ostream.write(reinterpret_cast<const char*>(&index), 4);
         ++out_count;
       } else {
         using StrPair = std::pair<std::string, std::string>;
         std::set<StrPair> key_and_value_suffix_set;
-        for (const ConjugationType &ctype : conjugations) {
+        for (const ConjugationType& ctype : conjugations) {
           key_and_value_suffix_set.emplace(ctype.value_suffix,
                                            ctype.key_suffix);
         }
-        for (const auto &kv : key_and_value_suffix_set) {
+        for (const auto& kv : key_and_value_suffix_set) {
           const uint32_t value_suffix_index = Lookup(string_index, kv.first);
           const uint32_t key_suffix_index = Lookup(string_index, kv.second);
-          ostream.write(reinterpret_cast<const char *>(&value_suffix_index), 4);
-          ostream.write(reinterpret_cast<const char *>(&key_suffix_index), 4);
+          ostream.write(reinterpret_cast<const char*>(&value_suffix_index), 4);
+          ostream.write(reinterpret_cast<const char*>(&key_suffix_index), 4);
           ++out_count;
         }
       }
@@ -355,7 +359,7 @@ void Convert() {
   {
     OutputFileStream ostream(absl::GetFlag(FLAGS_output_conjugation_index),
                              std::ios_base::out | std::ios_base::binary);
-    ostream.write(reinterpret_cast<const char *>(conjugation_index.data()),
+    ostream.write(reinterpret_cast<const char*>(conjugation_index.data()),
                   4 * conjugation_index.size());
   }
 
@@ -364,15 +368,15 @@ void Convert() {
     OutputFileStream ostream(absl::GetFlag(FLAGS_output_usage_item_array),
                              std::ios_base::out | std::ios_base::binary);
     int32_t usage_id = 0;
-    for (const UsageItem &item : usage_entries) {
+    for (const UsageItem& item : usage_entries) {
       const uint32_t key_index = Lookup(string_index, item.key);
       const uint32_t value_index = Lookup(string_index, item.value);
       const uint32_t meaning_index = Lookup(string_index, item.meaning);
-      ostream.write(reinterpret_cast<const char *>(&usage_id), 4);
-      ostream.write(reinterpret_cast<const char *>(&key_index), 4);
-      ostream.write(reinterpret_cast<const char *>(&value_index), 4);
-      ostream.write(reinterpret_cast<const char *>(&item.conjugation_id), 4);
-      ostream.write(reinterpret_cast<const char *>(&meaning_index), 4);
+      ostream.write(reinterpret_cast<const char*>(&usage_id), 4);
+      ostream.write(reinterpret_cast<const char*>(&key_index), 4);
+      ostream.write(reinterpret_cast<const char*>(&value_index), 4);
+      ostream.write(reinterpret_cast<const char*>(&item.conjugation_id), 4);
+      ostream.write(reinterpret_cast<const char*>(&meaning_index), 4);
       ++usage_id;
     }
   }
@@ -380,7 +384,7 @@ void Convert() {
   // Output string array.
   {
     std::vector<absl::string_view> strs;
-    for (const auto &kv : string_index) {
+    for (const auto& kv : string_index) {
       // Check if the string is placed at its index in the string array.
       CHECK_EQ(strs.size(), kv.second);
       strs.emplace_back(kv.first);
@@ -393,7 +397,7 @@ void Convert() {
 }  // namespace
 }  // namespace mozc
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
   mozc::Convert();
   return 0;

@@ -31,12 +31,11 @@
 
 #include <utility>
 
+#include "absl/log/log.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-#include "base/logging.h"
 #include "base/port.h"
 #include "base/thread.h"
-#include "base/vlog.h"
 
 #ifdef _WIN32
 // clang-format off
@@ -44,6 +43,7 @@
 // clang-format on
 #include <wil/resource.h>
 
+#include "base/vlog.h"
 #include "base/win32/hresult.h"
 #else  // _WIN32
 #include <errno.h>
@@ -68,7 +68,7 @@ ProcessWatchDog::ProcessWatchDog(Handler handler)
 
 ProcessWatchDog::~ProcessWatchDog() {
   {
-    absl::MutexLock l(&mutex_);
+    absl::MutexLock l(mutex_);
     terminating_ = true;
     SignalControlOperation();
   }
@@ -82,7 +82,7 @@ bool ProcessWatchDog::SetId(ProcessId process_id, ThreadId thread_id) {
         << "Linux/Mac don't allow to capture ThreadID";
   }
 
-  absl::MutexLock l(&mutex_);
+  absl::MutexLock l(mutex_);
   pid_ = process_id;
   tid_ = thread_id;
 
@@ -229,7 +229,7 @@ void ProcessWatchDog::ThreadMain() {
   // forever in another CPU's local cache.
   // TODO(team): use kqueue with EVFILT_PROC/NOTE_EXIT for Mac.
   while (true) {
-    absl::MutexLock l(&mutex_);
+    absl::MutexLock l(mutex_);
     // Read this as: sleep for 250ms, or return early if signaled.
     mutex_.AwaitWithTimeout(absl::Condition(&dirty_), absl::Milliseconds(250));
     dirty_ = false;

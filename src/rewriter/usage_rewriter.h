@@ -31,7 +31,7 @@
 #define MOZC_REWRITER_USAGE_REWRITER_H_
 
 #ifndef NO_USAGE_REWRITER
-
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <new>
@@ -41,30 +41,31 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
+#include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
-#include "testing/friend_test.h"
 
 namespace mozc {
 
 class UsageRewriter : public RewriterInterface {
  public:
-  UsageRewriter(const DataManagerInterface *data_manager,
-                const dictionary::DictionaryInterface *dictionary);
+  UsageRewriter(const DataManager& data_manager,
+                const dictionary::DictionaryInterface& dictionary);
   ~UsageRewriter() override = default;
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 
   // better to show usage when user type "tab" key.
-  int capability(const ConversionRequest &request) const override {
+  int capability(const ConversionRequest& request) const override {
     return CONVERSION | PREDICTION;
   }
 
  private:
-  FRIEND_TEST(UsageRewriterTest, GetKanjiPrefixAndOneHiragana);
+  friend class UsageRewriterTestPeer;
 
   static constexpr size_t kUsageItemSize = 5;
 
@@ -74,8 +75,8 @@ class UsageRewriter : public RewriterInterface {
     using value_type = size_t;
 
     UsageDictItemIterator() : ptr_(nullptr) {}
-    explicit UsageDictItemIterator(const char *ptr)
-        : ptr_(std::launder(reinterpret_cast<const uint32_t *>(ptr))) {}
+    explicit UsageDictItemIterator(const char* ptr)
+        : ptr_(std::launder(reinterpret_cast<const uint32_t*>(ptr))) {}
 
     size_t usage_id() const { return *ptr_; }
     size_t key_index() const { return *(ptr_ + 1); }
@@ -83,7 +84,7 @@ class UsageRewriter : public RewriterInterface {
     size_t conjugation_id() const { return *(ptr_ + 3); }
     size_t meaning_index() const { return *(ptr_ + 4); }
 
-    UsageDictItemIterator &operator++() {
+    UsageDictItemIterator& operator++() {
       ptr_ += kUsageItemSize;
       return *this;
     }
@@ -99,21 +100,25 @@ class UsageRewriter : public RewriterInterface {
     }
 
    private:
-    const uint32_t *ptr_;
+    const uint32_t* ptr_;
   };
 
   using StrPair = std::pair<std::string, std::string>;
   static std::string GetKanjiPrefixAndOneHiragana(absl::string_view word);
 
   UsageDictItemIterator LookupUnmatchedUsageHeuristically(
-      const Segment::Candidate &candidate) const;
-  UsageDictItemIterator LookupUsage(const Segment::Candidate &candidate) const;
+      const converter::Candidate& candidate) const;
+  UsageDictItemIterator LookupUsage(
+      const converter::Candidate& candidate) const;
 
   absl::flat_hash_map<StrPair, UsageDictItemIterator> key_value_usageitem_map_;
   const dictionary::PosMatcher pos_matcher_;
-  const dictionary::DictionaryInterface *dictionary_;
-  const uint32_t *base_conjugation_suffix_;
+  const dictionary::DictionaryInterface* dictionary_;
+  const uint32_t* base_conjugation_suffix_;
   SerializedStringArray string_array_;
+
+ private:
+  friend class UsageRewriterPeer;
 };
 
 }  // namespace mozc

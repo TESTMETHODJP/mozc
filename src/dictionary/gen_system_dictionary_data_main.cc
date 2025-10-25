@@ -43,13 +43,12 @@
 #include <vector>
 
 #include "absl/flags/flag.h"
-#include "absl/strings/match.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "base/file_stream.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
 #include "data_manager/data_manager.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/system/system_dictionary_builder.h"
@@ -80,8 +79,8 @@ std::pair<std::string, std::string> GetInputFileName(
       absl::StrSplit(input_file, ' ', absl::SkipWhitespace());
   std::vector<absl::string_view> system_dictionary_inputs,
       reading_correction_inputs;
-  for (const absl::string_view &field : fields) {
-    if (absl::EndsWith(field, kReadingCorrectionFile)) {
+  for (const absl::string_view& field : fields) {
+    if (field.ends_with(kReadingCorrectionFile)) {
       reading_correction_inputs.push_back(field);
     } else {
       system_dictionary_inputs.push_back(field);
@@ -94,7 +93,7 @@ std::pair<std::string, std::string> GetInputFileName(
 }  // namespace
 }  // namespace mozc
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
 
   std::string system_dictionary_input, reading_correction_input;
@@ -102,17 +101,15 @@ int main(int argc, char **argv) {
       mozc::GetInputFileName(absl::GetFlag(FLAGS_input));
 
   // User POS manager data for build tools has no magic number.
-  const char *kMagicNumber = "";
-  mozc::DataManager data_manager;
-  const mozc::DataManager::Status status =
-      data_manager.InitUserPosManagerDataFromFile(
+  constexpr absl::string_view kMagicNumber = "";
+  absl::StatusOr<std::unique_ptr<const mozc::DataManager>> data_manager =
+      mozc::DataManager::CreateUserPosManagerDataFromFile(
           absl::GetFlag(FLAGS_user_pos_manager_data), kMagicNumber);
-  CHECK_EQ(status, mozc::DataManager::Status::OK)
-      << "Failed to initialize data manager from "
-      << absl::GetFlag(FLAGS_user_pos_manager_data);
+  CHECK_OK(data_manager) << "Failed to initialize data manager from "
+                         << absl::GetFlag(FLAGS_user_pos_manager_data);
 
   const mozc::dictionary::PosMatcher pos_matcher(
-      data_manager.GetPosMatcherData());
+      data_manager.value()->GetPosMatcherData());
 
   mozc::dictionary::TextDictionaryLoader loader(pos_matcher);
   loader.Load(system_dictionary_input, reading_correction_input);

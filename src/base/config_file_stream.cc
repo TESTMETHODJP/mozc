@@ -38,20 +38,26 @@
 #include <string>
 #include <utility>
 
+#include "base/strings/zstring_view.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif  // _WIN32
+
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
-#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
-#include "base/logging.h"
 #include "base/singleton.h"
 #include "base/system_util.h"
 
 #ifdef _WIN32
-#include <windows.h>
+#include "base/win32/win_sandbox.h"
 #endif  // _WIN32
 
 namespace mozc {
@@ -71,7 +77,7 @@ struct FileData {
 
 class OnMemoryFileMap {
  public:
-  const std::string &get(const absl::string_view key) const {
+  const std::string& get(const absl::string_view key) const {
     auto it = map_.find(key);
     if (it != map_.end()) {
       return it->second;
@@ -79,8 +85,8 @@ class OnMemoryFileMap {
     return empty_string_;
   }
 
-  void set(const absl::string_view key, const std::string &value) {
-    map_[key] = value;
+  void set(absl::string_view key, zstring_view value) {
+    map_[key] = std::string(value.view());
   }
 
   void clear() { map_.clear(); }
@@ -92,11 +98,10 @@ class OnMemoryFileMap {
 }  // namespace
 
 std::unique_ptr<std::istream> ConfigFileStream::Open(
-    const std::string &filename, std::ios_base::openmode mode) {
+    zstring_view filename, std::ios_base::openmode mode) {
   // system://foo.bar.txt
-  if (absl::StartsWith(filename, kSystemPrefix)) {
-    const absl::string_view new_filename =
-        absl::StripPrefix(filename, kSystemPrefix);
+  if (filename.view().starts_with(kSystemPrefix)) {
+    absl::string_view new_filename = absl::StripPrefix(filename, kSystemPrefix);
     for (size_t i = 0; i < std::size(kFileData); ++i) {
       if (new_filename == kFileData[i].name) {
         auto ifs = std::make_unique<std::istringstream>(
@@ -109,7 +114,7 @@ std::unique_ptr<std::istream> ConfigFileStream::Open(
       }
     }
     // user://foo.bar.txt
-  } else if (absl::StartsWith(filename, kUserPrefix)) {
+  } else if (filename.view().starts_with(kUserPrefix)) {
     const std::string new_filename =
         FileUtil::JoinPath(SystemUtil::GetUserProfileDirectory(),
                            absl::StripPrefix(filename, kUserPrefix));
@@ -120,9 +125,8 @@ std::unique_ptr<std::istream> ConfigFileStream::Open(
     }
     return nullptr;
     // file:///foo.map
-  } else if (absl::StartsWith(filename, kFilePrefix)) {
-    const absl::string_view new_filename =
-        absl::StripPrefix(filename, kFilePrefix);
+  } else if (filename.view().starts_with(kFilePrefix)) {
+    absl::string_view new_filename = absl::StripPrefix(filename, kFilePrefix);
     auto ifs =
         std::make_unique<InputFileStream>(std::string(new_filename), mode);
     CHECK(ifs);
@@ -130,7 +134,7 @@ std::unique_ptr<std::istream> ConfigFileStream::Open(
       return ifs;
     }
     return nullptr;
-  } else if (absl::StartsWith(filename, kMemoryPrefix)) {
+  } else if (filename.view().starts_with(kMemoryPrefix)) {
     auto ifs = std::make_unique<std::istringstream>(
         Singleton<OnMemoryFileMap>::get()->get(filename), mode);
     CHECK(ifs);
@@ -151,12 +155,12 @@ std::unique_ptr<std::istream> ConfigFileStream::Open(
   return nullptr;
 }
 
-bool ConfigFileStream::AtomicUpdate(const std::string &filename,
-                                    const std::string &new_binary_contens) {
-  if (absl::StartsWith(filename, kMemoryPrefix)) {
+bool ConfigFileStream::AtomicUpdate(zstring_view filename,
+                                    zstring_view new_binary_contens) {
+  if (filename.view().starts_with(kMemoryPrefix)) {
     Singleton<OnMemoryFileMap>::get()->set(filename, new_binary_contens);
     return true;
-  } else if (absl::StartsWith(filename, kSystemPrefix)) {
+  } else if (filename->starts_with(kSystemPrefix)) {
     LOG(ERROR) << "Cannot update system:// files.";
     return false;
   }
@@ -185,7 +189,7 @@ bool ConfigFileStream::AtomicUpdate(const std::string &filename,
 #ifdef _WIN32
   // If file name doesn't end with ".db", the file
   // is more likely a temporary file.
-  if (!absl::EndsWith(real_filename, ".db")) {
+  if (!real_filename.ends_with(".db")) {
     // TODO(yukawa): Provide a way to
     // integrate ::SetFileAttributesTransacted with
     // AtomicRename.
@@ -198,14 +202,14 @@ bool ConfigFileStream::AtomicUpdate(const std::string &filename,
   return true;
 }
 
-std::string ConfigFileStream::GetFileName(const absl::string_view filename) {
-  if (absl::StartsWith(filename, kSystemPrefix) ||
-      absl::StartsWith(filename, kMemoryPrefix)) {
+std::string ConfigFileStream::GetFileName(absl::string_view filename) {
+  if (filename.starts_with(kSystemPrefix) ||
+      filename.starts_with(kMemoryPrefix)) {
     return "";
-  } else if (absl::StartsWith(filename, kUserPrefix)) {
+  } else if (filename.starts_with(kUserPrefix)) {
     return FileUtil::JoinPath(SystemUtil::GetUserProfileDirectory(),
                               absl::StripPrefix(filename, kUserPrefix));
-  } else if (absl::StartsWith(filename, kFilePrefix)) {
+  } else if (filename.starts_with(kFilePrefix)) {
     return std::string(absl::StripPrefix(filename, kUserPrefix));
   } else {
     LOG(WARNING) << filename << " has no prefix. open from localfile";
@@ -217,4 +221,22 @@ std::string ConfigFileStream::GetFileName(const absl::string_view filename) {
 void ConfigFileStream::ClearOnMemoryFiles() {
   Singleton<OnMemoryFileMap>::get()->clear();
 }
+
+#ifdef _WIN32
+// Check the file permission of "config1.db" if exists to ensure that
+// "ALL APPLICATION PACKAGES" have read access to it.
+void ConfigFileStream::FixupFilePermission(absl::string_view filename) {
+  const std::string path = ConfigFileStream::GetFileName(filename);
+  if (path.empty()) {
+    return;
+  }
+  const absl::Status status = FileUtil::FileExists(path);
+  if (status.ok()) {
+    WinSandbox::EnsureAllApplicationPackagesPermisssion(
+        win32::Utf8ToWide(path),
+        WinSandbox::AppContainerVisibilityType::kConfigFile);
+  }
+}
+#endif  // _WIN32
+
 }  // namespace mozc

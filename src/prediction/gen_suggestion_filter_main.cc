@@ -35,12 +35,12 @@
 #include <vector>
 
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/codegen_bytearray_stream.h"
 #include "base/file_stream.h"
-#include "base/hash.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
 #include "base/multifile.h"
 #include "base/util.h"
 #include "storage/existence_filter.h"
@@ -59,54 +59,58 @@ namespace {
 using ::mozc::storage::ExistenceFilter;
 using ::mozc::storage::ExistenceFilterBuilder;
 
-void ReadHashList(const std::string &name, std::vector<uint64_t> *words) {
+std::vector<std::string> ReadWords(const std::string& name) {
   std::string line;
+  std::vector<std::string> words;
   mozc::InputFileStream input(name);
   while (std::getline(input, line)) {
     if (line.empty() || line[0] == '#') {
       continue;
     }
     mozc::Util::LowerString(&line);
-    words->push_back(mozc::Fingerprint(line));
+    words.push_back(line);
   }
+  return words;
 }
 
-void ReadSafeWords(const absl::string_view safe_list_files,
-                   std::vector<std::string> *safe_word_list) {
+std::vector<std::string> ReadSafeWords(
+    const absl::string_view safe_list_files) {
   if (safe_list_files.empty()) {
-    return;
+    return {};
   }
   mozc::InputMultiFile input(safe_list_files);
   std::string line;
+  std::vector<std::string> safe_word_list;
   while (input.ReadLine(&line)) {
     if (line.empty() || line[0] == '#') {
       continue;
     }
     std::string lower_value = line;
     mozc::Util::LowerString(&lower_value);
-    safe_word_list->push_back(lower_value);
+    safe_word_list.push_back(lower_value);
   }
+  return safe_word_list;
 }
 
 constexpr size_t kMinimumFilterBytes = 100 * 1000;
 
 ExistenceFilterBuilder GetFilter(const size_t num_bytes,
-                                 const std::vector<uint64_t> &hash_list) {
+                                 absl::Span<const std::string> word_list) {
   LOG(INFO) << "num_bytes: " << num_bytes;
 
   ExistenceFilterBuilder filter(
-      ExistenceFilterBuilder::CreateOptimal(num_bytes, hash_list.size()));
-  for (size_t i = 0; i < hash_list.size(); ++i) {
-    filter.Insert(hash_list[i]);
+      ExistenceFilterBuilder::CreateOptimal(num_bytes, word_list.size()));
+  for (absl::string_view word : word_list) {
+    filter.Insert(word);
   }
   return filter;
 }
 
-bool TestFilter(const ExistenceFilterBuilder &builder,
-                const std::vector<std::string> &safe_word_list) {
+bool TestFilter(const ExistenceFilterBuilder& builder,
+                absl::Span<const std::string> safe_word_list) {
   ExistenceFilter filter = builder.Build();
-  for (const std::string &word : safe_word_list) {
-    if (filter.Exists(mozc::Fingerprint(word))) {
+  for (absl::string_view word : safe_word_list) {
+    if (filter.Exists(word)) {
       LOG(WARNING) << "Safe word, " << word
                    << " is determined as bad suggestion.";
       return false;
@@ -116,14 +120,14 @@ bool TestFilter(const ExistenceFilterBuilder &builder,
 }
 
 ExistenceFilterBuilder SetupFilter(
-    const size_t num_bytes, const std::vector<uint64_t> &hash_list,
-    const std::vector<std::string> &safe_word_list) {
+    const size_t num_bytes, absl::Span<const std::string> word_list,
+    absl::Span<const std::string> safe_word_list) {
   constexpr int kNumRetryMax = 10;
   constexpr int kSizeOffset = 8;
   // Prevent filtering of common words by false positive.
   for (int i = 0; i < kNumRetryMax; ++i) {
     ExistenceFilterBuilder filter =
-        GetFilter(num_bytes + i * kSizeOffset, hash_list);
+        GetFilter(num_bytes + i * kSizeOffset, word_list);
     if (TestFilter(filter, safe_word_list)) {
       return filter;
     }
@@ -135,7 +139,7 @@ ExistenceFilterBuilder SetupFilter(
 
 // read per-line word list and generate
 // bloom filter in raw byte array or header file format
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
 
   if ((absl::GetFlag(FLAGS_input).empty() ||
@@ -145,22 +149,22 @@ int main(int argc, char **argv) {
     absl::SetFlag(&FLAGS_output, argv[2]);
   }
 
-  std::vector<uint64_t> hash_list;
-  ReadHashList(absl::GetFlag(FLAGS_input), &hash_list);
+  const std::vector<std::string> word_list =
+      ReadWords(absl::GetFlag(FLAGS_input));
 
-  LOG(INFO) << hash_list.size() << " words found";
+  LOG(INFO) << word_list.size() << " words found";
 
   static constexpr float kErrorRate = 0.00001;
   const size_t num_bytes =
       std::max(ExistenceFilterBuilder::MinFilterSizeInBytesForErrorRate(
-                   kErrorRate, hash_list.size()),
+                   kErrorRate, word_list.size()),
                kMinimumFilterBytes);
 
-  std::vector<std::string> safe_word_list;
-  ReadSafeWords(absl::GetFlag(FLAGS_safe_list_files), &safe_word_list);
+  const std::vector<std::string> safe_word_list =
+      ReadSafeWords(absl::GetFlag(FLAGS_safe_list_files));
 
   ExistenceFilterBuilder filter =
-      SetupFilter(num_bytes, hash_list, safe_word_list);
+      SetupFilter(num_bytes, word_list, safe_word_list);
 
   LOG(INFO) << "writing bloomfilter: " << absl::GetFlag(FLAGS_output);
   const std::string buf = filter.SerializeAsString();

@@ -29,20 +29,15 @@
 
 #include "gui/post_install_dialog/post_install_dialog.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#endif  // _WIN32
-
 #include <QtGui>
 
-#include "base/logging.h"
 #include "base/run_level.h"
-#include "base/util.h"
 #include "gui/base/setup_util.h"
 #include "gui/base/util.h"
-#include "usage_stats/usage_stats.h"
 
 #ifdef _WIN32
+#include <windows.h>
+
 #include "base/win32/scoped_com.h"
 #include "win32/base/imm_util.h"
 #endif  // _WIN32
@@ -71,15 +66,11 @@ PostInstallDialog::PostInstallDialog() : setuputil_(new SetupUtil()) {
 }
 
 void PostInstallDialog::OnOk() {
-  usage_stats::UsageStats::IncrementCount("PostInstallOkButton");
   ApplySettings();
   done(QDialog::Accepted);
 }
 
-void PostInstallDialog::reject() {
-  usage_stats::UsageStats::IncrementCount("PostInstallRejectButton");
-  done(QDialog::Rejected);
-}
+void PostInstallDialog::reject() { done(QDialog::Rejected); }
 
 void PostInstallDialog::ApplySettings() {
 #ifdef _WIN32
@@ -96,7 +87,7 @@ void PostInstallDialog::ApplySettings() {
     flags |= SetupUtil::IMPORT_MSIME_DICTIONARY;
   }
   setuputil_->SetDefaultProperty(flags);
-#else  // _WIN32
+#else   // _WIN32
   // not supported on Mac and Linux
 #endif  // _WIN32
 }

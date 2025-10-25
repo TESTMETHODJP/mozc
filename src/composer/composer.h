@@ -34,24 +34,117 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <set>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
+#include "absl/container/btree_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "composer/internal/composition.h"
-#include "composer/internal/composition_input.h"
-#include "composer/internal/transliterators.h"
+#include "composer/composition.h"
+#include "composer/composition_input.h"
 #include "composer/table.h"
+#include "composer/transliterators.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "testing/friend_test.h"
 #include "transliteration/transliteration.h"
 
 namespace mozc {
 namespace composer {
 
+std::shared_ptr<const commands::Request> GetSharedDefaultRequest();
+
+// ComposerData is a data structure that represents the current state of the
+// composer. It is used by Converter, Predictor and Rewriters as a const
+// object.
+class ComposerData {
+ public:
+  ComposerData() = delete;
+  ComposerData(Composition composition, size_t position,
+               transliteration::TransliterationType input_mode,
+               commands::Context::InputFieldType input_field_type,
+               std::string source_text,
+               std::vector<commands::SessionCommand::CompositionEvent>
+                   compositions_for_handwriting);
+
+  // Copyable and movable.
+  ComposerData(const ComposerData& other) = default;
+  ComposerData& operator=(const ComposerData&) = default;
+  ComposerData(ComposerData&& other) = default;
+  ComposerData& operator=(ComposerData&&) = default;
+
+  transliteration::TransliterationType GetInputMode() const;
+
+  // Returns a preedit string with user's preferences.
+  std::string GetStringForPreedit() const;
+
+  // Returns a conversion query normalized ascii characters in half width
+  std::string GetQueryForConversion() const;
+
+  // Returns a prediction query trimmed the tail alphabet characters.
+  std::string GetQueryForPrediction() const;
+
+  // Returns a expanded prediction query.
+  std::pair<std::string, absl::btree_set<std::string>> GetQueriesForPrediction()
+      const;
+
+  // Returns a string to be used for type correction.
+  std::string GetStringForTypeCorrection() const;
+
+  size_t GetLength() const;
+  size_t GetCursor() const;
+
+  absl::Span<const commands::SessionCommand::CompositionEvent>
+  GetHandwritingCompositions() const;
+
+  // Returns raw input from a user.
+  // The main purpose is Transliteration.
+  std::string GetRawString() const;
+
+  // Returns substring of raw input.  The position and size is based on the
+  // composed string.  For example, when [さ|sa][し|shi][み|mi] is the
+  // composition, GetRawSubString(0, 2) returns "sashi".
+  std::string GetRawSubString(size_t position, size_t size) const;
+
+  // Generate transliterations.
+  void GetTransliterations(transliteration::Transliterations* t13ns) const;
+
+  // Generate substrings of transliterations.
+  void GetSubTransliterations(size_t position, size_t size,
+                              transliteration::Transliterations* t13ns) const;
+
+  absl::string_view source_text() const { return source_text_; }
+
+ private:
+  // Composition copied from the Composer as a snapshot.
+  Composition composition_;
+
+  // Cursor position.
+  size_t position_ = 0;
+
+  // Input mode of IME (e.g. HIRAGANA, HALF_ASCII, etc.)
+  transliteration::TransliterationType input_mode_ = transliteration::HIRAGANA;
+
+  // Type of the input field to input texts.
+  commands::Context::InputFieldType input_field_type_ =
+      commands::Context::NORMAL;
+
+  // The original text for the composition.
+  // The value is usually empty, and used for reverse conversion.
+  std::string source_text_;
+
+  // Example:
+  //   {{"かん字", 0.99}, {"かlv字", 0.01}}
+  // Please refer to commands.proto
+  std::vector<commands::SessionCommand::CompositionEvent>
+      compositions_for_handwriting_;
+};
+
+// Composer is a class that manages the composing text. It provides methods to
+// edit the text by users. Composer creates ComposerData as the snapshot of
+// the current state of the composer.
 class Composer final {
  public:
   // Pseudo commands in composer.
@@ -61,14 +154,33 @@ class Composer final {
   };
 
   Composer();
-  Composer(const Table *table, const commands::Request *request,
-           const config::Config *config);
+  Composer(std::shared_ptr<const Table> table,
+           std::shared_ptr<const commands::Request> request,
+           std::shared_ptr<const config::Config> config);
+
+  // This constructor is for testing.
+  ABSL_DEPRECATED("Use the constructor with Table")
+  Composer(std::shared_ptr<const commands::Request> request,
+           std::shared_ptr<const config::Config> config);
+
+  // Copies `request` and `config`.
+
+  ABSL_DEPRECATED("Use the constructor with Table")
+  Composer(commands::Request request, config::Config config);
+  Composer(std::shared_ptr<const Table> table, commands::Request request,
+           config::Config config);
 
   // Copyable and movable.
-  Composer(const Composer &) = default;
-  Composer &operator=(const Composer &) = default;
-  Composer(Composer &&) = default;
-  Composer &operator=(Composer &&) = default;
+  Composer(const Composer&) = default;
+  Composer& operator=(const Composer&) = default;
+  Composer(Composer&&) = default;
+  Composer& operator=(Composer&&) = default;
+
+  // Returns a reference of empty ComposerData used for placeholder.
+  static const ComposerData& EmptyComposerData();
+
+  // Return a ComposerData with the current state of the composer.
+  ComposerData CreateComposerData() const;
 
   // Reset all composing data except table.
   void Reset();
@@ -85,10 +197,10 @@ class Composer final {
   // Check the preedit string is empty or not.
   bool Empty() const;
 
-  void SetTable(const Table *table);
+  void SetTable(std::shared_ptr<const Table> table);
 
-  void SetRequest(const commands::Request *request);
-  void SetConfig(const config::Config *config);
+  void SetRequest(std::shared_ptr<const commands::Request> request);
+  void SetConfig(std::shared_ptr<const config::Config> config);
 
   void SetInputMode(transliteration::TransliterationType mode);
   void SetTemporaryInputMode(transliteration::TransliterationType mode);
@@ -109,8 +221,8 @@ class Composer final {
   void SetOutputMode(transliteration::TransliterationType mode);
 
   // Returns preedit strings
-  void GetPreedit(std::string *left, std::string *focused,
-                  std::string *right) const;
+  void GetPreedit(std::string* left, std::string* focused,
+                  std::string* right) const;
 
   // Returns a preedit string with user's preferences.
   std::string GetStringForPreedit() const;
@@ -126,8 +238,8 @@ class Composer final {
   std::string GetQueryForPrediction() const;
 
   // Returns a expanded prediction query.
-  void GetQueriesForPrediction(std::string *base,
-                               std::set<std::string> *expanded) const;
+  std::pair<std::string, absl::btree_set<std::string>> GetQueriesForPrediction()
+      const;
 
   // Returns a string to be used for type correction.
   std::string GetStringForTypeCorrection() const;
@@ -170,14 +282,14 @@ class Composer final {
   // The composition may contain Kana-Kanji mixed string. (ex. "かん字")
   // Handwriting engine can generate multiple candidates.
   void SetCompositionsForHandwriting(
-      absl::Span<const commands::SessionCommand::CompositionEvent *const>
+      absl::Span<const commands::SessionCommand::CompositionEvent* const>
           compositions);
-  const std::vector<commands::SessionCommand::CompositionEvent> &
+  absl::Span<const commands::SessionCommand::CompositionEvent>
   GetHandwritingCompositions() const;
 
   bool InsertCharacterKeyAndPreedit(absl::string_view key,
                                     absl::string_view preedit);
-  bool InsertCharacterKeyEvent(const commands::KeyEvent &key);
+  bool InsertCharacterKeyEvent(const commands::KeyEvent& key);
   void InsertCommandCharacter(InternalCommand internal_command);
   void Delete();
   void Backspace();
@@ -199,16 +311,15 @@ class Composer final {
   std::string GetRawSubString(size_t position, size_t size) const;
 
   // Generate transliterations.
-  void GetTransliterations(transliteration::Transliterations *t13ns) const;
+  void GetTransliterations(transliteration::Transliterations* t13ns) const;
 
   // Generate substrings of specified transliteration.
   std::string GetSubTransliteration(transliteration::TransliterationType type,
                                     size_t position, size_t size) const;
 
   // Generate substrings of transliterations.
-  void GetSubTransliterations(
-      size_t position, size_t size,
-      transliteration::Transliterations *transliterations) const;
+  void GetSubTransliterations(size_t position, size_t size,
+                              transliteration::Transliterations* t13ns) const;
 
   // Check if the preedit is can be modified.
   bool EnableInsert() const;
@@ -226,13 +337,13 @@ class Composer final {
   // We cannot use direct input mode because it cannot deal with toggle input.
   // In password mode, first character in composition should be committed
   // when another letter is generated in composition.
-  bool ShouldCommitHead(size_t *length_to_commit) const;
+  bool ShouldCommitHead(size_t* length_to_commit) const;
 
   // Transform characters for preferred number format.  If any
   // characters are transformed true is returned.
   // For example, if the query is "ー１、０００。５", it should be
   // transformed to "−１，０００．５".  and true is returned.
-  static bool TransformCharactersForNumbers(std::string *query);
+  static bool TransformCharactersForNumbers(std::string* query);
 
   // Set new input flag.
   // By calling this method, next inserted character will introduce
@@ -242,19 +353,21 @@ class Composer final {
   // Returns true when the current character at cursor position is toggleable.
   bool IsToggleable() const;
 
-  bool is_new_input() const;
-  size_t shifted_sequence_count() const;
-  const std::string &source_text() const;
-  std::string *mutable_source_text();
+  bool is_new_input() const { return is_new_input_; }
+  size_t shifted_sequence_count() const { return shifted_sequence_count_; }
+  absl::string_view source_text() const { return source_text_; }
+  std::string* mutable_source_text() { return &source_text_; }
   void set_source_text(absl::string_view source_text);
-  size_t max_length() const;
-  void set_max_length(size_t length);
+  size_t max_length() const { return max_length_; }
+  void set_max_length(size_t length) { max_length_ = length; }
 
-  int timeout_threshold_msec() const;
-  void set_timeout_threshold_msec(int threshold_msec);
+  int timeout_threshold_msec() const { return timeout_threshold_msec_; }
+  void set_timeout_threshold_msec(int threshold_msec) {
+    timeout_threshold_msec_ = threshold_msec;
+  }
 
  private:
-  FRIEND_TEST(ComposerTest, ApplyTemporaryInputMode);
+  friend class ComposerTestPeer;
 
   bool ProcessCompositionInput(CompositionInput input);
 
@@ -278,7 +391,6 @@ class Composer final {
   commands::Context::InputFieldType input_field_type_;
 
   size_t shifted_sequence_count_;
-  Composition composition_;
 
   // The original text for the composition.  The value is usually
   // empty, and used for reverse conversion.
@@ -286,9 +398,18 @@ class Composer final {
 
   size_t max_length_;
 
-  const commands::Request *request_;
-  const config::Config *config_;
-  const Table *table_;
+  std::shared_ptr<const commands::Request> request_;
+  std::shared_ptr<const config::Config> config_;
+
+  // Though we would like to avoid shared object, Table is not copyable so
+  // there is no other way to share them at this moment. The internal data
+  // of the Table is managed by std::unique_ptr, which makes simple copying
+  // impossible. Furthermore, copying the table every time would result in
+  // a significant performance degradation. Style guide says that we prefer
+  // to use std::shared_ptr for shared object.
+  std::shared_ptr<const Table> table_;
+
+  Composition composition_;
 
   // Timestamp of last modified.
   int64_t timestamp_msec_ = 0;
@@ -296,7 +417,7 @@ class Composer final {
   // If the duration between key inputs is more than timeout_threadhols_msec_,
   // the STOP_KEY_TOGGLING event is sent before the next key input.
   // If the value is 0, STOP_KEY_TOGGLING is not sent.
-  int timeout_threshold_msec_ = 0;
+  int timeout_threshold_msec_;
 
   // Whether the next insertion is the beginning of typing after an
   // editing command like SetInputMode or not.  Some conversion rules

@@ -38,6 +38,8 @@
 #include <wil/com.h>
 #include <wil/resource.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -45,8 +47,9 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/types/span.h"
-#include "base/logging.h"
+#include "base/coordinates.h"
 #include "protocol/renderer_style.pb.h"
 #include "renderer/renderer_style_handler.h"
 #include "renderer/win32/win32_font_util.h"
@@ -60,7 +63,7 @@ using ::mozc::renderer::RendererStyleHandler;
 
 namespace {
 
-CRect ToCRect(const Rect &rect) {
+CRect ToCRect(const Rect& rect) {
   return CRect(rect.Left(), rect.Top(), rect.Right(), rect.Bottom());
 }
 
@@ -86,7 +89,7 @@ COLORREF GetTextColor(TextRenderer::FONT_TYPE type) {
   //             should be created from RendererStyle
   RendererStyle style;
   RendererStyleHandler::GetRendererStyle(&style);
-  const auto &infostyle = style.infolist_style();
+  const auto& infostyle = style.infolist_style();
   switch (type) {
     case TextRenderer::FONTSET_INFOLIST_CAPTION:
       return RGB(infostyle.caption_style().foreground_color().r(),
@@ -137,7 +140,7 @@ LOGFONT GetLogFont(TextRenderer::FONT_TYPE type) {
   //             should be created from RendererStyle
   RendererStyle style;
   RendererStyleHandler::GetRendererStyle(&style);
-  const auto &infostyle = style.infolist_style();
+  const auto& infostyle = style.infolist_style();
   switch (type) {
     case TextRenderer::FONTSET_INFOLIST_CAPTION: {
       font.lfHeight = -infostyle.caption_style().font_size();
@@ -213,7 +216,7 @@ class GdiTextRenderer : public TextRenderer {
 
     for (size_t i = 0; i < SIZE_OF_FONT_TYPE; ++i) {
       const auto font_type = static_cast<FONT_TYPE>(i);
-      const auto &log_font = GetLogFont(font_type);
+      const auto& log_font = GetLogFont(font_type);
       render_info_[i].style = GetGdiDrawTextStyle(font_type);
       render_info_[i].font.reset(::CreateFontIndirectW(&log_font));
       render_info_[i].color = GetTextColor(font_type);
@@ -244,7 +247,7 @@ class GdiTextRenderer : public TextRenderer {
     return Size(rect.Width(), rect.Height());
   }
 
-  void RenderText(HDC dc, const std::wstring_view text, const Rect &rect,
+  void RenderText(HDC dc, const std::wstring_view text, const Rect& rect,
                   FONT_TYPE font_type) const override {
     std::vector<TextRenderingInfo> infolist;
     infolist.emplace_back(std::wstring(text), rect);
@@ -254,10 +257,10 @@ class GdiTextRenderer : public TextRenderer {
   void RenderTextList(HDC dc,
                       const absl::Span<const TextRenderingInfo> display_list,
                       FONT_TYPE font_type) const override {
-    const auto &render_info = render_info_[font_type];
+    const auto& render_info = render_info_[font_type];
     const auto old_font = wil::SelectObject(dc, render_info.font.get());
     const auto previous_color = ::SetTextColor(dc, render_info.color);
-    for (const TextRenderingInfo &info : display_list) {
+    for (const TextRenderingInfo& info : display_list) {
       CRect rect = ToCRect(info.rect);
       ::DrawTextW(dc, info.text.data(), info.text.size(), &rect,
                   render_info.style);
@@ -322,7 +325,7 @@ class DirectWriteTextRenderer : public TextRenderer {
 
     for (size_t i = 0; i < SIZE_OF_FONT_TYPE; ++i) {
       const auto font_type = static_cast<FONT_TYPE>(i);
-      const auto &log_font = GetLogFont(font_type);
+      const auto& log_font = GetLogFont(font_type);
       render_info_[i].color = GetTextColor(font_type);
       render_info_[i].format = CreateFormat(log_font);
       render_info_[i].format_to_render = CreateFormat(log_font);
@@ -354,7 +357,7 @@ class DirectWriteTextRenderer : public TextRenderer {
     return MeasureStringImpl(font_type, str, width, true);
   }
 
-  void RenderText(HDC dc, const std::wstring_view text, const Rect &rect,
+  void RenderText(HDC dc, const std::wstring_view text, const Rect& rect,
                   FONT_TYPE font_type) const override {
     std::vector<TextRenderingInfo> infolist;
     infolist.emplace_back(std::wstring(text), rect);
@@ -389,8 +392,8 @@ class DirectWriteTextRenderer : public TextRenderer {
       HDC dc, const absl::Span<const TextRenderingInfo> display_list,
       FONT_TYPE font_type) const {
     CRect total_rect;
-    for (const auto &item : display_list) {
-      const auto &item_rect = ToCRect(item.rect);
+    for (const auto& item : display_list) {
+      const auto& item_rect = ToCRect(item.rect);
       total_rect.right = std::max(total_rect.right, item_rect.right);
       total_rect.bottom = std::max(total_rect.bottom, item_rect.bottom);
     }
@@ -410,7 +413,7 @@ class DirectWriteTextRenderer : public TextRenderer {
     dc_render_target_->BeginDraw();
     dc_render_target_->SetTransform(D2D1::Matrix3x2F::Identity());
     for (size_t i = 0; i < display_list.size(); ++i) {
-      const auto &item = display_list[i];
+      const auto& item = display_list[i];
       const D2D1_RECT_F render_rect = {
           static_cast<float>(item.rect.Left()),
           static_cast<float>(item.rect.Top()),
@@ -454,7 +457,7 @@ class DirectWriteTextRenderer : public TextRenderer {
     return color;
   }
 
-  wil::com_ptr_nothrow<IDWriteTextFormat> CreateFormat(const LOGFONT &logfont) {
+  wil::com_ptr_nothrow<IDWriteTextFormat> CreateFormat(const LOGFONT& logfont) {
     HRESULT hr = S_OK;
     wil::com_ptr_nothrow<IDWriteFont> font;
     hr = dwrite_interop_->CreateFontFromLOGFONT(&logfont, font.put());

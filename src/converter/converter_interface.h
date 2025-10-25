@@ -30,11 +30,9 @@
 #ifndef MOZC_CONVERTER_CONVERTER_INTERFACE_H_
 #define MOZC_CONVERTER_CONVERTER_INTERFACE_H_
 
+#include <cstddef>
 #include <cstdint>
-#include <string>
-#include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "converter/segments.h"
@@ -48,90 +46,72 @@ class Composer;
 
 class ConverterInterface {
  public:
-  ConverterInterface(const ConverterInterface &) = delete;
-  ConverterInterface &operator=(const ConverterInterface &) = delete;
+  ConverterInterface(const ConverterInterface&) = delete;
+  ConverterInterface& operator=(const ConverterInterface&) = delete;
 
   // Allow deletion through the interface.
   virtual ~ConverterInterface() = default;
 
   // Starts conversion for given request.
-  ABSL_MUST_USE_RESULT
-  virtual bool StartConversion(const ConversionRequest &request,
-                               Segments *segments) const = 0;
-
-  // Start conversion with key.
-  // key is a request written in Hiragana sequence
-  ABSL_MUST_USE_RESULT
-  virtual bool StartConversionWithKey(Segments *segments,
-                                      absl::string_view key) const = 0;
+  [[nodiscard]]
+  virtual bool StartConversion(const ConversionRequest& request,
+                               Segments* segments) const = 0;
 
   // Start reverse conversion with key.
-  ABSL_MUST_USE_RESULT
-  virtual bool StartReverseConversion(Segments *segments,
+  [[nodiscard]]
+  virtual bool StartReverseConversion(Segments* segments,
                                       absl::string_view key) const = 0;
 
   // Starts prediction for given request.
-  ABSL_MUST_USE_RESULT
-  virtual bool StartPrediction(const ConversionRequest &request,
-                               Segments *segments) const = 0;
+  [[nodiscard]]
+  virtual bool StartPrediction(const ConversionRequest& request,
+                               Segments* segments) const = 0;
 
-  // Start prediction with key (request_type = PREDICTION)
-  ABSL_MUST_USE_RESULT
-  virtual bool StartPredictionWithKey(Segments *segments,
-                                      absl::string_view key) const = 0;
+  // Starts prediction with previous suggestion.
+  // This method is used for expanding the candidates while keeping the
+  // previous suggestion.
+  [[nodiscard]]
+  virtual bool StartPredictionWithPreviousSuggestion(
+      const ConversionRequest& request, const Segment& previous_segment,
+      Segments* segments) const = 0;
 
-  // Starts suggestion for given request.
-  ABSL_MUST_USE_RESULT
-  virtual bool StartSuggestion(const ConversionRequest &request,
-                               Segments *segments) const = 0;
-
-  // Start suggestion with key (request_type = SUGGESTION)
-  ABSL_MUST_USE_RESULT
-  virtual bool StartSuggestionWithKey(Segments *segments,
-                                      absl::string_view key) const = 0;
-
-  // Starts partial prediction for given request.
-  ABSL_MUST_USE_RESULT
-  virtual bool StartPartialPrediction(const ConversionRequest &request,
-                                      Segments *segments) const = 0;
-
-  // Start prediction with key (request_type = PARTIAL_PREDICTION)
-  ABSL_MUST_USE_RESULT
-  virtual bool StartPartialPredictionWithKey(Segments *segments,
-                                             absl::string_view key) const = 0;
-
-  // Starts partial suggestion for given request.
-  ABSL_MUST_USE_RESULT
-  virtual bool StartPartialSuggestion(const ConversionRequest &request,
-                                      Segments *segments) const = 0;
-
-  // Start suggestion with key (request_type = PARTIAL_SUGGESTION)
-  ABSL_MUST_USE_RESULT
-  virtual bool StartPartialSuggestionWithKey(Segments *segments,
-                                             absl::string_view key) const = 0;
+  // Builds segments from the given segment.
+  // This method also applies the converter's post processing such as rewriters.
+  virtual void PrependCandidates(const ConversionRequest& request,
+                                 const Segment& segment,
+                                 Segments* segments) const = 0;
 
   // Finish conversion.
   // Segments are cleared. Context is not cleared
-  virtual void FinishConversion(const ConversionRequest &request,
-                                Segments *segments) const = 0;
+  virtual void FinishConversion(const ConversionRequest& request,
+                                Segments* segments) const = 0;
 
   // Clear segments and keep the context
-  virtual void CancelConversion(Segments *segments) const = 0;
+  virtual void CancelConversion(Segments* segments) const = 0;
 
   // Reset segments and context
-  virtual void ResetConversion(Segments *segments) const = 0;
+  virtual void ResetConversion(Segments* segments) const = 0;
 
   // Revert last Finish operation
-  virtual void RevertConversion(Segments *segments) const = 0;
+  virtual void RevertConversion(Segments* segments) const = 0;
+
+  // Delete candidate from user input history.
+  // Returns false if the candidate was not found or deletion failed.
+  // Note: |segment_index| is the index for all segments, not the index of
+  // conversion_segments.
+  [[nodiscard]]
+  virtual bool DeleteCandidateFromHistory(const Segments& segments,
+                                          size_t segment_index,
+                                          int candidate_index) const = 0;
 
   // Reconstruct history segments from given preceding text.
-  ABSL_MUST_USE_RESULT
-  virtual bool ReconstructHistory(Segments *segments,
+  [[nodiscard]]
+  virtual bool ReconstructHistory(Segments* segments,
                                   absl::string_view preceding_text) const = 0;
 
   // Commit candidate
-  ABSL_MUST_USE_RESULT
-  virtual bool CommitSegmentValue(Segments *segments, size_t segment_index,
+  [[nodiscard]]
+  virtual bool CommitSegmentValue(Segments* segments, size_t segment_index,
                                   int candidate_index) const = 0;
   // Commit candidate for partial suggestion.
   // current_segment_key : key for submitted segment.
@@ -143,9 +123,9 @@ class ConverterInterface {
   //   After calling this method, the segments will contain following segments.
   //   - {key_ : "いれた",  segment_type_ : SUBMITTED}
   //   - {key_ : "てのおちゃ", segment_type_ : FREE}
-  ABSL_MUST_USE_RESULT
+  [[nodiscard]]
   virtual bool CommitPartialSuggestionSegmentValue(
-      Segments *segments, size_t segment_index, int candidate_index,
+      Segments* segments, size_t segment_index, int candidate_index,
       absl::string_view current_segment_key,
       absl::string_view new_segment_key) const = 0;
 
@@ -155,8 +135,8 @@ class ConverterInterface {
   // In this method, Converter will find bracketing matching.
   // e.g., when user selects "「",  corresponding closing bracket "」"
   // is chosen in the preedit.
-  ABSL_MUST_USE_RESULT
-  virtual bool FocusSegmentValue(Segments *segments, size_t segment_index,
+  [[nodiscard]]
+  virtual bool FocusSegmentValue(Segments* segments, size_t segment_index,
                                  int candidate_index) const = 0;
 
   // Commit segments of which the range is [0, candidate_index.size()]
@@ -165,21 +145,22 @@ class ConverterInterface {
   // |candidate_index| is a vector containing candidate index.
   // candidate_index[0] corresponds to the index of the candidate of
   // 1st segment.
-  ABSL_MUST_USE_RESULT
+  [[nodiscard]]
   virtual bool CommitSegments(
-      Segments *segments, const std::vector<size_t> &candidate_index) const = 0;
+      Segments* segments, absl::Span<const size_t> candidate_index) const = 0;
 
   // Resize segment_index-th segment by offset_length.
   // offset_length can be negative.
-  ABSL_MUST_USE_RESULT virtual bool ResizeSegment(
-      Segments *segments, const ConversionRequest &request,
-      size_t segment_index, int offset_length) const = 0;
+  [[nodiscard]] virtual bool ResizeSegment(Segments* segments,
+                                           const ConversionRequest& request,
+                                           size_t segment_index,
+                                           int offset_length) const = 0;
 
   // Resize [start_segment_index, start_segment_index + segment_size]
   // segments with the new size in new_size_array.
-  ABSL_MUST_USE_RESULT virtual bool ResizeSegment(
-      Segments *segments, const ConversionRequest &request,
-      size_t start_segment_index, size_t segments_size,
+  [[nodiscard]] virtual bool ResizeSegments(
+      Segments* segments, const ConversionRequest& request,
+      size_t start_segment_index,
       absl::Span<const uint8_t> new_size_array) const = 0;
 
  protected:

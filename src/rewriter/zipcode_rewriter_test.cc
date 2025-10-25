@@ -32,8 +32,9 @@
 #include <cstddef>
 #include <string>
 
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/pos_matcher.h"
@@ -53,12 +54,12 @@ enum SegmentType {
 };
 
 void AddSegment(const absl::string_view key, const absl::string_view value,
-                SegmentType type, const PosMatcher &pos_matcher,
-                Segments *segments) {
+                SegmentType type, const PosMatcher& pos_matcher,
+                Segments* segments) {
   segments->Clear();
-  Segment *seg = segments->push_back_segment();
+  Segment* seg = segments->push_back_segment();
   seg->set_key(key);
-  Segment::Candidate *candidate = seg->add_candidate();
+  converter::Candidate* candidate = seg->add_candidate();
   candidate->value = std::string(key);
   candidate->content_key = std::string(key);
   candidate->content_value = std::string(value);
@@ -69,11 +70,11 @@ void AddSegment(const absl::string_view key, const absl::string_view value,
   }
 }
 
-bool HasZipcodeAndAddress(const Segments &segments,
+bool HasZipcodeAndAddress(const Segments& segments,
                           const absl::string_view expected) {
   CHECK_EQ(segments.segments_size(), 1);
   for (size_t i = 0; i < segments.segment(0).candidates_size(); ++i) {
-    const Segment::Candidate &candidate = segments.segment(0).candidate(i);
+    const converter::Candidate& candidate = segments.segment(0).candidate(i);
     if (candidate.description == "郵便番号と住所") {
       if (candidate.content_value == expected) {
         return true;
@@ -85,30 +86,30 @@ bool HasZipcodeAndAddress(const Segments &segments,
 
 class ZipcodeRewriterTest : public testing::TestWithTempUserProfile {
  protected:
-  void SetUp() override {
-    pos_matcher_.Set(mock_data_manager_.GetPosMatcherData());
-  }
+  ZipcodeRewriterTest()
+      : pos_matcher_(mock_data_manager_.GetPosMatcherData()) {}
 
   ZipcodeRewriter CreateZipcodeRewriter() const {
     return ZipcodeRewriter(pos_matcher_);
   }
 
-  dictionary::PosMatcher pos_matcher_;
-
  private:
   const testing::MockDataManager mock_data_manager_;
+
+ protected:
+  const dictionary::PosMatcher pos_matcher_;
 };
 
 TEST_F(ZipcodeRewriterTest, BasicTest) {
-  ZipcodeRewriter zipcode_rewriter = CreateZipcodeRewriter();
+  const ZipcodeRewriter zipcode_rewriter = CreateZipcodeRewriter();
 
   const std::string kZipcode = "107-0052";
   const std::string kAddress = "東京都港区赤坂";
-  ConversionRequest request;
   config::Config config;
-  request.set_config(&config);
 
   {
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetConfig(config).Build();
     Segments segments;
     AddSegment("test", "test", NON_ZIPCODE, pos_matcher_, &segments);
     EXPECT_FALSE(zipcode_rewriter.Rewrite(request, &segments));
@@ -116,6 +117,8 @@ TEST_F(ZipcodeRewriterTest, BasicTest) {
 
   {
     config.set_space_character_form(config::Config::FUNDAMENTAL_HALF_WIDTH);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetConfig(config).Build();
 
     Segments segments;
     AddSegment(kZipcode, kAddress, ZIPCODE, pos_matcher_, &segments);
@@ -125,6 +128,8 @@ TEST_F(ZipcodeRewriterTest, BasicTest) {
 
   {
     config.set_space_character_form(config::Config::FUNDAMENTAL_FULL_WIDTH);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetConfig(config).Build();
 
     Segments segments;
     AddSegment(kZipcode, kAddress, ZIPCODE, pos_matcher_, &segments);

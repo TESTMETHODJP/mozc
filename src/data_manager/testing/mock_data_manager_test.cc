@@ -29,9 +29,6 @@
 
 #include "data_manager/testing/mock_data_manager.h"
 
-#include <string>
-#include <utility>
-
 #include "data_manager/data_manager_test_base.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
@@ -49,16 +46,13 @@ class MockDataManagerTest : public DataManagerTestBase {
   MockDataManagerTest()
       : DataManagerTestBase(
             new MockDataManager, kLSize, kRSize, IsBoundaryInternal,
-            mozc::testing::GetSourceFileOrDie({MOZC_DICT_DIR_COMPONENTS, "test",
-                                               "dictionary",
-                                               "connection_single_column.txt"}),
+            mozc::testing::GetSourceFileOrDie(
+                {"data", "test", "dictionary", "connection_single_column.txt"}),
             1,
             mozc::testing::GetSourceFilesInDirOrDie(
-                {MOZC_DICT_DIR_COMPONENTS, "test", "dictionary"},
-                {"dictionary.txt"}),
+                {"data", "test", "dictionary"}, {"dictionary.txt"}),
             mozc::testing::GetSourceFilesInDirOrDie(
-                {MOZC_DICT_DIR_COMPONENTS, "test", "dictionary"},
-                {"suggestion_filter.txt"})) {}
+                {"data", "test", "dictionary"}, {"suggestion_filter.txt"})) {}
 };
 
 TEST_F(MockDataManagerTest, AllTests) { RunAllTests(); }

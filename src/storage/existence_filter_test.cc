@@ -35,10 +35,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/hash.h"
-#include "base/logging.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 
@@ -46,12 +48,11 @@ namespace mozc {
 namespace storage {
 namespace {
 
-void CheckValues(const ExistenceFilter &filter, int m, int n) {
+void CheckValues(const ExistenceFilter& filter, int m, int n) {
   int false_positives = 0;
   for (int i = 0; i < 2 * n; ++i) {
-    uint64_t hash = Fingerprint(i);
-    bool should_exist = ((i % 2) == 0);
-    bool actual = filter.Exists(hash);
+    const bool should_exist = ((i % 2) == 0);
+    const bool actual = filter.Exists(absl::StrCat(i));
     if (should_exist) {
       CHECK(actual) << " Value = " << i;
     } else {
@@ -75,9 +76,8 @@ void RunTest(int m, int n) {
   ExistenceFilterBuilder builder = ExistenceFilterBuilder::CreateOptimal(m, n);
 
   for (int i = 0; i < n; ++i) {
-    int val = i * 2;
-    uint64_t hash = Fingerprint(val);
-    builder.Insert(hash);
+    const int val = i * 2;
+    builder.Insert(absl::StrCat(val));
   }
 
   ExistenceFilter filter = builder.Build();
@@ -119,40 +119,101 @@ TEST(ExistenceFilterTest, ReadWriteTest) {
   ExistenceFilterBuilder builder(
       ExistenceFilterBuilder::CreateOptimal(num_bytes, std::size(kWords)));
 
-  for (const absl::string_view &word : kWords) {
-    builder.Insert(Fingerprint(word));
+  // If we change the default FpType, we also need to update the data FP.
+  EXPECT_EQ(CityFingerprint(builder.SerializeAsString()), 0x1dcbe48117d0106c);
+
+  for (const absl::string_view word : kWords) {
+    builder.Insert(word);
   }
 
   const std::string buf = builder.SerializeAsString();
+
+  // If we change the default FpType, we also need to update the data FP.
+  EXPECT_EQ(CityFingerprint(buf), 0x877b326008d5246a);
+
   const std::vector<uint32_t> aligned_buf = StringToAlignedBuffer(buf);
   absl::StatusOr<ExistenceFilter> filter_read(
       ExistenceFilter::Read(aligned_buf));
   EXPECT_OK(filter_read);
 
-  for (const absl::string_view &word : kWords) {
-    EXPECT_TRUE(filter_read->Exists(Fingerprint(word)));
+  for (const absl::string_view word : kWords) {
+    EXPECT_TRUE(filter_read->Exists(word));
   }
 }
 
 TEST(ExistenceFilterTest, InsertAndExistsTest) {
-  const std::vector<std::string> words = {"a", "b", "c", "d", "e",
+  constexpr absl::string_view kWords[] = {"a", "b", "c", "d", "e",
                                           "f", "g", "h", "i"};
 
   static constexpr float kErrorRate = 0.0001;
   int num_bytes = ExistenceFilterBuilder::MinFilterSizeInBytesForErrorRate(
-      kErrorRate, words.size());
+      kErrorRate, std::size(kWords));
 
   ExistenceFilterBuilder builder(
-      ExistenceFilterBuilder::CreateOptimal(num_bytes, words.size()));
+      ExistenceFilterBuilder::CreateOptimal(num_bytes, std::size(kWords)));
 
-  for (const std::string &word : words) {
-    builder.Insert(Fingerprint(word));
+  for (const absl::string_view word : kWords) {
+    builder.Insert(word);
   }
 
-  ExistenceFilter filter = builder.Build();
+  const ExistenceFilter filter = builder.Build();
 
-  for (const std::string &word : words) {
-    EXPECT_TRUE(filter.Exists(Fingerprint(word)));
+  // If we change the default FpType, we also need to update the data FP.
+  EXPECT_EQ(CityFingerprint(builder.SerializeAsString()), 0x549d89308d013f39);
+
+  for (const absl::string_view word : kWords) {
+    EXPECT_TRUE(filter.Exists(word));
+  }
+}
+
+TEST(ExistenceFilterTest, InsertAndExistsStringTest) {
+  constexpr absl::string_view kWords[] = {"a", "b", "c", "d", "e",
+                                          "f", "g", "h", "i"};
+
+  static constexpr float kErrorRate = 0.0001;
+  int num_bytes = ExistenceFilterBuilder::MinFilterSizeInBytesForErrorRate(
+      kErrorRate, std::size(kWords) * 2);
+
+  for (const uint16_t fp_type : {0, 1}) {
+    ExistenceFilterBuilder builder(ExistenceFilterBuilder::CreateOptimal(
+        num_bytes, std::size(kWords), fp_type));
+    for (const absl::string_view word : kWords) {
+      builder.Insert(word);
+      builder.Insert({word, "\t", word});
+    }
+
+    const ExistenceFilter filter = builder.Build();
+    EXPECT_EQ(filter.params().fp_type, fp_type);
+
+    for (const absl::string_view word : kWords) {
+      EXPECT_TRUE(filter.Exists(word));
+      EXPECT_TRUE(filter.Exists({word, "\t", word}));
+    }
+  }
+}
+
+TEST(ExistenceFilterTest, FpTypeTest) {
+  constexpr absl::string_view kWords[] = {"a", "b", "c"};
+
+  static constexpr float kErrorRate = 0.0001;
+  int num_bytes = ExistenceFilterBuilder::MinFilterSizeInBytesForErrorRate(
+      kErrorRate, std::size(kWords));
+
+  for (uint16_t fp_type = 0; fp_type < ExistenceFilterParams::FP_TYPE_SIZE;
+       ++fp_type) {
+    ExistenceFilterBuilder builder(ExistenceFilterBuilder::CreateOptimal(
+        num_bytes, std::size(kWords), fp_type));
+
+    for (const absl::string_view word : kWords) {
+      builder.Insert(word);
+    }
+
+    const std::string buf = builder.SerializeAsString();
+    const std::vector<uint32_t> aligned_buf = StringToAlignedBuffer(buf);
+    absl::StatusOr<ExistenceFilter> filter_read(
+        ExistenceFilter::Read(aligned_buf));
+
+    EXPECT_EQ(filter_read->params().fp_type, fp_type);
   }
 }
 

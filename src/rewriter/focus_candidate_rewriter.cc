@@ -30,17 +30,20 @@
 #include "rewriter/focus_candidate_rewriter.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
 #include "base/number_util.h"
 #include "base/util.h"
 #include "base/vlog.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "rewriter/number_compound_util.h"
 
 namespace mozc {
@@ -49,12 +52,12 @@ namespace {
 enum { NUMBER = 1, SUFFIX = 2, CONNECTOR = 4 };
 
 // TODO(taku): See POS and increase the coverage.
-bool IsConnectorSegment(const Segment &segment) {
+bool IsConnectorSegment(const Segment& segment) {
   return (segment.key() == "と" || segment.key() == "や");
 }
 
 // Finds value from the candidates list and move the candidate to the top.
-bool RewriteCandidate(Segment *segment, absl::string_view value) {
+bool RewriteCandidate(Segment* segment, absl::string_view value) {
   for (int i = 0; i < segment->candidates_size(); ++i) {
     if (segment->candidate(i).content_value == value) {
       segment->move_candidate(i, 0);  // move to top
@@ -72,25 +75,25 @@ bool RewriteCandidate(Segment *segment, absl::string_view value) {
 }
 
 // Returns true if the segment is valid.
-bool IsValidSegment(const Segment &segment) {
+bool IsValidSegment(const Segment& segment) {
   return (segment.segment_type() == Segment::FREE ||
           segment.segment_type() == Segment::FIXED_BOUNDARY ||
           segment.segment_type() == Segment::FIXED_VALUE);
 }
 
-bool IsNumberCandidate(const Segment::Candidate &candidate) {
+bool IsNumberCandidate(const converter::Candidate& candidate) {
   return (candidate.style != NumberUtil::NumberString::DEFAULT_STYLE ||
           Util::GetScriptType(candidate.value) == Util::NUMBER);
 }
 
-bool IsNumberSegment(const Segment &segment) {
+bool IsNumberSegment(const Segment& segment) {
   return (segment.candidates_size() > 0 &&
           IsNumberCandidate(segment.candidate(0)));
 }
 
 // Returns true if two candidates have the same number form.
-bool IsSameNumberType(const Segment::Candidate &candidate1,
-                      const Segment::Candidate &candidate2) {
+bool IsSameNumberType(const converter::Candidate& candidate1,
+                      const converter::Candidate& candidate2) {
   if (candidate1.style == candidate2.style) {
     if (candidate1.style == NumberUtil::NumberString::DEFAULT_STYLE) {
       if (IsNumberCandidate(candidate1) && IsNumberCandidate(candidate2) &&
@@ -105,7 +108,7 @@ bool IsSameNumberType(const Segment::Candidate &candidate1,
   return false;
 }
 
-bool RewriteNumber(Segment *segment, const Segment::Candidate &candidate) {
+bool RewriteNumber(Segment* segment, const converter::Candidate& candidate) {
   for (int i = 0; i < segment->candidates_size(); ++i) {
     if (IsSameNumberType(candidate, segment->candidate(i))) {
       segment->move_candidate(i, 0);  // move to top
@@ -126,13 +129,9 @@ bool RewriteNumber(Segment *segment, const Segment::Candidate &candidate) {
 
 }  // namespace
 
-FocusCandidateRewriter::FocusCandidateRewriter(
-    const DataManagerInterface *data_manager)
-    : pos_matcher_(data_manager->GetPosMatcherData()) {
-  const char *array = nullptr;
-  size_t size = 0;
-  data_manager->GetCounterSuffixSortedArray(&array, &size);
-  const absl::string_view data(array, size);
+FocusCandidateRewriter::FocusCandidateRewriter(const DataManager& data_manager)
+    : pos_matcher_(data_manager.GetPosMatcherData()) {
+  absl::string_view data = data_manager.GetCounterSuffixSortedArray();
   // Data manager is responsible for providing a valid data.  Just verify data
   // in debug build.
   DCHECK(SerializedStringArray::VerifyData(data));
@@ -141,7 +140,7 @@ FocusCandidateRewriter::FocusCandidateRewriter(
 
 FocusCandidateRewriter::~FocusCandidateRewriter() = default;
 
-bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
+bool FocusCandidateRewriter::Focus(Segments* segments, size_t segment_index,
                                    int candidate_index) const {
   if (segments == nullptr) {
     LOG(ERROR) << "Segments is NULL";
@@ -153,7 +152,7 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
     return false;
   }
 
-  const Segment &seg = segments->segment(segment_index);
+  const Segment& seg = segments->segment(segment_index);
 
   // segment_type must be FREE or FIXED_BOUNDARY
   if (!IsValidSegment(seg)) {
@@ -172,13 +171,12 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
 
   // left to right
   {
-    const std::string &left_value =
-        seg.candidate(candidate_index).content_value;
+    absl::string_view left_value = seg.candidate(candidate_index).content_value;
     absl::string_view right_value;
 
     if (Util::IsOpenBracket(left_value, &right_value)) {
       int num_nest = 1;
-      for (Segment &target_right_seg :
+      for (Segment& target_right_seg :
            segments->all().drop(segment_index + 1)) {
         if (target_right_seg.candidates_size() <= 0) {
           LOG(WARNING) << "target right seg is not valid";
@@ -187,7 +185,7 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
         if (!IsValidSegment(target_right_seg)) {
           continue;
         }
-        const std::string &target_right_value =
+        absl::string_view target_right_value =
             target_right_seg.candidate(0).content_value;
         absl::string_view tmp;
         if (Util::IsOpenBracket(target_right_value, &tmp)) {
@@ -207,14 +205,14 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
 
   // right to left
   {
-    const std::string &right_value =
+    absl::string_view right_value =
         seg.candidate(candidate_index).content_value;
     absl::string_view left_value;
 
     if (Util::IsCloseBracket(right_value, &left_value)) {
       int num_nest = 1;
       for (int i = segment_index - 1; i >= 0; --i) {
-        Segment *target_left_seg = segments->mutable_segment(i);
+        Segment* target_left_seg = segments->mutable_segment(i);
         if (target_left_seg == nullptr ||
             target_left_seg->candidates_size() <= 0) {
           LOG(WARNING) << "target left seg is not valid";
@@ -223,7 +221,7 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
         if (!IsValidSegment(*target_left_seg)) {
           continue;
         }
-        const std::string &target_left_value =
+        absl::string_view target_left_value =
             target_left_seg->candidate(0).content_value;
         absl::string_view tmp;
         if (Util::IsCloseBracket(target_left_value, &tmp)) {
@@ -244,7 +242,7 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
     if (IsNumberCandidate(seg.candidate(candidate_index))) {
       bool modified = false;
       int distance = 0;
-      for (Segment &target_right_seg :
+      for (Segment& target_right_seg :
            segments->all().drop(segment_index + 1)) {
         if (target_right_seg.candidates_size() <= 0) {
           LOG(WARNING) << "target right seg is not valid";
@@ -280,7 +278,7 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
             seg.candidate(candidate_index).content_key) {
       int next_stat = CONNECTOR | NUMBER;
       bool modified = false;
-      for (Segment &segment : segments->all().drop(segment_index + 1)) {
+      for (Segment& segment : segments->all().drop(segment_index + 1)) {
         if (next_stat == (CONNECTOR | NUMBER)) {
           if (IsConnectorSegment(segment)) {
             next_stat = NUMBER;
@@ -310,13 +308,13 @@ bool FocusCandidateRewriter::Focus(Segments *segments, size_t segment_index,
   return RerankNumberCandidates(segments, segment_index, candidate_index);
 }
 
-bool FocusCandidateRewriter::RerankNumberCandidates(Segments *segments,
+bool FocusCandidateRewriter::RerankNumberCandidates(Segments* segments,
                                                     size_t segment_index,
                                                     int candidate_index) const {
   // Check if the focused candidate is a number compound.
   absl::string_view number, suffix;
   uint32_t number_script_type = 0;
-  const Segment &seg = segments->segment(segment_index);
+  const Segment& seg = segments->segment(segment_index);
   if (!ParseNumberCandidate(seg.candidate(candidate_index), &number, &suffix,
                             &number_script_type)) {
     return false;
@@ -329,7 +327,7 @@ bool FocusCandidateRewriter::RerankNumberCandidates(Segments *segments,
   // compound style of the focused candidate.
   bool modified = false;
   int distance = 0;
-  for (Segment &seg : segments->all().drop(segment_index + 1)) {
+  for (Segment& seg : segments->all().drop(segment_index + 1)) {
     const int index = FindMatchingCandidates(seg, number_script_type, suffix);
     if (index == -1) {
       // If there's no appropriate candidate having the same style, we increment
@@ -351,11 +349,11 @@ bool FocusCandidateRewriter::RerankNumberCandidates(Segments *segments,
 }
 
 int FocusCandidateRewriter::FindMatchingCandidates(
-    const Segment &seg, uint32_t ref_script_type,
+    const Segment& seg, uint32_t ref_script_type,
     absl::string_view ref_suffix) const {
   // Only segments whose top candidate is a number compound are target of
   // reranking.
-  const Segment::Candidate &cand = seg.candidate(0);
+  const converter::Candidate& cand = seg.candidate(0);
   absl::string_view number, suffix;
   uint32_t script_type = 0;
   if (!ParseNumberCandidate(cand, &number, &suffix, &script_type)) {
@@ -383,8 +381,8 @@ int FocusCandidateRewriter::FindMatchingCandidates(
 }
 
 bool FocusCandidateRewriter::ParseNumberCandidate(
-    const Segment::Candidate &cand, absl::string_view *number,
-    absl::string_view *suffix, uint32_t *script_type) const {
+    const converter::Candidate& cand, absl::string_view* number,
+    absl::string_view* suffix, uint32_t* script_type) const {
   // If the lengths of content value and value are different, particles may be
   // appended to value.  In such cases, we only accept parallel markers.
   // Otherwise, the following wrong rewrite will occur.

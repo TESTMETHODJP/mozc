@@ -33,13 +33,14 @@
 #include <cstdint>
 #include <iterator>
 #include <memory>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "base/clock_mock.h"
 #include "base/util.h"
 #include "composer/key_parser.h"
@@ -49,10 +50,20 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "testing/gunit.h"
+#include "testing/test_peer.h"
 #include "transliteration/transliteration.h"
 
 namespace mozc {
 namespace composer {
+
+class ComposerTestPeer : public testing::TestPeer<Composer> {
+ public:
+  explicit ComposerTestPeer(Composer& composer)
+      : testing::TestPeer<Composer>(composer) {}
+
+  PEER_METHOD(ApplyTemporaryInputMode);
+};
+
 namespace {
 
 using ::mozc::commands::KeyEvent;
@@ -60,7 +71,7 @@ using ::mozc::commands::Request;
 using ::mozc::config::CharacterFormManager;
 using ::mozc::config::Config;
 
-bool InsertKey(const absl::string_view key_string, Composer *composer) {
+bool InsertKey(const absl::string_view key_string, Composer* composer) {
   commands::KeyEvent key;
   if (!KeyParser::ParseKey(key_string, &key)) {
     return false;
@@ -70,7 +81,7 @@ bool InsertKey(const absl::string_view key_string, Composer *composer) {
 
 bool InsertKeyWithMode(const absl::string_view key_string,
                        const commands::CompositionMode mode,
-                       Composer *composer) {
+                       Composer* composer) {
   commands::KeyEvent key;
   if (!KeyParser::ParseKey(key_string, &key)) {
     return false;
@@ -79,7 +90,7 @@ bool InsertKeyWithMode(const absl::string_view key_string,
   return composer->InsertCharacterKeyEvent(key);
 }
 
-void ExpectSameComposer(const Composer &lhs, const Composer &rhs) {
+void ExpectSameComposer(const Composer& lhs, const Composer& rhs) {
   EXPECT_EQ(lhs.GetCursor(), rhs.GetCursor());
   EXPECT_EQ(lhs.is_new_input(), rhs.is_new_input());
   EXPECT_EQ(lhs.GetInputMode(), rhs.GetInputMode());
@@ -101,31 +112,26 @@ void ExpectSameComposer(const Composer &lhs, const Composer &rhs) {
 class ComposerTest : public ::testing::Test {
  protected:
   ComposerTest() = default;
-  ComposerTest(const ComposerTest &) = delete;
-  ComposerTest &operator=(const ComposerTest &) = delete;
+  ComposerTest(const ComposerTest&) = delete;
+  ComposerTest& operator=(const ComposerTest&) = delete;
   ~ComposerTest() override = default;
 
   void SetUp() override {
-    table_ = std::make_unique<Table>();
-    config_ = std::make_unique<Config>();
-    request_ = std::make_unique<Request>();
-    composer_ =
-        std::make_unique<Composer>(table_.get(), request_.get(), config_.get());
+    table_ = std::make_shared<Table>();
+    config_ = std::make_shared<Config>();
+    request_ = std::make_shared<Request>();
+    composer_ = std::make_unique<Composer>(table_, request_, config_);
     CharacterFormManager::GetCharacterFormManager()->SetDefaultRule();
   }
 
   void TearDown() override {
     CharacterFormManager::GetCharacterFormManager()->SetDefaultRule();
-    composer_.reset();
-    request_.reset();
-    config_.reset();
-    table_.reset();
   }
 
   std::unique_ptr<Composer> composer_;
-  std::unique_ptr<Table> table_;
-  std::unique_ptr<Request> request_;
-  std::unique_ptr<Config> config_;
+  std::shared_ptr<Table> table_;
+  std::shared_ptr<Request> request_;
+  std::shared_ptr<Config> config_;
 };
 
 TEST_F(ComposerTest, Reset) {
@@ -225,7 +231,6 @@ TEST_F(ComposerTest, OutputMode) {
   composer_->InsertCharacter("i");
   composer_->InsertCharacter("u");
 
-  ;
   EXPECT_EQ(composer_->GetStringForPreedit(), "あいう");
 
   composer_->SetOutputMode(transliteration::FULL_ASCII);
@@ -481,11 +486,10 @@ TEST_F(ComposerTest, GetQueriesForPredictionRoman) {
   table_->AddRule("so", "そ", "");
 
   {
-    std::string base;
-    std::set<std::string> expanded;
     composer_->EditErase();
     composer_->InsertCharacter("us");
-    composer_->GetQueriesForPrediction(&base, &expanded);
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [base, expanded] = composer_->GetQueriesForPrediction();
     composer_->GetStringForPreedit();
     EXPECT_EQ(base, "う");
     EXPECT_EQ(expanded.size(), 7);
@@ -513,11 +517,10 @@ TEST_F(ComposerTest, GetQueriesForPredictionMobile) {
   table_->AddRule("づ*", "", "つ");
 
   {
-    std::string base;
-    std::set<std::string> expanded;
     composer_->EditErase();
     composer_->InsertCharacter("_$");
-    composer_->GetQueriesForPrediction(&base, &expanded);
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [base, expanded] = composer_->GetQueriesForPrediction();
     composer_->GetStringForPreedit();
     EXPECT_EQ(base, "い");
     EXPECT_EQ(expanded.size(), 2);
@@ -525,22 +528,20 @@ TEST_F(ComposerTest, GetQueriesForPredictionMobile) {
     EXPECT_TRUE(expanded.end() != expanded.find("ど"));
   }
   {
-    std::string base;
-    std::set<std::string> expanded;
     composer_->EditErase();
     composer_->InsertCharacter("_$*");
-    composer_->GetQueriesForPrediction(&base, &expanded);
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [base, expanded] = composer_->GetQueriesForPrediction();
     composer_->GetStringForPreedit();
     EXPECT_EQ(base, "い");
     EXPECT_EQ(expanded.size(), 1);
     EXPECT_TRUE(expanded.end() != expanded.find("ど"));
   }
   {
-    std::string base;
-    std::set<std::string> expanded;
     composer_->EditErase();
     composer_->InsertCharacter("_x*");
-    composer_->GetQueriesForPrediction(&base, &expanded);
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [base, expanded] = composer_->GetQueriesForPrediction();
     composer_->GetStringForPreedit();
     EXPECT_EQ(base, "い");
     EXPECT_EQ(expanded.size(), 1);
@@ -556,18 +557,17 @@ TEST_F(ComposerTest, Issue277163340) {
   // Test against http://b/277163340.
   // Before the fix, unexpected input was passed to
   // RemoveExpandedCharsForModifier() in the following test due to another
-  // bug in composer/internal/char_chunk.cc and it
+  // bug in composer/char_chunk.cc and it
   // caused the process to crash.
   table_->AddRuleWithAttributes("[", "", "", NO_TRANSLITERATION);
-  std::string base, asis, preedit;
-  std::set<std::string> expanded;
   commands::KeyEvent key;
   key.set_key_string("[]");
   key.set_input_style(commands::KeyEvent::AS_IS);
   composer_->InsertCharacterKeyEvent(key);
   composer_->InsertCharacterKeyEvent(key);
   composer_->InsertCommandCharacter(composer::Composer::STOP_KEY_TOGGLING);
-  composer_->GetQueriesForPrediction(&base, &expanded);
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [base, expanded] = composer_->GetQueriesForPrediction();
 
   // Never reached here due to the crash before the fix for b/277163340.
   EXPECT_EQ(base, "[][]");
@@ -647,7 +647,7 @@ TEST_F(ComposerTest, GetStringFunctionsInputFieldType) {
   composer_->SetInputMode(transliteration::HIRAGANA);
   for (size_t test_data_index = 0; test_data_index < std::size(test_data_list);
        ++test_data_index) {
-    const TestData &test_data = test_data_list[test_data_index];
+    const TestData& test_data = test_data_list[test_data_index];
     composer_->SetInputFieldType(test_data.field_type);
     std::string key;
     for (char c = 0x20; c <= 0x7E; ++c) {
@@ -860,8 +860,7 @@ TEST_F(ComposerTest, InsertCharacterKeyEventWithInputMode) {
     EXPECT_EQ(composer_->GetInputMode(), transliteration::HIRAGANA);
   }
 
-  composer_ =
-      std::make_unique<Composer>(table_.get(), request_.get(), config_.get());
+  composer_ = std::make_unique<Composer>(table_, request_, config_);
 
   {
     // "a" → "あ" (Hiragana)
@@ -902,6 +901,8 @@ TEST_F(ComposerTest, ApplyTemporaryInputMode) {
   constexpr bool kCapsLocked = true;
   constexpr bool kCapsUnlocked = false;
 
+  ComposerTestPeer composer_peer(*composer_);
+
   table_->AddRule("a", "あ", "");
   composer_->SetInputMode(transliteration::HIRAGANA);
 
@@ -926,8 +927,8 @@ TEST_F(ComposerTest, ApplyTemporaryInputMode) {
     };
 
     for (int i = 0; i < std::size(kTestDataAscii); ++i) {
-      composer_->ApplyTemporaryInputMode(kTestDataAscii[i].first,
-                                         kCapsUnlocked);
+      composer_peer.ApplyTemporaryInputMode(kTestDataAscii[i].first,
+                                            kCapsUnlocked);
 
       const transliteration::TransliterationType expected =
           kTestDataAscii[i].second ? transliteration::HALF_ASCII
@@ -957,7 +958,8 @@ TEST_F(ComposerTest, ApplyTemporaryInputMode) {
     };
 
     for (int i = 0; i < std::size(kTestDataAscii); ++i) {
-      composer_->ApplyTemporaryInputMode(kTestDataAscii[i].first, kCapsLocked);
+      composer_peer.ApplyTemporaryInputMode(kTestDataAscii[i].first,
+                                            kCapsLocked);
 
       const transliteration::TransliterationType expected =
           kTestDataAscii[i].second ? transliteration::HALF_ASCII
@@ -987,8 +989,8 @@ TEST_F(ComposerTest, ApplyTemporaryInputMode) {
     };
 
     for (int i = 0; i < std::size(kTestDataKatakana); ++i) {
-      composer_->ApplyTemporaryInputMode(kTestDataKatakana[i].first,
-                                         kCapsUnlocked);
+      composer_peer.ApplyTemporaryInputMode(kTestDataKatakana[i].first,
+                                            kCapsUnlocked);
 
       const transliteration::TransliterationType expected =
           kTestDataKatakana[i].second ? transliteration::FULL_KATAKANA
@@ -1018,8 +1020,8 @@ TEST_F(ComposerTest, ApplyTemporaryInputMode) {
     };
 
     for (int i = 0; i < std::size(kTestDataKatakana); ++i) {
-      composer_->ApplyTemporaryInputMode(kTestDataKatakana[i].first,
-                                         kCapsLocked);
+      composer_peer.ApplyTemporaryInputMode(kTestDataKatakana[i].first,
+                                            kCapsLocked);
 
       const transliteration::TransliterationType expected =
           kTestDataKatakana[i].second ? transliteration::FULL_KATAKANA
@@ -1263,8 +1265,7 @@ TEST_F(ComposerTest, AutoIMETurnOffEnabled) {
     EXPECT_EQ(composer_->GetInputMode(), transliteration::HIRAGANA);
   }
 
-  composer_ =
-      std::make_unique<Composer>(table_.get(), request_.get(), config_.get());
+  composer_ = std::make_unique<Composer>(table_, request_, config_);
 
   {  // google
     InsertKey("g", composer_.get());
@@ -1329,8 +1330,7 @@ TEST_F(ComposerTest, AutoIMETurnOffEnabled) {
   }
 
   config_->set_shift_key_mode_switch(Config::OFF);
-  composer_ =
-      std::make_unique<Composer>(table_.get(), request_.get(), config_.get());
+  composer_ = std::make_unique<Composer>(table_, request_, config_);
 
   {  // Google
     InsertKey("G", composer_.get());
@@ -1560,9 +1560,9 @@ TEST_F(ComposerTest, UpdateInputMode) {
 
 TEST_F(ComposerTest, DisabledUpdateInputMode) {
   // Set the flag disable.
-  commands::Request request;
-  request.set_update_input_mode_from_surrounding_text(false);
-  composer_->SetRequest(&request);
+  auto request = std::make_shared<commands::Request>();
+  request->set_update_input_mode_from_surrounding_text(false);
+  composer_->SetRequest(request);
 
   table_->AddRule("a", "あ", "");
   table_->AddRule("i", "い", "");
@@ -1769,7 +1769,7 @@ TEST_F(ComposerTest, TransformCharactersForNumbers) {
 }
 
 TEST_F(ComposerTest, PreeditFormAfterCharacterTransform) {
-  CharacterFormManager *manager =
+  CharacterFormManager* manager =
       CharacterFormManager::GetCharacterFormManager();
   table_->AddRule("0", "０", "");
   table_->AddRule("1", "１", "");
@@ -1819,6 +1819,14 @@ TEST_F(ComposerTest, PreeditFormAfterCharacterTransform) {
     manager->AddPreeditRule(".,", Config::FULL_WIDTH);
     composer_->InsertCharacter("3.14");
     EXPECT_EQ(composer_->GetStringForPreedit(), "３．１４");
+  }
+
+  {
+    composer_->Reset();
+    manager->SetDefaultRule();
+    composer_->InsertCharacter("-123");
+    EXPECT_EQ(composer_->GetStringForPreedit(), "−１２３");
+    EXPECT_EQ(composer_->GetRawString(), "-123");
   }
 }
 
@@ -1916,6 +1924,22 @@ TEST_F(ComposerTest, AlphanumericOfSSH) {
   transliteration::Transliterations t13ns;
   composer_->GetTransliterations(&t13ns);
   EXPECT_EQ(t13ns[transliteration::HALF_ASCII], "ssh");
+}
+
+TEST_F(ComposerTest, TransliterationsOfNegativeNumber) {
+  table_->AddRule("-", "ー", "");  // U+30FC (prolonged sound mark)
+  table_->AddRule("1", "１", "");
+  composer_->InsertCharacter("-1");
+  EXPECT_EQ(composer_->GetStringForPreedit(), "−１");  // U+2212 (minus)
+
+  transliteration::Transliterations t13ns;
+  composer_->GetTransliterations(&t13ns);
+  // U+002D (hyphen-minus)
+  EXPECT_EQ(t13ns[transliteration::HALF_ASCII], "-1");
+  // U+2212 (minus)
+  EXPECT_EQ(t13ns[transliteration::FULL_ASCII], "−１");
+  // U+30FC (prolonged sound mark, 長音)
+  EXPECT_EQ(t13ns[transliteration::HIRAGANA], "ー１");
 }
 
 TEST_F(ComposerTest, Issue2190364) {
@@ -2344,7 +2368,7 @@ TEST_F(ComposerTest, ShouldCommitHead) {
   };
 
   for (size_t i = 0; i < std::size(test_data_list); ++i) {
-    const TestData &test_data = test_data_list[i];
+    const TestData& test_data = test_data_list[i];
     SCOPED_TRACE(test_data.input_text);
     SCOPED_TRACE(test_data.field_type);
     SCOPED_TRACE(test_data.expected_return);
@@ -2491,14 +2515,14 @@ TEST_F(ComposerTest, DeleteRange) {
 
 TEST_F(ComposerTest, 12KeysAsciiGetQueryForPrediction) {
   // http://b/5509480
-  commands::Request request;
-  request.set_zero_query_suggestion(true);
-  request.set_mixed_conversion(true);
-  request.set_special_romanji_table(
+  auto request = std::make_shared<commands::Request>();
+  request->set_zero_query_suggestion(true);
+  request->set_mixed_conversion(true);
+  request->set_special_romanji_table(
       commands::Request::TWELVE_KEYS_TO_HALFWIDTHASCII);
-  composer_->SetRequest(&request);
+  composer_->SetRequest(request);
   table_->InitializeWithRequestAndConfig(
-      request, config::ConfigHandler::DefaultConfig());
+      *request, config::ConfigHandler::DefaultConfig());
   composer_->InsertCharacter("2");
   EXPECT_EQ(composer_->GetStringForPreedit(), "a");
   EXPECT_EQ(composer_->GetQueryForConversion(), "a");
@@ -2509,13 +2533,12 @@ TEST_F(ComposerTest, InsertCharacterPreedit) {
   constexpr char kTestStr[] = "ああaｋka。";
 
   {
-    std::string base;
-    std::set<std::string> expanded;
     composer_->InsertCharacterPreedit(kTestStr);
-    std::string preedit = composer_->GetStringForPreedit();
-    std::string conversion_query = composer_->GetQueryForConversion();
-    std::string prediction_query = composer_->GetQueryForPrediction();
-    composer_->GetQueriesForPrediction(&base, &expanded);
+    const std::string preedit = composer_->GetStringForPreedit();
+    const std::string conversion_query = composer_->GetQueryForConversion();
+    const std::string prediction_query = composer_->GetQueryForPrediction();
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [base, expanded] = composer_->GetQueriesForPrediction();
     EXPECT_FALSE(preedit.empty());
     EXPECT_FALSE(conversion_query.empty());
     EXPECT_FALSE(prediction_query.empty());
@@ -2523,17 +2546,14 @@ TEST_F(ComposerTest, InsertCharacterPreedit) {
   }
   composer_->Reset();
   {
-    std::string base;
-    std::set<std::string> expanded;
-    std::vector<std::string> chars;
-    Util::SplitStringToUtf8Chars(kTestStr, &chars);
-    for (size_t i = 0; i < chars.size(); ++i) {
-      composer_->InsertCharacterPreedit(chars[i]);
+    for (const std::string& c : Util::SplitStringToUtf8Chars(kTestStr)) {
+      composer_->InsertCharacterPreedit(c);
     }
-    std::string preedit = composer_->GetStringForPreedit();
-    std::string conversion_query = composer_->GetQueryForConversion();
-    std::string prediction_query = composer_->GetQueryForPrediction();
-    composer_->GetQueriesForPrediction(&base, &expanded);
+    const std::string preedit = composer_->GetStringForPreedit();
+    const std::string conversion_query = composer_->GetQueryForConversion();
+    const std::string prediction_query = composer_->GetQueryForPrediction();
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [base, expanded] = composer_->GetQueriesForPrediction();
     EXPECT_FALSE(preedit.empty());
     EXPECT_FALSE(conversion_query.empty());
     EXPECT_FALSE(prediction_query.empty());
@@ -2563,9 +2583,6 @@ TEST_F(ComposerTest, GetRawString) {
 }
 
 TEST_F(ComposerTest, SetPreeditTextForTestOnly) {
-  std::string output;
-  std::set<std::string> expanded;
-
   composer_->SetPreeditTextForTestOnly("も");
 
   EXPECT_EQ(composer_->GetInputMode(), transliteration::HIRAGANA);
@@ -2574,9 +2591,10 @@ TEST_F(ComposerTest, SetPreeditTextForTestOnly) {
   EXPECT_EQ(composer_->GetQueryForConversion(), "も");
   EXPECT_EQ(composer_->GetQueryForPrediction(), "も");
 
-  composer_->GetQueriesForPrediction(&output, &expanded);
-  EXPECT_EQ(output, "も");
-  EXPECT_TRUE(expanded.empty());
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [output1, expanded1] = composer_->GetQueriesForPrediction();
+  EXPECT_EQ(output1, "も");
+  EXPECT_TRUE(expanded1.empty());
 
   composer_->Reset();
 
@@ -2588,10 +2606,11 @@ TEST_F(ComposerTest, SetPreeditTextForTestOnly) {
   EXPECT_EQ(composer_->GetQueryForConversion(), "mo");
   EXPECT_EQ(composer_->GetQueryForPrediction(), "mo");
 
-  composer_->GetQueriesForPrediction(&output, &expanded);
-  EXPECT_EQ(output, "mo");
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [output2, expanded2] = composer_->GetQueriesForPrediction();
+  EXPECT_EQ(output2, "mo");
 
-  EXPECT_TRUE(expanded.empty());
+  EXPECT_TRUE(expanded2.empty());
 
   composer_->Reset();
 
@@ -2603,10 +2622,11 @@ TEST_F(ComposerTest, SetPreeditTextForTestOnly) {
   EXPECT_EQ(composer_->GetQueryForConversion(), "m");
   EXPECT_EQ(composer_->GetQueryForPrediction(), "m");
 
-  composer_->GetQueriesForPrediction(&output, &expanded);
-  EXPECT_EQ(output, "m");
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [output3, expanded3] = composer_->GetQueriesForPrediction();
+  EXPECT_EQ(output3, "m");
 
-  EXPECT_TRUE(expanded.empty());
+  EXPECT_TRUE(expanded3.empty());
 
   composer_->Reset();
 
@@ -2619,10 +2639,11 @@ TEST_F(ComposerTest, SetPreeditTextForTestOnly) {
   EXPECT_EQ(composer_->GetQueryForConversion(), "もz");
   EXPECT_EQ(composer_->GetQueryForPrediction(), "もz");
 
-  composer_->GetQueriesForPrediction(&output, &expanded);
-  EXPECT_EQ(output, "もz");
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [output4, expanded4] = composer_->GetQueriesForPrediction();
+  EXPECT_EQ(output4, "もz");
 
-  EXPECT_TRUE(expanded.empty());
+  EXPECT_TRUE(expanded4.empty());
 }
 
 TEST_F(ComposerTest, IsToggleable) {
@@ -2907,7 +2928,7 @@ TEST_F(ComposerTest, NBforeN_WithFullWidth) {
   table_->AddRule("nn", "ん", "");
   table_->AddRule("a", "あ", "");
 
-  CharacterFormManager *manager =
+  CharacterFormManager* manager =
       CharacterFormManager::GetCharacterFormManager();
   manager->SetDefaultRule();
   manager->AddPreeditRule("a", Config::FULL_WIDTH);
@@ -2928,9 +2949,9 @@ TEST_F(ComposerTest, NBforeN_WithFullWidth) {
   EXPECT_EQ(focused, "ｎ");
   EXPECT_EQ(right, "");
 
-  std::string queries_base;
-  std::set<std::string> queries_expanded;
-  composer_->GetQueriesForPrediction(&queries_base, &queries_expanded);
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [queries_base, queries_expanded] =
+      composer_->GetQueriesForPrediction();
   EXPECT_EQ(queries_base, "あn");
 
   EXPECT_EQ(composer_->GetQueryForPrediction(), "あnn");
@@ -2954,7 +2975,7 @@ TEST_F(ComposerTest, NBforeN_WithHalfWidth) {
   table_->AddRule("nn", "ん", "");
   table_->AddRule("a", "あ", "");
 
-  CharacterFormManager *manager =
+  CharacterFormManager* manager =
       CharacterFormManager::GetCharacterFormManager();
   manager->SetDefaultRule();
   manager->AddPreeditRule("a", Config::HALF_WIDTH);
@@ -2975,9 +2996,9 @@ TEST_F(ComposerTest, NBforeN_WithHalfWidth) {
   EXPECT_EQ(focused, "n");
   EXPECT_EQ(right, "");
 
-  std::string queries_base;
-  std::set<std::string> queries_expanded;
-  composer_->GetQueriesForPrediction(&queries_base, &queries_expanded);
+  // auto = std::pair<std::string, absl::btree_set<std::string>>
+  const auto [queries_base, queries_expanded] =
+      composer_->GetQueriesForPrediction();
   EXPECT_EQ(queries_base, "あn");
 
   EXPECT_EQ(composer_->GetQueryForPrediction(), "あnn");
@@ -3004,7 +3025,7 @@ TEST_F(ComposerTest, GetStringForTypeCorrectionTest) {
 TEST_F(ComposerTest, UpdateComposition) {
   {
     commands::SessionCommand command;
-    commands::SessionCommand::CompositionEvent *composition_event =
+    commands::SessionCommand::CompositionEvent* composition_event =
         command.add_composition_events();
     composition_event->set_composition_string("かん字");
     composition_event->set_probability(1.0);
@@ -3016,7 +3037,7 @@ TEST_F(ComposerTest, UpdateComposition) {
 
   {
     commands::SessionCommand command;
-    commands::SessionCommand::CompositionEvent *composition_event =
+    commands::SessionCommand::CompositionEvent* composition_event =
         command.add_composition_events();
     composition_event->set_composition_string("ねこ");
     composition_event->set_probability(0.9);
@@ -3029,5 +3050,199 @@ TEST_F(ComposerTest, UpdateComposition) {
   EXPECT_EQ(composer_->GetQueryForPrediction(), "ねこ");
   EXPECT_EQ(composer_->GetHandwritingCompositions().size(), 2);
 }
+
+TEST_F(ComposerTest, CreateComposerData) {
+  table_->AddRule("a", "あ", "");
+  table_->AddRule("ka", "か", "");
+  table_->AddRule("ki", "き", "");
+
+  InsertKey("a", composer_.get());
+  InsertKeyWithMode("a", commands::FULL_KATAKANA, composer_.get());
+  InsertKey("k", composer_.get());
+
+  ComposerData data(composer_->CreateComposerData());
+  EXPECT_EQ(data.GetInputMode(), composer_->GetInputMode());
+  EXPECT_EQ(data.GetStringForPreedit(), "あアｋ");
+  EXPECT_EQ(data.GetStringForPreedit(), composer_->GetStringForPreedit());
+  EXPECT_EQ(data.GetQueryForConversion(), composer_->GetQueryForConversion());
+  EXPECT_EQ(data.GetQueryForPrediction(), "あア");
+  EXPECT_EQ(data.GetQueryForPrediction(), composer_->GetQueryForPrediction());
+  EXPECT_EQ(data.GetStringForTypeCorrection(),
+            composer_->GetStringForTypeCorrection());
+  EXPECT_EQ(data.GetLength(), composer_->GetLength());
+  EXPECT_EQ(data.GetCursor(), composer_->GetCursor());
+  EXPECT_EQ(data.GetRawString(), composer_->GetRawString());
+  EXPECT_EQ(data.GetRawSubString(0, 2), composer_->GetRawSubString(0, 2));
+  EXPECT_EQ(data.GetRawSubString(1, 1), composer_->GetRawSubString(1, 1));
+  EXPECT_EQ(data.source_text(), composer_->source_text());
+
+  EXPECT_EQ(data.GetHandwritingCompositions().size(), 0);
+  EXPECT_EQ(composer_->GetHandwritingCompositions().size(), 0);
+
+  {  // Queries for prediction
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [data_base, data_expanded] = data.GetQueriesForPrediction();
+    EXPECT_EQ(data_base, "あア");
+    EXPECT_EQ(data_expanded.size(), 3);
+
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [composer_base, composer_expanded] =
+        data.GetQueriesForPrediction();
+    EXPECT_EQ(data_base, composer_base);
+    EXPECT_EQ(data_expanded.size(), composer_expanded.size());
+
+    const absl::btree_set<std::string> expected_expanded = {"k", "か", "き"};
+    EXPECT_EQ(data_expanded, composer_expanded);
+    EXPECT_EQ(data_expanded, expected_expanded);
+  }
+
+  {  // Transliterations
+    transliteration::Transliterations data_t13ns;
+    data.GetTransliterations(&data_t13ns);
+    transliteration::Transliterations composer_t13ns;
+    const transliteration::Transliterations expected_t13ns = {
+        "ああｋ", "アアｋ", "aak",    "AAK",    "aak", "Aak",
+        "ａａｋ", "ＡＡＫ", "ａａｋ", "Ａａｋ", "ｱｱk"};
+    composer_->GetTransliterations(&composer_t13ns);
+    EXPECT_EQ(data_t13ns.size(), 11);
+    EXPECT_EQ(data_t13ns.size(), composer_t13ns.size());
+    EXPECT_EQ(data_t13ns, expected_t13ns);
+    EXPECT_EQ(data_t13ns, composer_t13ns);
+  }
+
+  {  // SubTransliterations
+    transliteration::Transliterations data_t13ns;
+    data.GetSubTransliterations(2, 1, &data_t13ns);
+    transliteration::Transliterations composer_t13ns;
+    const transliteration::Transliterations expected_t13ns = {
+        "ｋ", "ｋ", "k", "K", "k", "K", "ｋ", "Ｋ", "ｋ", "Ｋ", "k"};
+    composer_->GetSubTransliterations(2, 1, &composer_t13ns);
+    EXPECT_EQ(data_t13ns.size(), 11);
+    EXPECT_EQ(data_t13ns.size(), composer_t13ns.size());
+    EXPECT_EQ(data_t13ns, expected_t13ns);
+    EXPECT_EQ(data_t13ns, composer_t13ns);
+  }
+}
+
+TEST_F(ComposerTest, CreateComposerDataForHandwriting) {
+  commands::SessionCommand command;
+  commands::SessionCommand::CompositionEvent* composition_event =
+      command.add_composition_events();
+  composition_event->set_composition_string("ねこ");
+  composition_event->set_probability(0.9);
+  composition_event = command.add_composition_events();
+  composition_event->set_composition_string("ね二");
+  composition_event->set_probability(0.1);
+  composer_->SetCompositionsForHandwriting(command.composition_events());
+
+  ComposerData data(composer_->CreateComposerData());
+  EXPECT_EQ(data.GetInputMode(), composer_->GetInputMode());
+  EXPECT_EQ(data.GetStringForPreedit(), composer_->GetStringForPreedit());
+  EXPECT_EQ(data.GetQueryForConversion(), composer_->GetQueryForConversion());
+  EXPECT_EQ(data.GetQueryForPrediction(), "ねこ");
+  EXPECT_EQ(data.GetQueryForPrediction(), composer_->GetQueryForPrediction());
+  EXPECT_EQ(data.GetStringForTypeCorrection(),
+            composer_->GetStringForTypeCorrection());
+  EXPECT_EQ(data.GetLength(), composer_->GetLength());
+  EXPECT_EQ(data.GetCursor(), composer_->GetCursor());
+  EXPECT_EQ(data.GetRawString(), composer_->GetRawString());
+  EXPECT_EQ(data.GetRawSubString(0, 2), composer_->GetRawSubString(0, 2));
+  EXPECT_EQ(data.GetRawSubString(1, 1), composer_->GetRawSubString(1, 1));
+  EXPECT_EQ(data.source_text(), composer_->source_text());
+
+  {  // HandwritingCompositions
+    const absl::Span<const commands::SessionCommand::CompositionEvent>
+        data_events = data.GetHandwritingCompositions();
+    const absl::Span<const commands::SessionCommand::CompositionEvent>
+        composer_events = composer_->GetHandwritingCompositions();
+    EXPECT_EQ(data_events.size(), 2);
+    EXPECT_EQ(data_events.size(), composer_events.size());
+    for (int i = 0; i < data_events.size(); ++i) {
+      EXPECT_EQ(data_events[i].composition_string(),
+                composer_events[i].composition_string());
+      EXPECT_EQ(data_events[i].probability(), composer_events[i].probability());
+    }
+  }
+
+  {  // Queries for prediction
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [data_base, data_expanded] = data.GetQueriesForPrediction();
+
+    EXPECT_EQ(data_base, "ねこ");
+    EXPECT_EQ(data_expanded.size(), 0);
+
+    // auto = std::pair<std::string, absl::btree_set<std::string>>
+    const auto [composer_base, composer_expanded] =
+        data.GetQueriesForPrediction();
+    EXPECT_EQ(data_base, composer_base);
+    EXPECT_EQ(data_expanded.size(), composer_expanded.size());
+    EXPECT_EQ(data_expanded, composer_expanded);  // Empty
+  }
+}
+
+TEST_F(ComposerTest, CreateComposerDataForSourceText) {
+  absl::string_view source_text = "再変換用";
+  absl::string_view preedit_text = "さいへんかんよう";
+  composer_->set_source_text(source_text);
+  composer_->SetPreeditTextForTestOnly(preedit_text);
+  ComposerData data(composer_->CreateComposerData());
+  EXPECT_EQ(data.GetInputMode(), composer_->GetInputMode());
+  EXPECT_EQ(data.GetStringForPreedit(), composer_->GetStringForPreedit());
+  EXPECT_EQ(data.GetQueryForConversion(), composer_->GetQueryForConversion());
+  EXPECT_EQ(data.GetQueryForPrediction(), preedit_text);
+  EXPECT_EQ(data.GetQueryForPrediction(), composer_->GetQueryForPrediction());
+  EXPECT_EQ(data.GetStringForTypeCorrection(),
+            composer_->GetStringForTypeCorrection());
+  EXPECT_EQ(data.GetLength(), composer_->GetLength());
+  EXPECT_EQ(data.GetCursor(), composer_->GetCursor());
+  EXPECT_EQ(data.GetRawString(), composer_->GetRawString());
+  EXPECT_EQ(data.GetRawSubString(0, 2), composer_->GetRawSubString(0, 2));
+  EXPECT_EQ(data.GetRawSubString(1, 1), composer_->GetRawSubString(1, 1));
+  EXPECT_EQ(data.source_text(), source_text);
+  EXPECT_EQ(data.source_text(), composer_->source_text());
+}
+
+TEST_F(ComposerTest, CreateComposerOperators) {
+  table_->AddRule("a", "あ", "");
+  table_->AddRule("ka", "か", "");
+  table_->AddRule("ki", "き", "");
+
+  InsertKey("a", composer_.get());
+  InsertKeyWithMode("a", commands::FULL_KATAKANA, composer_.get());
+  InsertKey("k", composer_.get());
+
+  const ComposerData data(composer_->CreateComposerData());
+  const ComposerData copied = data;
+  const ComposerData moved = std::move(data);
+
+  EXPECT_EQ(copied.GetInputMode(), moved.GetInputMode());
+  EXPECT_EQ(copied.GetStringForPreedit(), moved.GetStringForPreedit());
+  EXPECT_EQ(copied.GetQueryForConversion(), moved.GetQueryForConversion());
+  EXPECT_EQ(copied.GetQueryForPrediction(), moved.GetQueryForPrediction());
+  EXPECT_EQ(copied.GetStringForTypeCorrection(),
+            moved.GetStringForTypeCorrection());
+  EXPECT_EQ(copied.GetLength(), moved.GetLength());
+  EXPECT_EQ(copied.GetCursor(), moved.GetCursor());
+  EXPECT_EQ(copied.GetRawString(), moved.GetRawString());
+  EXPECT_EQ(copied.GetRawSubString(0, 2), moved.GetRawSubString(0, 2));
+  EXPECT_EQ(copied.GetRawSubString(1, 1), moved.GetRawSubString(1, 1));
+  EXPECT_EQ(copied.source_text(), moved.source_text());
+}
+
+TEST_F(ComposerTest, CreateEmptyComposerData) {
+  const ComposerData& data = Composer::EmptyComposerData();
+  EXPECT_EQ(data.GetInputMode(), transliteration::HIRAGANA);
+  EXPECT_EQ(data.GetStringForPreedit(), "");
+  EXPECT_EQ(data.GetQueryForConversion(), "");
+  EXPECT_EQ(data.GetQueryForPrediction(), "");
+  EXPECT_EQ(data.GetStringForTypeCorrection(), "");
+  EXPECT_EQ(data.GetLength(), 0);
+  EXPECT_EQ(data.GetCursor(), 0);
+  EXPECT_EQ(data.GetRawString(), "");
+  EXPECT_EQ(data.GetRawSubString(0, 2), "");
+  EXPECT_EQ(data.GetRawSubString(1, 1), "");
+  EXPECT_EQ(data.source_text(), "");
+}
+
 }  // namespace composer
 }  // namespace mozc

@@ -28,8 +28,6 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__author__ = "taku"
-
 import codecs
 import optparse
 
@@ -76,14 +74,18 @@ def ReadPOSID(id_file, special_pos_file):
 
 def ParseOptions():
   parser = optparse.OptionParser()
-  parser.add_option('--id_def', dest='id_def',
-                    help='POS ID definition file')
-  parser.add_option('--special_pos', dest='special_pos',
-                    help='Special POS definition file')
-  parser.add_option('--pos_group_def', dest='pos_group_def',
-                    help='Left POS ID group definition file')
-  parser.add_option('--output', dest='output',
-                    help='Output file for binary mode')
+  parser.add_option('--id_def', dest='id_def', help='POS ID definition file')
+  parser.add_option(
+      '--special_pos', dest='special_pos', help='Special POS definition file'
+  )
+  parser.add_option(
+      '--pos_group_def',
+      dest='pos_group_def',
+      help='Left POS ID group definition file',
+  )
+  parser.add_option(
+      '--output', dest='output', help='Output file for binary mode'
+  )
   return parser.parse_args()[0]
 
 

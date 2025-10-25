@@ -32,13 +32,14 @@
 #include <fstream>
 #include <utility>
 
+#include "absl/base/const_init.h"
+#include "absl/log/check.h"
 #include "absl/synchronization/mutex.h"
-#include "base/logging.h"
 #include "base/util.h"
 
 namespace {
 constexpr char kBuildPropPath[] = "/system/build.prop";
-ABSL_CONST_INIT absl::Mutex sys_prop_mutex(absl::kConstInit);
+constinit absl::Mutex sys_prop_mutex(absl::kConstInit);
 }  // namespace
 
 namespace mozc {
@@ -51,8 +52,8 @@ constexpr char AndroidUtil::kSystemPropertySdkVersion[] =
     "ro.build.version.sdk";
 
 // static
-std::string AndroidUtil::GetSystemProperty(const std::string &key,
-                                           const std::string &default_value) {
+std::string AndroidUtil::GetSystemProperty(const std::string& key,
+                                           const std::string& default_value) {
   absl::MutexLock lock(&sys_prop_mutex);
   std::map<std::string, std::string>::iterator it = property_cache.find(key);
   if (it != property_cache.end()) {
@@ -83,8 +84,8 @@ std::string AndroidUtil::GetSystemProperty(const std::string &key,
 }
 
 // static
-bool AndroidUtil::GetPropertyFromFile(const std::string &key,
-                                      std::string *output) {
+bool AndroidUtil::GetPropertyFromFile(const std::string& key,
+                                      std::string* output) {
   std::ifstream ifs(kBuildPropPath);
   if (!ifs) {
     return false;
@@ -113,8 +114,8 @@ bool AndroidUtil::GetPropertyFromFile(const std::string &key,
 // android_util_test.cc has some samples.
 //
 // static
-bool AndroidUtil::ParseLine(const std::string &line, std::string *lhs,
-                            std::string *rhs) {
+bool AndroidUtil::ParseLine(const std::string& line, std::string* lhs,
+                            std::string* rhs) {
   DCHECK(lhs);
   DCHECK(rhs);
   std::string tmp_line = line;

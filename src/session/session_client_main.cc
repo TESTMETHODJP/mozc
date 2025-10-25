@@ -39,7 +39,7 @@
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/init_mozc.h"
-#include "base/protobuf/text_format.h"
+#include "base/protobuf/message.h"
 #include "base/system_util.h"
 #include "base/util.h"
 #include "composer/key_parser.h"
@@ -55,9 +55,9 @@ ABSL_FLAG(std::string, profile_dir, "", "Profile dir");
 namespace mozc {
 namespace {
 
-void Loop(std::istream *input, std::ostream *output) {
+void Loop(std::istream* input, std::ostream* output) {
   std::unique_ptr<EngineInterface> engine = EngineFactory::Create().value();
-  auto session = std::make_unique<session::Session>(engine.get());
+  auto session = std::make_unique<session::Session>(*engine);
 
   commands::Command command;
   std::string line;
@@ -67,7 +67,7 @@ void Loop(std::istream *input, std::ostream *output) {
       continue;
     }
     if (line.empty()) {
-      session = std::make_unique<session::Session>(engine.get());
+      session = std::make_unique<session::Session>(*engine);
       *output << std::endl << "## New session" << std::endl << std::endl;
       continue;
     }
@@ -83,9 +83,7 @@ void Loop(std::istream *input, std::ostream *output) {
       LOG(ERROR) << "Command failure";
     }
 
-    std::string textpb;
-    protobuf::TextFormat::PrintToString(command, &textpb);
-    *output << textpb;
+    *output << ::mozc::protobuf::Utf8Format(command);
     LOG(INFO) << command;
   }
 }
@@ -93,12 +91,12 @@ void Loop(std::istream *input, std::ostream *output) {
 }  // namespace
 }  // namespace mozc
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   mozc::InitMozc(argv[0], &argc, &argv);
   std::unique_ptr<mozc::InputFileStream> input_file;
   std::unique_ptr<mozc::OutputFileStream> output_file;
-  std::istream *input = nullptr;
-  std::ostream *output = nullptr;
+  std::istream* input = nullptr;
+  std::ostream* output = nullptr;
 
   const std::string flags_profile_dir = absl::GetFlag(FLAGS_profile_dir);
   const std::string flags_input = absl::GetFlag(FLAGS_input);

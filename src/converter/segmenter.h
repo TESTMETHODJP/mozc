@@ -34,38 +34,39 @@
 #include <cstdint>
 #include <memory>
 
+#include "absl/types/span.h"
 #include "converter/node.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 
 namespace mozc {
 
 class Segmenter {
  public:
   static std::unique_ptr<Segmenter> CreateFromDataManager(
-      const DataManagerInterface &data_manager);
+      const DataManager& data_manager);
 
   // This class does not take the ownership of pointer parameters.
   Segmenter(size_t l_num_elements, size_t r_num_elements,
-            const uint16_t *l_table, const uint16_t *r_table,
-            size_t bitarray_num_bytes, const char *bitarray_data,
-            const uint16_t *boundary_data);
-  Segmenter(const Segmenter &) = delete;
-  Segmenter &operator=(const Segmenter &) = delete;
+            absl::Span<const uint16_t> l_table,
+            absl::Span<const uint16_t> r_table,
+            absl::Span<const char> bitarray_data,
+            absl::Span<const uint16_t> boundary_data);
+  Segmenter(const Segmenter&) = delete;
+  Segmenter& operator=(const Segmenter&) = delete;
 
-  bool IsBoundary(const Node &lnode, const Node &rnode,
+  bool IsBoundary(const Node& lnode, const Node& rnode,
                   bool is_single_segment) const;
   bool IsBoundary(uint16_t rid, uint16_t lid) const;
   int32_t GetPrefixPenalty(uint16_t lid) const;
   int32_t GetSuffixPenalty(uint16_t rid) const;
 
  private:
-  const size_t l_num_elements_;
-  const size_t r_num_elements_;
-  const uint16_t *l_table_;
-  const uint16_t *r_table_;
-  const size_t bitarray_num_bytes_;
-  const char *bitarray_data_;
-  const uint16_t *boundary_data_;
+  const size_t l_num_elements_ = 0;
+  const size_t r_num_elements_ = 0;
+  const absl::Span<const uint16_t> l_table_;
+  const absl::Span<const uint16_t> r_table_;
+  const absl::Span<const char> bitarray_data_;
+  const absl::Span<const uint16_t> boundary_data_;
 };
 
 }  // namespace mozc

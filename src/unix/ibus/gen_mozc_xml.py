@@ -34,7 +34,6 @@ We don't support --xml command line option in the ibus-engines-mozc command
 since it could make start-up time of ibus-daemon slow when XML cache of the
 daemon in ~/.cache/ibus/bus/ is not ready or is expired.
 """
-__author__ = "yusukes"
 
 import optparse
 import os
@@ -214,7 +213,7 @@ def main():
       'exec': ibus_mozc_path + ' --ibus',
       # TODO(mazda): Generate the version number.
       'version': '0.0.0.0',
-      'author': 'Google Inc.',
+      'author': 'Google LLC',
       'license': 'New BSD',
       'homepage': 'https://github.com/google/mozc',
       'textdomain': 'ibus-mozc',

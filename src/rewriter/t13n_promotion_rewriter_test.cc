@@ -29,26 +29,30 @@
 
 #include "rewriter/t13n_promotion_rewriter.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "composer/composer.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/pos_matcher.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
 #include "request/request_test_util.h"
+#include "rewriter/rewriter_interface.h"
 #include "rewriter/transliteration_rewriter.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
+#include "transliteration/transliteration.h"
 
 namespace mozc {
 namespace {
 
-void AddCandidateWithValue(const absl::string_view value, Segment *segment) {
-  Segment::Candidate *candidate = segment->add_candidate();
+void AddCandidateWithValue(const absl::string_view value, Segment* segment) {
+  converter::Candidate* candidate = segment->add_candidate();
   candidate->key = segment->key();
   candidate->content_key = segment->key();
   candidate->value = std::string(value);
@@ -57,7 +61,7 @@ void AddCandidateWithValue(const absl::string_view value, Segment *segment) {
 
 // Returns -1 if not found.
 int GetCandidateIndexByValue(const absl::string_view value,
-                             const Segment &segment) {
+                             const Segment& segment) {
   for (size_t i = 0; i < segment.candidates_size(); ++i) {
     if (segment.candidate(i).value == value) {
       return i;
@@ -72,18 +76,21 @@ class T13nPromotionRewriterTest : public testing::TestWithTempUserProfile {
     t13n_rewriter_ = std::make_unique<TransliterationRewriter>(
         dictionary::PosMatcher(mock_data_manager_.GetPosMatcherData()));
 
-    mobile_conv_request_ = ConversionRequest();
     composer_ = composer::Composer();
     mobile_request_ = commands::Request();
 
     request_test_util::FillMobileRequest(&mobile_request_);
-    composer_.SetRequest(&mobile_request_);
-    mobile_conv_request_.set_request(&mobile_request_);
-    mobile_conv_request_.set_composer(&composer_);
+    composer_.SetRequest(std::make_shared<commands::Request>(mobile_request_));
+  }
+
+  ConversionRequest CreateMobileConversionRequest() const {
+    return ConversionRequestBuilder()
+        .SetComposer(composer_)
+        .SetRequest(mobile_request_)
+        .Build();
   }
 
   std::unique_ptr<TransliterationRewriter> t13n_rewriter_;
-  ConversionRequest mobile_conv_request_;
   composer::Composer composer_;
   commands::Request mobile_request_;
 
@@ -95,12 +102,11 @@ TEST_F(T13nPromotionRewriterTest, Capability) {
   T13nPromotionRewriter rewriter;
 
   // Mobile
-  EXPECT_EQ(rewriter.capability(mobile_conv_request_), RewriterInterface::ALL);
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_EQ(rewriter.capability(mobile_conv_request), RewriterInterface::ALL);
 
   // Desktop
-  commands::Request default_request;
   ConversionRequest default_conv_request;
-  default_conv_request.set_request(&default_request);
   EXPECT_EQ(rewriter.capability(default_conv_request),
             RewriterInterface::NOT_AVAILABLE);
 }
@@ -111,7 +117,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakanaFromT13N) {
   Segments segments;
   composer_.SetInputMode(transliteration::HIRAGANA);
   composer_.SetPreeditTextForTestOnly("きょう");
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("きょう");
   AddCandidateWithValue("今日", segment);
   AddCandidateWithValue("きょう", segment);
@@ -122,10 +128,11 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakanaFromT13N) {
 
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), -1);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), -1);
 
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), 5);
 }
 
@@ -135,7 +142,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakanaFromT13NForFewCandidates) {
   Segments segments;
   composer_.SetInputMode(transliteration::HIRAGANA);
   composer_.SetPreeditTextForTestOnly("きょう");
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("きょう");
   AddCandidateWithValue("今日", segment);
   AddCandidateWithValue("きょう", segment);
@@ -143,10 +150,11 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakanaFromT13NForFewCandidates) {
 
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), -1);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), -1);
 
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), 3);
 }
 
@@ -156,7 +164,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakana) {
   Segments segments;
   composer_.SetInputMode(transliteration::HIRAGANA);
   composer_.SetPreeditTextForTestOnly("きょう");
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("きょう");
   AddCandidateWithValue("今日", segment);
   AddCandidateWithValue("きょう", segment);
@@ -170,14 +178,15 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakana) {
   const int katakana_index = GetCandidateIndexByValue("キョウ", *segment);
   EXPECT_EQ(katakana_index, 7);
 
-  Segment::Candidate *katakana_candidate =
+  converter::Candidate* katakana_candidate =
       segment->mutable_candidate(katakana_index);
   katakana_candidate->lid = 1;
   katakana_candidate->rid = 1;
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
 
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
 
   const int promoted_index = GetCandidateIndexByValue("キョウ", *segment);
   // Make sure that the existing candidate was promoted.
@@ -186,13 +195,69 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakana) {
   EXPECT_EQ(segment->candidate(promoted_index).rid, 1);
 }
 
+TEST_F(T13nPromotionRewriterTest, PromoteKatakanaOffset) {
+  T13nPromotionRewriter rewriter;
+
+  Segments segments;
+  composer_.SetInputMode(transliteration::HIRAGANA);
+  composer_.SetPreeditTextForTestOnly("きょう");
+  Segment* segment = segments.push_back_segment();
+  segment->set_key("きょう");
+  AddCandidateWithValue("今日", segment);
+  AddCandidateWithValue("きょう", segment);
+  AddCandidateWithValue("強", segment);
+  AddCandidateWithValue("教", segment);
+  AddCandidateWithValue("凶", segment);
+  AddCandidateWithValue("卿", segment);
+  AddCandidateWithValue("京", segment);
+  AddCandidateWithValue("キョウ", segment);
+
+  const int katakana_index = GetCandidateIndexByValue("キョウ", *segment);
+  EXPECT_EQ(katakana_index, 7);
+
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
+
+  {
+    mobile_request_.mutable_decoder_experiment_params()
+        ->set_katakana_promotion_offset(-1);
+    // Not promoted
+    const ConversionRequest conv_request = CreateMobileConversionRequest();
+    EXPECT_FALSE(rewriter.Rewrite(conv_request, &segments));
+  }
+  {
+    mobile_request_.mutable_decoder_experiment_params()
+        ->set_katakana_promotion_offset(6);
+    const ConversionRequest conv_request = CreateMobileConversionRequest();
+    EXPECT_TRUE(rewriter.Rewrite(conv_request, &segments));
+    const int promoted_index = GetCandidateIndexByValue("キョウ", *segment);
+    EXPECT_EQ(promoted_index, 6);
+  }
+  {
+    mobile_request_.mutable_decoder_experiment_params()
+        ->set_katakana_promotion_offset(1);
+    const ConversionRequest conv_request = CreateMobileConversionRequest();
+    EXPECT_TRUE(rewriter.Rewrite(conv_request, &segments));
+    const int promoted_index = GetCandidateIndexByValue("キョウ", *segment);
+    EXPECT_EQ(promoted_index, 1);
+  }
+  {
+    mobile_request_.mutable_decoder_experiment_params()
+        ->set_katakana_promotion_offset(0);
+    const ConversionRequest conv_request = CreateMobileConversionRequest();
+    EXPECT_TRUE(rewriter.Rewrite(conv_request, &segments));
+    const int promoted_index = GetCandidateIndexByValue("キョウ", *segment);
+    EXPECT_EQ(promoted_index, 0);
+  }
+}
+
 TEST_F(T13nPromotionRewriterTest, KatakanaIsAlreadyRankedHigh) {
   T13nPromotionRewriter rewriter;
 
   Segments segments;
   composer_.SetInputMode(transliteration::HIRAGANA);
   composer_.SetPreeditTextForTestOnly("きょう");
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("きょう");
   AddCandidateWithValue("今日", segment);
   AddCandidateWithValue("きょう", segment);
@@ -204,9 +269,10 @@ TEST_F(T13nPromotionRewriterTest, KatakanaIsAlreadyRankedHigh) {
 
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), 2);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
 
-  EXPECT_FALSE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_FALSE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(GetCandidateIndexByValue("キョウ", *segment), 2);
 }
 
@@ -216,7 +282,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakanaForMultiSegments) {
   Segments segments;
   composer_.SetInputMode(transliteration::HIRAGANA);
   composer_.SetPreeditTextForTestOnly("きょうははれ");
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("きょうは");
   AddCandidateWithValue("今日は", segment);
   AddCandidateWithValue("きょうは", segment);
@@ -234,14 +300,15 @@ TEST_F(T13nPromotionRewriterTest, PromoteKatakanaForMultiSegments) {
   AddCandidateWithValue("張れ", segment);
   AddCandidateWithValue("脹れ", segment);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
 
   EXPECT_EQ(
       GetCandidateIndexByValue("キョウハ", segments.conversion_segment(0)), -1);
   EXPECT_EQ(GetCandidateIndexByValue("ハレ", segments.conversion_segment(1)),
             -1);
 
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(
       GetCandidateIndexByValue("キョウハ", segments.conversion_segment(0)), 5);
   EXPECT_EQ(GetCandidateIndexByValue("ハレ", segments.conversion_segment(1)),
@@ -252,7 +319,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteLatinT13n) {
   T13nPromotionRewriter rewriter;
 
   Segments segments;
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("go");
   composer_.SetInputMode(transliteration::HALF_ASCII);
   composer_.SetPreeditTextForTestOnly("go");
@@ -263,11 +330,12 @@ TEST_F(T13nPromotionRewriterTest, PromoteLatinT13n) {
   AddCandidateWithValue("goalkeeper", segment);
   AddCandidateWithValue("gorgeous", segment);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
 
   EXPECT_EQ(GetCandidateIndexByValue("go", segments.conversion_segment(0)), -1);
 
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_LE(GetCandidateIndexByValue("go", segments.conversion_segment(0)), 4);
   EXPECT_LE(GetCandidateIndexByValue("ｇｏ", segments.conversion_segment(0)),
             4);
@@ -277,7 +345,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteLatinT13nSkipExisting) {
   T13nPromotionRewriter rewriter;
 
   Segments segments;
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("go");
   composer_.SetInputMode(transliteration::HALF_ASCII);
   composer_.SetPreeditTextForTestOnly("go");
@@ -290,8 +358,9 @@ TEST_F(T13nPromotionRewriterTest, PromoteLatinT13nSkipExisting) {
   AddCandidateWithValue("goalkeeper", segment);
   AddCandidateWithValue("gorgeous", segment);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_EQ(segments.conversion_segment(0).candidate(1).value, "ｇｏ");
   for (size_t i = 2; i < segments.conversion_segment(0).candidates_size();
        ++i) {
@@ -304,7 +373,7 @@ TEST_F(T13nPromotionRewriterTest, PromoteNumberT13n) {
   T13nPromotionRewriter rewriter;
 
   Segments segments;
-  Segment *segment = segments.push_back_segment();
+  Segment* segment = segments.push_back_segment();
   segment->set_key("12");
   composer_.SetInputMode(transliteration::HALF_ASCII);
   composer_.SetPreeditTextForTestOnly("12");
@@ -313,12 +382,13 @@ TEST_F(T13nPromotionRewriterTest, PromoteNumberT13n) {
   AddCandidateWithValue("1/2", segment);
   AddCandidateWithValue("12個", segment);
 
-  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request_, &segments));
+  const ConversionRequest mobile_conv_request = CreateMobileConversionRequest();
+  EXPECT_TRUE(t13n_rewriter_->Rewrite(mobile_conv_request, &segments));
 
   EXPECT_EQ(GetCandidateIndexByValue("１２", segments.conversion_segment(0)),
             -1);
 
-  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request_, &segments));
+  EXPECT_TRUE(rewriter.Rewrite(mobile_conv_request, &segments));
   EXPECT_LE(GetCandidateIndexByValue("１２", segments.conversion_segment(0)),
             4);
 }

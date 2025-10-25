@@ -27,20 +27,19 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
-#import <InputMethodKit/IMKServer.h>
+#import <Foundation/Foundation.h>
+#import <InputMethodKit/InputMethodKit.h>
+
+#import "mac/mozc_imk_input_controller.h"
+#import "mac/renderer_receiver.h"
 
 #include <memory>
 
-#import "mac/GoogleJapaneseInputController.h"
-#import "mac/GoogleJapaneseInputServer.h"
-
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
 #include "base/const.h"
-#include "base/crash_report_handler.h"
 #include "base/init_mozc.h"
-#include "base/logging.h"
 #include "base/run_level.h"
 #include "client/client.h"
 #include "config/stats_config_util.h"
@@ -50,21 +49,24 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-#ifdef GOOGLE_JAPANESE_INPUT_BUILD
-  if (mozc::config::StatsConfigUtil::IsEnabled()) {
-    mozc::CrashReportHandler::Initialize(false);
-  }
-#endif  // GOOGLE_JAPANESE_INPUT_BUILD
   mozc::InitMozc(argv[0], &argc, &argv);
 
-  IMKServer *imkServer = [GoogleJapaneseInputServer getServer];
+  // Initialize imkServer
+  NSBundle *bundle = [NSBundle mainBundle];
+  NSDictionary *infoDictionary = [bundle infoDictionary];
+  NSString *connectionName = [infoDictionary objectForKey:@"InputMethodConnectionName"];
+  IMKServer *imkServer = [[IMKServer alloc] initWithName:connectionName
+                                        bundleIdentifier:[bundle bundleIdentifier]];
   if (!imkServer) {
     LOG(FATAL) << mozc::kProductNameInEnglish << " failed to initialize";
     return -1;
   }
   DLOG(INFO) << mozc::kProductNameInEnglish << " initialized";
 
-  [GoogleJapaneseInputController initializeConstants];
+  NSString *rendererConnectionName = @kProductPrefix "_Renderer_Connection";
+  RendererReceiver *rendererReceiver =
+      [[RendererReceiver alloc] initWithName:rendererConnectionName];
+  [MozcImkInputController setGlobalRendererReceiver:rendererReceiver];
 
   // Start the converter server at this time explicitly to prevent the
   // slow-down of the response for initial key event.
@@ -73,8 +75,5 @@ int main(int argc, char *argv[]) {
     client->PingServer();
   }
   NSApplicationMain(argc, (const char **)argv);
-#ifdef GOOGLE_JAPANESE_INPUT_BUILD
-  mozc::CrashReportHandler::Uninitialize();
-#endif  // GOOGLE_JAPANESE_INPUT_BUILD
   return 0;
 }

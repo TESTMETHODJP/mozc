@@ -47,7 +47,7 @@ using ::mozc::commands::KeyEvent;
 
 ::testing::AssertionResult CompareKeyEvent(
     const absl::string_view expected_expr, const absl::string_view actual_expr,
-    const KeyEvent &expected, const KeyEvent &actual) {
+    const KeyEvent& expected, const KeyEvent& actual) {
   {  // Key code
     const int expected_key_code =
         (expected.has_key_code()) ? expected.key_code() : -1;
@@ -179,9 +179,9 @@ TEST(KeyEventUtilTest, NormalizeModifiers) {
 
   {  // Removes caps
     KeyParser::ParseKey("CAPS H", &key_event);
-    ASSERT_EQ(1, key_event.modifier_keys_size());
-    ASSERT_EQ(KeyEvent::CAPS, KeyEventUtil::GetModifiers(key_event));
-    ASSERT_EQ('H', key_event.key_code());
+    ASSERT_EQ(key_event.modifier_keys_size(), 1);
+    ASSERT_EQ(KeyEventUtil::GetModifiers(key_event), KeyEvent::CAPS);
+    ASSERT_EQ(key_event.key_code(), 'H');
 
     KeyEventUtil::NormalizeModifiers(key_event, &normalized_key_event);
     EXPECT_EQ(normalized_key_event.modifier_keys_size(), 0);
@@ -190,23 +190,23 @@ TEST(KeyEventUtilTest, NormalizeModifiers) {
 
   {  // Removes left_shift
     KeyParser::ParseKey("LeftShift", &key_event);
-    ASSERT_EQ(2, key_event.modifier_keys_size());
-    ASSERT_EQ((KeyEvent::SHIFT | KeyEvent::LEFT_SHIFT),
-              KeyEventUtil::GetModifiers(key_event));
+    ASSERT_EQ(key_event.modifier_keys_size(), 2);
+    ASSERT_EQ(KeyEventUtil::GetModifiers(key_event),
+              (KeyEvent::SHIFT | KeyEvent::LEFT_SHIFT));
 
     KeyEventUtil::NormalizeModifiers(key_event, &normalized_key_event);
     EXPECT_EQ(normalized_key_event.modifier_keys_size(), 1);
-    ASSERT_EQ(KeyEvent::SHIFT,
-              KeyEventUtil::GetModifiers(normalized_key_event));
+    ASSERT_EQ(KeyEventUtil::GetModifiers(normalized_key_event),
+              KeyEvent::SHIFT);
   }
 
   {  // Removes caps and left_shift
     KeyParser::ParseKey("CAPS LeftShift H", &key_event);
-    ASSERT_EQ(3, key_event.modifier_keys_size());
-    ASSERT_EQ((KeyEvent::CAPS | KeyEvent::SHIFT | KeyEvent::LEFT_SHIFT),
-              KeyEventUtil::GetModifiers(key_event));
+    ASSERT_EQ(key_event.modifier_keys_size(), 3);
+    ASSERT_EQ(KeyEventUtil::GetModifiers(key_event),
+              (KeyEvent::CAPS | KeyEvent::SHIFT | KeyEvent::LEFT_SHIFT));
 
-    ASSERT_EQ('H', key_event.key_code());
+    ASSERT_EQ(key_event.key_code(), 'H');
 
     KeyEventUtil::NormalizeModifiers(key_event, &normalized_key_event);
     EXPECT_EQ(normalized_key_event.modifier_keys_size(), 1);
@@ -301,7 +301,7 @@ TEST(KeyEventUtilTest, RemoveModifiers) {
 
   for (size_t i = 0; i < std::size(kRemoveModifiersTestData); ++i) {
     SCOPED_TRACE(absl::StrFormat("index = %d", static_cast<int>(i)));
-    const RemoveModifiersTestData &data = kRemoveModifiersTestData[i];
+    const RemoveModifiersTestData& data = kRemoveModifiersTestData[i];
 
     KeyEvent input, remove, output;
     KeyParser::ParseKey(data.input, &input);
@@ -468,7 +468,7 @@ TEST(KeyEventUtilTest, IsModifiers) {
   };
 
   for (size_t i = 0; i < std::size(kIsModifiersTestData); ++i) {
-    const IsModifiersTestData &data = kIsModifiersTestData[i];
+    const IsModifiersTestData& data = kIsModifiersTestData[i];
     SCOPED_TRACE(absl::StrFormat("index: %d", static_cast<int>(i)));
 
     EXPECT_EQ(KeyEventUtil::IsAlt(data.modifiers), data.is_alt);

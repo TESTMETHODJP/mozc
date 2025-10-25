@@ -29,13 +29,21 @@
 
 #include "rewriter/small_letter_rewriter.h"
 
+#include <array>
+#include <cstddef>
 #include <memory>
+#include <optional>
 
 #include "absl/strings/string_view.h"
 #include "base/strings/assign.h"
+#include "converter/candidate.h"
+#include "converter/segments.h"
+#include "engine/engine.h"
 #include "engine/mock_data_engine_factory.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
+#include "request/conversion_request.h"
+#include "rewriter/rewriter_interface.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
 
@@ -43,9 +51,9 @@ namespace mozc {
 namespace {
 
 void AddSegment(absl::string_view key, absl::string_view value,
-                Segments *segments) {
-  Segment *seg = segments->add_segment();
-  Segment::Candidate *candidate = seg->add_candidate();
+                Segments* segments) {
+  Segment* seg = segments->add_segment();
+  converter::Candidate* candidate = seg->add_candidate();
   seg->set_key(key);
   strings::Assign(candidate->content_key, key);
   strings::Assign(candidate->value, value);
@@ -53,14 +61,14 @@ void AddSegment(absl::string_view key, absl::string_view value,
 }
 
 void InitSegments(absl::string_view key, absl::string_view value,
-                  Segments *segments) {
+                  Segments* segments) {
   segments->Clear();
   AddSegment(key, value, segments);
 }
 
-bool ContainCandidate(const Segments &segments,
+bool ContainCandidate(const Segments& segments,
                       const absl::string_view candidate) {
-  const Segment &segment = segments.segment(0);
+  const Segment& segment = segments.segment(0);
   for (size_t i = 0; i < segment.candidates_size(); ++i) {
     if (candidate == segment.candidate(i).value) {
       return true;
@@ -73,9 +81,9 @@ class SmallLetterRewriterTest : public testing::TestWithTempUserProfile {
  protected:
   void SetUp() override { engine_ = MockDataEngineFactory::Create().value(); }
 
-  std::unique_ptr<EngineInterface> engine_;
-  const commands::Request &default_request() const { return default_request_; }
-  const config::Config &default_config() const { return default_config_; }
+  std::unique_ptr<Engine> engine_;
+  const commands::Request& default_request() const { return default_request_; }
+  const config::Config& default_config() const { return default_config_; }
 
  private:
   const commands::Request default_request_;
@@ -84,8 +92,7 @@ class SmallLetterRewriterTest : public testing::TestWithTempUserProfile {
 
 TEST_F(SmallLetterRewriterTest, ScriptConversionTest) {
   Segments segments;
-  SmallLetterRewriter rewriter(engine_->GetConverter());
-  const ConversionRequest request;
+  SmallLetterRewriter rewriter;
 
   struct InputOutputData {
     absl::string_view input;
@@ -108,7 +115,7 @@ TEST_F(SmallLetterRewriterTest, ScriptConversionTest) {
       // Math Formula
       {"x^2+y^2=z^2", "x²+y²=z²"},
 
-      // Chemical Forumula
+      // Chemical Formula
       {"Na_2CO_3", "Na₂CO₃"},
       {"C_6H_12O_6", "C₆H₁₂O₆"},
       {"(NH_4)_2CO_3", "(NH₄)₂CO₃"},
@@ -150,60 +157,87 @@ TEST_F(SmallLetterRewriterTest, ScriptConversionTest) {
   };
 
   // Test behavior for each test cases in kInputOutputData.
-  for (const InputOutputData &item : kInputOutputData) {
+  for (const InputOutputData& item : kInputOutputData) {
     InitSegments(item.input, item.input, &segments);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetKey(item.input).Build();
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
     EXPECT_TRUE(rewriter.Rewrite(request, &segments));
     EXPECT_TRUE(ContainCandidate(segments, item.output));
   }
 
   // Mozc does not accept some superscript/subscript supported in Unicode
-  for (const absl::string_view &item : kMozcUnsupportedInput) {
+  for (const absl::string_view& item : kMozcUnsupportedInput) {
     InitSegments(item, item, &segments);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetKey(item).Build();
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
     EXPECT_FALSE(rewriter.Rewrite(request, &segments));
   }
 
-  // Invalid style input
-  InitSegments("^", "^", &segments);
-  EXPECT_FALSE(rewriter.Rewrite(request, &segments));
-
-  InitSegments("_", "_", &segments);
-  EXPECT_FALSE(rewriter.Rewrite(request, &segments));
-
-  InitSegments("12345", "12345", &segments);
-  EXPECT_FALSE(rewriter.Rewrite(request, &segments));
-
-  InitSegments("^^12345", "^^12345", &segments);
-  EXPECT_FALSE(rewriter.Rewrite(request, &segments));
+  constexpr std::array<absl::string_view, 4> kInvalidInput = {"^", "_", "12345",
+                                                              "^^12345"};
+  for (absl::string_view invalid_input : kInvalidInput) {
+    InitSegments("^", "^", &segments);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetKey(invalid_input).Build();
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
+    EXPECT_FALSE(rewriter.Rewrite(request, &segments));
+  }
 }
 
 TEST_F(SmallLetterRewriterTest, MultipleSegment) {
   Segments segments;
-  SmallLetterRewriter rewriter(engine_->GetConverter());
+  SmallLetterRewriter rewriter;
   const ConversionRequest request;
 
-  // Multiple segments are combined.
-  InitSegments("^123", "^123", &segments);
-  AddSegment("45", "45", &segments);
-  AddSegment("6", "6", &segments);
-  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  EXPECT_EQ(segments.conversion_segments_size(), 1);
-  EXPECT_EQ(segments.conversion_segment(0).candidate(2).value, "¹²³⁴⁵⁶");
-
-  // If the segments is already resized, returns false.
-  InitSegments("^123", "^123", &segments);
-  AddSegment("^123", "^123", &segments);
-  segments.set_resized(true);
-  EXPECT_FALSE(rewriter.Rewrite(request, &segments));
-
-  // History segment has to be ignored.
-  // In this case 1st segment is HISTORY
-  // so this rewriting returns true.
-  InitSegments("^123", "^123", &segments);
-  AddSegment("^123", "^123", &segments);
-  segments.set_resized(true);
-  segments.mutable_segment(0)->set_segment_type(Segment::HISTORY);
-  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  EXPECT_EQ(segments.conversion_segment(0).candidate(1).value, "¹²³");
+  {
+    // Multiple segments are combined.
+    InitSegments("^123", "^123", &segments);
+    AddSegment("45", "45", &segments);
+    AddSegment("6", "6", &segments);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetKey("^123456").Build();
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        rewriter.CheckResizeSegmentsRequest(request, segments);
+    ASSERT_TRUE(resize_request.has_value());
+    EXPECT_EQ(resize_request->segment_index, 0);
+    EXPECT_EQ(resize_request->segment_sizes[0], 7);
+    EXPECT_EQ(resize_request->segment_sizes[1], 0);
+  }
+  {
+    // If the segments is already resized, returns false.
+    InitSegments("^123", "^123", &segments);
+    AddSegment("^123", "^123", &segments);
+    segments.set_resized(true);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetKey("^123").Build();
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
+  }
+  {
+    // History segment has to be ignored.
+    // In this case 1st segment is HISTORY
+    // so this rewriting returns true.
+    InitSegments("^123", "^123", &segments);
+    AddSegment("^123", "^123", &segments);
+    segments.set_resized(true);
+    segments.mutable_segment(0)->set_segment_type(Segment::HISTORY);
+    const ConversionRequest request =
+        ConversionRequestBuilder().SetKey("^123").Build();
+    std::optional<RewriterInterface::ResizeSegmentsRequest> resize_request =
+        rewriter.CheckResizeSegmentsRequest(request, segments);
+    EXPECT_FALSE(resize_request.has_value());
+    EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+    EXPECT_EQ(segments.conversion_segment(0).candidate(1).value, "¹²³");
+  }
 }
 
 }  // namespace

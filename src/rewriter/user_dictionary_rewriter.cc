@@ -31,7 +31,9 @@
 
 #include <cstddef>
 
-#include "base/logging.h"
+#include "absl/log/check.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "request/conversion_request.h"
 
@@ -41,19 +43,19 @@ namespace mozc {
 // Since user expects that user-dictionary candidates may appear
 // on the top, we simply move user-dictionary-candidate just
 // "after" the top candidate.
-bool UserDictionaryRewriter::Rewrite(const ConversionRequest &request,
-                                     Segments *segments) const {
+bool UserDictionaryRewriter::Rewrite(const ConversionRequest& request,
+                                     Segments* segments) const {
   DCHECK(segments);
 
   bool modified = false;
-  for (Segment &segment : segments->conversion_segments()) {
+  for (Segment& segment : segments->conversion_segments()) {
     // final destination of the user dictionary candidate.
     int move_to_start = 1;
 
     for (size_t move_from = 2; move_from < segment.candidates_size();
          ++move_from) {
       if (!(segment.candidate(move_from).attributes &
-            Segment::Candidate::USER_DICTIONARY)) {
+            converter::Attribute::USER_DICTIONARY)) {
         continue;
       }
 
@@ -62,7 +64,7 @@ bool UserDictionaryRewriter::Rewrite(const ConversionRequest &request,
       int move_to = -1;
       for (int j = move_to_start; j < static_cast<int>(move_from); ++j) {
         if (!(segment.candidate(j).attributes &
-              Segment::Candidate::USER_DICTIONARY)) {
+              converter::Attribute::USER_DICTIONARY)) {
           move_to = j;
           break;
         }

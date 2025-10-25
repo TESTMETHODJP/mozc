@@ -33,11 +33,11 @@
 #include <memory>
 #include <string>
 
-#include "base/logging.h"
-#include "converter/converter_mock.h"
+#include "absl/log/check.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
-#include "dictionary/pos_group.h"
 #include "engine/modules.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
@@ -47,11 +47,11 @@
 namespace mozc {
 namespace {
 
-size_t CommandCandidatesSize(const Segment &segment) {
+size_t CommandCandidatesSize(const Segment& segment) {
   size_t result = 0;
   for (int i = 0; i < segment.candidates_size(); ++i) {
     if (segment.candidate(i).attributes &
-        Segment::Candidate::COMMAND_CANDIDATE) {
+        converter::Attribute::COMMAND_CANDIDATE) {
       result++;
     }
   }
@@ -63,15 +63,15 @@ size_t CommandCandidatesSize(const Segment &segment) {
 class RewriterTest : public testing::TestWithTempUserProfile {
  protected:
   void SetUp() override {
-    modules_ = std::make_unique<engine::Modules>();
-    CHECK_OK(modules_->Init(std::make_unique<testing::MockDataManager>()));
-    rewriter_ = std::make_unique<Rewriter>(*modules_, mock_converter_);
+    modules_ =
+        engine::Modules::Create(std::make_unique<testing::MockDataManager>())
+            .value();
+    rewriter_ = std::make_unique<Rewriter>(*modules_);
   }
 
-  const RewriterInterface *GetRewriter() const { return rewriter_.get(); }
+  const RewriterInterface* GetRewriter() const { return rewriter_.get(); }
 
-  std::unique_ptr<engine::Modules> modules_;
-  MockConverter mock_converter_;
+  std::unique_ptr<const engine::Modules> modules_;
   std::unique_ptr<Rewriter> rewriter_;
 };
 
@@ -79,10 +79,10 @@ class RewriterTest : public testing::TestWithTempUserProfile {
 TEST_F(RewriterTest, CommandRewriterAvailability) {
   Segments segments;
   const ConversionRequest request;
-  Segment *seg = segments.push_back_segment();
+  Segment* seg = segments.push_back_segment();
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("こまんど");
     candidate->value = "コマンド";
     EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
@@ -95,7 +95,7 @@ TEST_F(RewriterTest, CommandRewriterAvailability) {
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("さじぇすと");
     candidate->value = "サジェスト";
     EXPECT_TRUE(GetRewriter()->Rewrite(request, &segments));
@@ -115,8 +115,8 @@ TEST_F(RewriterTest, EmoticonsAboveSymbols) {
 
   const ConversionRequest request;
   Segments segments;
-  Segment *seg = segments.push_back_segment();
-  Segment::Candidate *candidate = seg->add_candidate();
+  Segment* seg = segments.push_back_segment();
+  converter::Candidate* candidate = seg->add_candidate();
   seg->set_key(kKey);
   candidate->value = kKey;
   EXPECT_EQ(seg->candidates_size(), 1);

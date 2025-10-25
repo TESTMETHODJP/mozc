@@ -35,8 +35,9 @@
 
 #include "absl/strings/string_view.h"
 #include "base/container/serialized_string_array.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "request/conversion_request.h"
 #include "rewriter/rewriter_interface.h"
 
@@ -48,16 +49,16 @@ class CorrectionRewriter : public RewriterInterface {
   // default provided by data_manager.  The caller takes the ownership of the
   // instance.
   static std::unique_ptr<CorrectionRewriter> CreateCorrectionRewriter(
-      const DataManagerInterface *data_manager);
+      const DataManager& data_manager);
 
   CorrectionRewriter(absl::string_view value_array_data,
                      absl::string_view error_array_data,
                      absl::string_view correction_array_data);
 
-  bool Rewrite(const ConversionRequest &request,
-               Segments *segments) const override;
+  bool Rewrite(const ConversionRequest& request,
+               Segments* segments) const override;
 
-  int capability(const ConversionRequest &request) const override {
+  int capability(const ConversionRequest& request) const override {
     return RewriterInterface::ALL;
   }
 
@@ -74,8 +75,8 @@ class CorrectionRewriter : public RewriterInterface {
   };
 
   // Sets |candidate| fields from |iterm|.
-  static void SetCandidate(const ReadingCorrectionItem &item,
-                           Segment::Candidate *candidate);
+  static void SetCandidate(const ReadingCorrectionItem& item,
+                           converter::Candidate* candidate);
 
   // Looks up corrections with key and value. Return true if at least
   // one correction is found in the internal dictionary.
@@ -83,7 +84,7 @@ class CorrectionRewriter : public RewriterInterface {
   // The matched results are saved in |results|.
   // Return false if |results| is empty.
   bool LookupCorrection(absl::string_view key, absl::string_view value,
-                        std::vector<ReadingCorrectionItem> *results) const;
+                        std::vector<ReadingCorrectionItem>* results) const;
 
   SerializedStringArray value_array_;
   SerializedStringArray error_array_;

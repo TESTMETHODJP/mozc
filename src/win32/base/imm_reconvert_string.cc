@@ -30,7 +30,10 @@
 #include "win32/base/imm_reconvert_string.h"
 
 #include <safeint.h>
+#include <windows.h>
 
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
@@ -40,8 +43,7 @@
 #include <utility>
 
 #include "absl/algorithm/container.h"
-#include "absl/base/casts.h"
-#include "base/logging.h"
+#include "absl/log/check.h"
 #include "base/util.h"
 
 namespace mozc {
@@ -55,7 +57,7 @@ using ::msl::utilities::SafeCast;
 using ::msl::utilities::SafeMultiply;
 
 bool CheckAddressSpace(const void *ptr, size_t size) {
-  const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
+  const uintptr_t addr = std::bit_cast<uintptr_t>(ptr);
   uintptr_t addr_last = 0;
   // buffer exceeds process address space if overflows.
   return SafeAdd(addr, size, addr_last);
@@ -99,9 +101,21 @@ std::wstring_view WStringView(const wchar_t *begin, const wchar_t *end) {
 
 }  // namespace
 
-UniqueReconvertString ReconvertString::Request(const HWND hwnd) {
+UniqueReconvertString
+ReconvertString::Request(HWND hwnd, RequestType request_type) {
   UniqueReconvertString result(nullptr, &Deleter);
-  LPARAM l_result = SendMessageW(hwnd, WM_IME_REQUEST, IMR_RECONVERTSTRING, 0);
+  WPARAM wparam;
+  switch (request_type) {
+    case RequestType::kReconvertString:
+      wparam = IMR_RECONVERTSTRING;
+      break;
+    case RequestType::kDocumentFeed:
+      wparam = IMR_DOCUMENTFEED;
+      break;
+    default:
+      return result;
+  }
+  LPARAM l_result = SendMessageW(hwnd, WM_IME_REQUEST, wparam, 0);
   if (l_result == 0) {
     // IMR_RECONVERTSTRING is not supported.
     return result;
@@ -113,7 +127,7 @@ UniqueReconvertString ReconvertString::Request(const HWND hwnd) {
   result = Allocate(buffer_size);
   result->dwSize = buffer_size;
   result->dwVersion = 0;
-  l_result = SendMessageW(hwnd, WM_IME_REQUEST, IMR_RECONVERTSTRING,
+  l_result = SendMessageW(hwnd, WM_IME_REQUEST, wparam,
                           reinterpret_cast<LPARAM>(result.get()));
   if (l_result == 0) {
     result.release();

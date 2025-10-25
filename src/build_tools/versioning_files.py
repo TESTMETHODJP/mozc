@@ -46,7 +46,6 @@ r"""Creates versioned files and information files of the files.
     "/PATH/TO/file2-Debug-1.2.3.4.info"
 """
 
-__author__ = "horo"
 
 import base64
 import hashlib
@@ -64,6 +63,8 @@ def _GetSha1Digest(file_path):
   with open(file_path, 'rb') as f:
     data = f.read()
     sha.update(data)
+  # NOTE: The linter complains that sha1 gets too many args.
+  # pylint: disable=too-many-function-args
   return sha.digest()
 
 
@@ -91,7 +92,7 @@ def _VersioningFile(version_string, is_debug, file_path):
   sha1_digest = _GetSha1Digest(new_file_path)
   sha1_hash = base64.b64encode(sha1_digest).decode('latin1')
   sha1_hash_hex = sha1_digest.hex()
-  with open('%s.info' % new_file_path, 'w') as output:
+  with open('%s.info' % new_file_path, 'w', newline='\n') as output:
     output.write('package\t%s\n' % package)
     output.write('build_id\t%s\n' % build_id)
     output.write('version\t%s\n' % version_string)
@@ -110,18 +111,34 @@ def main():
   """The main function."""
   parser = optparse.OptionParser()
   parser.add_option('--version_file', dest='version_file')
+  parser.add_option(
+      '--version_string',
+      dest='version_string',
+      help=(
+          'four-part version string in MAJOR.MINOR.BUILD.REVISION format'
+          ' (e.g. 2.31.5850.0)'
+      ),
+  )
   parser.add_option('--configuration', dest='configuration')
 
   (options, args) = parser.parse_args()
-  if options.version_file is None:
-    logging.error('--version_file is not specified.')
+
+  # Set version_string
+  if options.version_string:
+    version_string = options.version_string
+  elif options.version_file:
+    version = mozc_version.MozcVersion(options.version_file)
+    version_string = version.GetVersionString()
+  else:
+    logging.error('Either --version_string or --version_file is required.')
     exit(-1)
+
+  # Set is_debug
   if options.configuration is None:
     logging.error('--configuration is not specified.')
     exit(-1)
-  version = mozc_version.MozcVersion(options.version_file)
-  version_string = version.GetVersionString()
   is_debug = (options.configuration == 'Debug')
+
   VersioningFiles(version_string, is_debug, args)
 
 if __name__ == '__main__':

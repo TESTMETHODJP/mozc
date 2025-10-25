@@ -31,19 +31,18 @@
 #define MOZC_BASE_ANDROID_UTIL_H_
 
 #include <jni.h>
+
 #include <map>
 #include <set>
 #include <string>
-
-#include "testing/friend_test.h"
 
 namespace mozc {
 
 class AndroidUtil {
  public:
   AndroidUtil() = delete;
-  AndroidUtil(const AndroidUtil &) = delete;
-  AndroidUtil &operator=(const AndroidUtil &) = delete;
+  AndroidUtil(const AndroidUtil&) = delete;
+  AndroidUtil& operator=(const AndroidUtil&) = delete;
 
   // Frequently used property names.
   static const char kSystemPropertyOsVersion[];
@@ -61,27 +60,26 @@ class AndroidUtil {
   //     "Nexus One");
   // Note : Using ::popen("getprop [property name]", "r") is better solution
   // but currently popen seems to be unstable.
-  static std::string GetSystemProperty(const std::string &key,
-                                       const std::string &default_value);
+  static std::string GetSystemProperty(const std::string& key,
+                                       const std::string& default_value);
 
  private:
-  FRIEND_TEST(AndroidUtilTest, ParseLine_valid);
-  FRIEND_TEST(AndroidUtilTest, ParseLine_invalid);
+  friend class AndroidUtilTestPeer;
 
   // Gets the property's value, which is read from file system.
   // If successfully done, the result will be stored in |output| and
   // returns true.
   // If something goes wrong (e.g. file system error, non-existent property
   // name), returns false. |output| is undefined.
-  static bool GetPropertyFromFile(const std::string &key, std::string *output);
+  static bool GetPropertyFromFile(const std::string& key, std::string* output);
 
   // Parses the line.
   // If the returned value is true, the property's key and value string are
   // returned as |lhs| and |rhs| respectively.
   // If false, |line| is malformed.
   // In this case |lhs| and |rhs| are not modified.
-  static bool ParseLine(const std::string &line, std::string *lhs,
-                        std::string *rhs);
+  static bool ParseLine(const std::string& line, std::string* lhs,
+                        std::string* rhs);
 
   static std::map<std::string, std::string> property_cache;
   static std::set<std::string> undefined_keys;

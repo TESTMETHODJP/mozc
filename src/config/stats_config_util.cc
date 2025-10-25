@@ -29,6 +29,8 @@
 
 #include "config/stats_config_util.h"
 
+#include "base/singleton.h"
+
 #ifdef _WIN32
 #include <atlbase.h>
 #include <lmcons.h>
@@ -49,19 +51,17 @@
 #include <fstream>
 #include <string>
 
+#include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
+#include "base/file_util.h"
 #include "base/mac/mac_util.h"
+#include "base/system_util.h"
 #endif  // __APPLE__
 
 #if defined(__ANDROID__)
 #include "config/config_handler.h"
 #include "protocol/config.pb.h"
 #endif  // __ANDROID__
-
-#include "absl/strings/str_cat.h"
-#include "absl/synchronization/mutex.h"
-#include "base/file_util.h"
-#include "base/singleton.h"
-#include "base/system_util.h"
 
 namespace mozc {
 namespace config {
@@ -180,7 +180,7 @@ bool MacStatsConfigUtilImpl::IsEnabled() {
   }
 
   uint32_t value = kDefaultValue;
-  if (!ifs.read(reinterpret_cast<char *>(&value), sizeof(value))) {
+  if (!ifs.read(reinterpret_cast<char*>(&value), sizeof(value))) {
     return kDefaultValue;
   }
 
@@ -208,7 +208,7 @@ bool MacStatsConfigUtilImpl::SetEnabled(bool val) {
   if (!ofs) {
     return false;
   }
-  ofs.write(reinterpret_cast<const char *>(&value), sizeof(value));
+  ofs.write(reinterpret_cast<const char*>(&value), sizeof(value));
   if (!ofs.good()) {
     return false;
   }
@@ -221,9 +221,7 @@ bool MacStatsConfigUtilImpl::SetEnabled(bool val) {
 class AndroidStatsConfigUtilImpl : public StatsConfigUtilInterface {
  public:
   bool IsEnabled() override {
-    Config config;
-    ConfigHandler::GetConfig(&config);
-    return config.general_config().upload_usage_stats();
+    return ConfigHandler::GetSharedConfig()->upload_usage_stats();
   }
   bool SetEnabled(bool val) override {
     // TODO(horo): Implement this.
@@ -240,7 +238,7 @@ class NullStatsConfigUtilImpl : public StatsConfigUtilInterface {
   bool SetEnabled(bool val) override { return true; }
 };
 
-StatsConfigUtilInterface *g_stats_config_util_handler = nullptr;
+StatsConfigUtilInterface* g_stats_config_util_handler = nullptr;
 
 // GetStatsConfigUtil and SetHandler are not thread safe.
 
@@ -258,7 +256,7 @@ typedef AndroidStatsConfigUtilImpl DefaultConfigUtilImpl;
 typedef NullStatsConfigUtilImpl DefaultConfigUtilImpl;
 #endif  // Platforms
 
-StatsConfigUtilInterface &GetStatsConfigUtil() {
+StatsConfigUtilInterface& GetStatsConfigUtil() {
   if (g_stats_config_util_handler == nullptr) {
     return *(Singleton<DefaultConfigUtilImpl>::get());
   } else {
@@ -267,7 +265,7 @@ StatsConfigUtilInterface &GetStatsConfigUtil() {
 }
 }  // namespace
 
-void StatsConfigUtil::SetHandler(StatsConfigUtilInterface *handler) {
+void StatsConfigUtil::SetHandler(StatsConfigUtilInterface* handler) {
   g_stats_config_util_handler = handler;
 }
 

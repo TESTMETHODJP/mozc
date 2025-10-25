@@ -30,6 +30,8 @@
 #ifndef MOZC_RENDERER_RENDERER_MOCK_H_
 #define MOZC_RENDERER_RENDERER_MOCK_H_
 
+#include "client/client_interface.h"
+#include "protocol/renderer_command.pb.h"
 #include "renderer/renderer_interface.h"
 #include "testing/gmock.h"
 
@@ -39,10 +41,10 @@ class RendererMock : public RendererInterface {
  public:
   MOCK_METHOD(bool, Activate, (), (override));
   MOCK_METHOD(bool, IsAvailable, (), (const, override));
-  MOCK_METHOD(bool, ExecCommand, (const commands::RendererCommand &command),
+  MOCK_METHOD(bool, ExecCommand, (const commands::RendererCommand& command),
               (override));
   MOCK_METHOD(void, SetSendCommandInterface,
-              (client::SendCommandInterface* send_command_interface),
+              (client::SendCommandInterface * send_command_interface),
               (override));
 };
 

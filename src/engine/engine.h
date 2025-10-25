@@ -30,29 +30,26 @@
 #ifndef MOZC_ENGINE_ENGINE_H_
 #define MOZC_ENGINE_ENGINE_H_
 
-#include <atomic>
-#include <cstdint>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "converter/converter.h"
 #include "converter/converter_interface.h"
-#include "converter/immutable_converter_interface.h"
-#include "data_manager/data_manager_interface.h"
-#include "dictionary/suppression_dictionary.h"
+#include "data_manager/data_manager.h"
+#include "dictionary/user_dictionary_session_handler.h"
 #include "engine/data_loader.h"
+#include "engine/engine_converter.h"
+#include "engine/engine_converter_interface.h"
 #include "engine/engine_interface.h"
-#include "engine/minimal_engine.h"
 #include "engine/modules.h"
-#include "engine/spellchecker_interface.h"
-#include "engine/user_data_manager_interface.h"
-#include "prediction/predictor_interface.h"
-#include "rewriter/rewriter_interface.h"
+#include "engine/supplemental_model_interface.h"
+#include "protocol/commands.pb.h"
+#include "protocol/config.pb.h"
 
 namespace mozc {
 
@@ -64,53 +61,27 @@ class Engine : public EngineInterface {
   // learning preference (to learn content word or not).  See Init() for the
   // details of implementation.
 
-  // Creates an instance with desktop configuration from a data manager.  The
-  // ownership of data manager is passed to the engine instance.
-  static absl::StatusOr<std::unique_ptr<Engine>> CreateDesktopEngine(
-      std::unique_ptr<const DataManagerInterface> data_manager);
-
-  // Helper function for the above factory, where data manager is instantiated
-  // by a default constructor.  Intended to be used for OssDataManager etc.
-  template <typename DataManagerType>
-  static absl::StatusOr<std::unique_ptr<Engine>> CreateDesktopEngineHelper() {
-    return CreateDesktopEngine(std::make_unique<const DataManagerType>());
-  }
-
-  // Creates an instance with mobile configuration from a data manager.  The
-  // ownership of data manager is passed to the engine instance.
-  static absl::StatusOr<std::unique_ptr<Engine>> CreateMobileEngine(
-      std::unique_ptr<const DataManagerInterface> data_manager);
-
-  // Helper function for the above factory, where data manager is instantiated
-  // by a default constructor.  Intended to be used for OssDataManager etc.
-  template <typename DataManagerType>
-  static absl::StatusOr<std::unique_ptr<Engine>> CreateMobileEngineHelper() {
-    return CreateMobileEngine(std::make_unique<const DataManagerType>());
-  }
+  // Creates an instance from a data manager and is_mobile flag.
+  static absl::StatusOr<std::unique_ptr<Engine>> CreateEngine(
+      std::unique_ptr<const DataManager> data_manager);
 
   // Creates an instance with the given modules and is_mobile flag.
   static absl::StatusOr<std::unique_ptr<Engine>> CreateEngine(
-      std::unique_ptr<engine::Modules> modules, bool is_mobile);
+      std::unique_ptr<engine::Modules> modules);
 
   // Creates an engine with no initialization.
   static std::unique_ptr<Engine> CreateEngine();
 
-  Engine(const Engine &) = delete;
-  Engine &operator=(const Engine &) = delete;
+  Engine(const Engine&) = delete;
+  Engine& operator=(const Engine&) = delete;
 
-  ConverterInterface *GetConverter() const override {
-    return initialized_ ? converter_.get() : minimal_engine_.GetConverter();
+  std::shared_ptr<const ConverterInterface> GetConverter() const {
+    return converter_ ? converter_ : minimal_converter_;
   }
-  absl::string_view GetPredictorName() const override {
-    if (initialized_) {
-      return predictor_ ? predictor_->GetPredictorName() : absl::string_view();
-    } else {
-      return minimal_engine_.GetPredictorName();
-    }
-  }
-  dictionary::SuppressionDictionary *GetSuppressionDictionary() override {
-    return initialized_ ? modules_->GetMutableSuppressionDictionary()
-                        : minimal_engine_.GetSuppressionDictionary();
+
+  std::unique_ptr<engine::EngineConverterInterface> CreateEngineConverter()
+      const override {
+    return std::make_unique<engine::EngineConverter>(GetConverter());
   }
 
   // Functions for Reload, Sync, Wait return true if successfully operated
@@ -120,69 +91,66 @@ class Engine : public EngineInterface {
   bool Wait() override;
   bool ReloadAndWait() override;
 
-  absl::Status ReloadModules(std::unique_ptr<engine::Modules> modules,
-                             bool is_mobile) override;
+  bool ClearUserHistory() override;
+  bool ClearUserPrediction() override;
+  bool ClearUnusedUserPrediction() override;
 
-  UserDataManagerInterface *GetUserDataManager() override {
-    return initialized_ ? user_data_manager_.get()
-                        : minimal_engine_.GetUserDataManager();
-  }
+  absl::Status ReloadModules(std::unique_ptr<engine::Modules> modules);
 
   absl::string_view GetDataVersion() const override {
-    return GetDataManager()->GetDataVersion();
+    static absl::string_view kDefaultDataVersion = "0.0.0";
+    return converter_ ? converter_->modules().GetDataManager().GetDataVersion()
+                      : kDefaultDataVersion;
   }
 
-  const DataManagerInterface *GetDataManager() const override {
-    return initialized_ ? &modules_->GetDataManager()
-                        : minimal_engine_.GetDataManager();
-  }
-
+  // Returns a list of part-of-speech (e.g. "名詞", "動詞一段") to be used for
+  // the user dictionary GUI tool.
+  // Since the POS set may differ per LM, this function returns
+  // available POS items. In practice, the POS items are rarely changed.
   std::vector<std::string> GetPosList() const override {
-    return initialized_ ? modules_->GetUserDictionary()->GetPosList()
-                        : minimal_engine_.GetPosList();
-  }
-
-  void SetSpellchecker(
-      const engine::SpellcheckerInterface *spellchecker) override {
-    modules_->SetSpellchecker(spellchecker);
+    if (converter_) {
+      return converter_->modules().GetUserDictionary().GetPosList();
+    }
+    return {};
   }
 
   // For testing only.
-  engine::Modules *GetModulesForTesting() const { return modules_.get(); }
+  engine::Modules& GetModulesForTesting() const {
+    DCHECK(converter_);
+    return converter_->modules();
+  }
 
   // Maybe reload a new data manager. Returns true if reloaded.
-  bool MaybeReloadEngine(EngineReloadResponse *response) override;
+  bool MaybeReloadEngine(EngineReloadResponse* response) override;
   bool SendEngineReloadRequest(const EngineReloadRequest& request) override;
-  void SetDataLoaderForTesting(std::unique_ptr<DataLoader> loader) override {
-    loader_ = std::move(loader);
-  }
-  void SetAlwaysWaitForLoaderResponseFutureForTesting(bool value) override {
-    loader_->SetAlwaysWaitForLoaderResponseFutureForTesting(value);
-  }
+  bool SendSupplementalModelReloadRequest(
+      const EngineReloadRequest& request) override;
+
+  bool EvaluateUserDictionaryCommand(
+      const user_dictionary::UserDictionaryCommand& command,
+      user_dictionary::UserDictionaryCommandStatus* status) override;
+
+  void SetAlwaysWaitForTesting(bool value) { always_wait_for_testing_ = value; }
 
  private:
   Engine();
+  // For the constructor.
+  friend std::unique_ptr<Engine> std::make_unique<Engine>();
 
-  // Initializes the engine object by the given modules and is_mobile flag.
-  // The is_mobile flag is used to select DefaultPredictor and MobilePredictor.
-  absl::Status Init(std::unique_ptr<engine::Modules> modules, bool is_mobile);
+  // Initializes the engine object by the given modules.
+  absl::Status Init(std::unique_ptr<engine::Modules> modules);
 
-  // If initialized_ is false, minimal_engine_ is used as a fallback engine.
-  bool initialized_ = false;
-  MinimalEngine minimal_engine_;
+  DataLoader loader_;
 
-  std::unique_ptr<DataLoader> loader_;
-  std::unique_ptr<engine::Modules> modules_;
-  std::unique_ptr<ImmutableConverterInterface> immutable_converter_;
-
-  // TODO(noriyukit): Currently predictor and rewriter are created by this class
-  // but owned by converter_. Since this class creates these two, it'd be better
-  // if Engine class owns these two instances.
-  prediction::PredictorInterface *predictor_ = nullptr;
-  RewriterInterface *rewriter_ = nullptr;
-
-  std::unique_ptr<Converter> converter_;
-  std::unique_ptr<UserDataManagerInterface> user_data_manager_;
+  std::unique_ptr<engine::SupplementalModelInterface> supplemental_model_;
+  std::shared_ptr<converter::Converter> converter_;
+  std::shared_ptr<ConverterInterface> minimal_converter_;
+  std::unique_ptr<DataLoader::Response> loader_response_;
+  // Do not initialized with Init() because the cost of initialization is
+  // negligible.
+  user_dictionary::UserDictionarySessionHandler
+      user_dictionary_session_handler_;
+  bool always_wait_for_testing_ = false;
 };
 
 }  // namespace mozc

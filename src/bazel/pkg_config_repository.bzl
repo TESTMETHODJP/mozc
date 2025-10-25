@@ -75,15 +75,55 @@ cc_library(
 """
 
 EXPORTS_FILES_TEMPLATE = """
-exports_files(glob(["libexec/*"]))
+exports_files(glob(["libexec/*"], allow_empty=True))
 """
 
-def _exec_pkg_config(repo_ctx, flag):
+def _exec_pkg_config(repo_ctx, flags):
     binary = repo_ctx.which("pkg-config")
-    result = repo_ctx.execute([binary, flag] + repo_ctx.attr.packages)
+    if not binary:
+        # Using print is not recommended, but this will be a clue to debug build errors in
+        # the case of pkg-config is not found.
+        print("pkg-config is not found")  # buildifier: disable=print
+        return []
+    result = repo_ctx.execute([binary] + flags + repo_ctx.attr.packages)
     items = result.stdout.strip().split(" ")
     uniq_items = sorted({key: None for key in items}.keys())
     return uniq_items
+
+def _get_possible_pc_files(repo_ctx):
+    """
+    Get all possible .pc file paths for the given packages in pkg-config search
+    paths.
+    """
+    binary = repo_ctx.which("pkg-config")
+    if not binary:
+        return []
+
+    pc_path_sep = ":"
+    dir_sep = "/"
+    if repo_ctx.os.name.lower().startswith("win"):
+        pc_path_sep = ";"
+        dir_sep = "\\"
+
+    pc_file_search_paths = []
+
+    pc_file_search_paths_env = repo_ctx.getenv("PKG_CONFIG_PATH")
+    if pc_file_search_paths_env:
+        pc_file_search_paths.extend(pc_file_search_paths_env.split(pc_path_sep))
+
+    result = repo_ctx.execute([binary, "--variable=pc_path", "pkg-config"])
+    if result.return_code == 0:
+        pc_path = result.stdout.strip()
+        pc_file_search_paths.extend(pc_path.split(pc_path_sep))
+
+    pc_files = []
+    for path in pc_file_search_paths:
+        if not path:
+            continue
+        for package in repo_ctx.attr.packages:
+            pc_file = path + dir_sep + package + ".pc"
+            pc_files.append(pc_file)
+    return pc_files
 
 def _make_strlist(list):
     return "\"" + "\",\n        \"".join(list) + "\""
@@ -95,19 +135,37 @@ def _symlinks(repo_ctx, paths):
         repo_ctx.symlink("/" + path, path)
 
 def _pkg_config_repository_impl(repo_ctx):
-    includes = _exec_pkg_config(repo_ctx, "--cflags-only-I")
+    # Register all possible .pc files for watching to trigger repository
+    # reevaluation.
+    # This includes files that don't exist yet but might be created later
+    # (e.g., when a new package is installed).
+    pc_files = _get_possible_pc_files(repo_ctx)
+    for pc_file in pc_files:
+        repo_ctx.watch(pc_file)
+
+    includes = _exec_pkg_config(repo_ctx, ["--cflags-only-I"])
+
+    # If includes is empty, pkg-config will be re-executed with
+    # the --keep-system-cflags option added. Typically, -I/usr/include is
+    # returned, enabling bazel to recognize packages as valid even when
+    # pkg-config does not output cflags with standard options.
+    if includes[0] == "":
+        includes = _exec_pkg_config(repo_ctx, ["--cflags-only-I", "--keep-system-cflags"])
     includes = [item[len("-I/"):] for item in includes]
     _symlinks(repo_ctx, includes)
     data = {
-        "name": repo_ctx.attr.name,
+        # In bzlmod, repo_ctx.attr.name has a prefix like "_main~_repo_rules~ibus".
+        # Note also that Bazel 8.0+ uses "+" instead of "~".
+        # https://github.com/bazelbuild/bazel/issues/23127
+        "name": repo_ctx.attr.name.replace("~", "+").split("+")[-1],
         "hdrs": _make_strlist([item + "/**" for item in includes]),
-        "copts": _make_strlist(_exec_pkg_config(repo_ctx, "--cflags-only-other")),
+        "copts": _make_strlist(_exec_pkg_config(repo_ctx, ["--cflags-only-other"])),
         "includes": _make_strlist(includes),
-        "linkopts": _make_strlist(_exec_pkg_config(repo_ctx, "--libs-only-l")),
+        "linkopts": _make_strlist(_exec_pkg_config(repo_ctx, ["--libs-only-l"])),
     }
     build_file_data = BUILD_TEMPLATE.format(**data)
 
-    libexecdir = _exec_pkg_config(repo_ctx, "--variable=libexecdir")
+    libexecdir = _exec_pkg_config(repo_ctx, ["--variable=libexecdir"])
     if len(libexecdir) == 1:
         repo_ctx.symlink(libexecdir[0], "libexec")
         build_file_data += EXPORTS_FILES_TEMPLATE

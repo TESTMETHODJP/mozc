@@ -29,15 +29,11 @@
 
 #include "base/system_util.h"
 
-#include <cstring>
 #include <string>
-#include <vector>
 
-#include "absl/strings/match.h"
 #include "base/environ_mock.h"
 #include "base/file_util.h"
 #include "base/file_util_mock.h"
-#include "base/util.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 
@@ -111,7 +107,7 @@ TEST_F(SystemUtilTest, GetTotalPhysicalMemoryTest) {
 TEST_F(SystemUtilTest, GetOSVersionStringTestForAndroid) {
   std::string result = SystemUtil::GetOSVersionString();
   // |result| must start with "Android ".
-  EXPECT_TRUE(absl::StartsWith(result, "Android "));
+  EXPECT_TRUE(result.starts_with("Android "));
 }
 #endif  // __ANDROID__
 

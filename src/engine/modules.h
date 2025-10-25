@@ -31,107 +31,101 @@
 #define MOZC_ENGINE_MODULES_H_
 
 #include <memory>
-#include <utility>
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
-#include "base/logging.h"
 #include "converter/connector.h"
 #include "converter/segmenter.h"
-#include "data_manager/data_manager_interface.h"
+#include "data_manager/data_manager.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_group.h"
 #include "dictionary/pos_matcher.h"
-#include "dictionary/suppression_dictionary.h"
-#include "engine/spellchecker_interface.h"
-#include "prediction/rescorer_interface.h"
-#include "prediction/single_kanji_prediction_aggregator.h"
+#include "dictionary/single_kanji_dictionary.h"
+#include "engine/supplemental_model_interface.h"
 #include "prediction/suggestion_filter.h"
 #include "prediction/zero_query_dict.h"
-
 
 namespace mozc {
 namespace engine {
 
 class Modules {
  public:
-  Modules() = default;
-  Modules(const Modules &) = delete;
-  Modules &operator=(const Modules &) = delete;
+  Modules(const Modules&) = delete;
+  Modules& operator=(const Modules&) = delete;
 
-  absl::Status Init(std::unique_ptr<const DataManagerInterface> data_manager);
+  // Modules must be initialized via Create() method to
+  // keep Modules as immutable as possible.
+  static absl::StatusOr<std::unique_ptr<Modules>> Create(
+      std::unique_ptr<const DataManager> data_manager);
 
-  // Preset functions must be called before Init.
-  void PresetPosMatcher(
-      std::unique_ptr<const dictionary::PosMatcher> pos_matcher);
-  void PresetSuppressionDictionary(
-      std::unique_ptr<dictionary::SuppressionDictionary>
-          suppression_dictionary);
-  void PresetUserDictionary(
-      std::unique_ptr<dictionary::UserDictionaryInterface> user_dictionary);
-  void PresetSuffixDictionary(
-      std::unique_ptr<dictionary::DictionaryInterface> suffix_dictionary);
-  void PresetDictionary(
-      std::unique_ptr<dictionary::DictionaryInterface> dictionary);
-  void PresetRescorer(std::unique_ptr<prediction::RescorerInterface> rescorer);
-  void PresetSingleKanjiPredictionAggregator(
-      std::unique_ptr<const prediction::SingleKanjiPredictionAggregator>
-          single_kanji_prediction_aggregator);
-
-  const DataManagerInterface &GetDataManager() const {
+  const DataManager& GetDataManager() const {
     // DataManager must be valid.
     DCHECK(data_manager_);
     return *data_manager_;
   }
 
-  const dictionary::PosMatcher *GetPosMatcher() const {
-    return pos_matcher_.get();
+  const dictionary::PosMatcher& GetPosMatcher() const {
+    DCHECK(pos_matcher_);
+    return *pos_matcher_;
   }
-  const dictionary::SuppressionDictionary *GetSuppressionDictionary() const {
-    return suppression_dictionary_.get();
+
+  const Connector& GetConnector() const { return connector_; }
+
+  const Segmenter& GetSegmenter() const {
+    DCHECK(segmenter_);
+    return *segmenter_;
   }
-  dictionary::SuppressionDictionary *GetMutableSuppressionDictionary() {
-    return suppression_dictionary_.get();
+
+  dictionary::UserDictionaryInterface& GetUserDictionary() const {
+    DCHECK(user_dictionary_);
+    return *user_dictionary_;
   }
-  const Connector &GetConnector() const { return connector_; }
-  const Segmenter *GetSegmenter() const { return segmenter_.get(); }
-  dictionary::UserDictionaryInterface *GetUserDictionary() const {
-    return user_dictionary_.get();
+
+  const dictionary::DictionaryInterface& GetSuffixDictionary() const {
+    DCHECK(suffix_dictionary_);
+    return *suffix_dictionary_;
   }
-  const dictionary::DictionaryInterface *GetSuffixDictionary() const {
-    return suffix_dictionary_.get();
+
+  const dictionary::DictionaryInterface& GetDictionary() const {
+    DCHECK(dictionary_);
+    return *dictionary_;
   }
-  const dictionary::DictionaryInterface *GetDictionary() const {
-    return dictionary_.get();
+
+  const dictionary::PosGroup& GetPosGroup() const {
+    DCHECK(pos_group_);
+    return *pos_group_;
   }
-  const dictionary::PosGroup *GetPosGroup() const { return pos_group_.get(); }
-  const SuggestionFilter &GetSuggestionFilter() const {
+
+  const SuggestionFilter& GetSuggestionFilter() const {
     return suggestion_filter_;
   }
-  const prediction::SingleKanjiPredictionAggregator *
-  GetSingleKanjiPredictionAggregator() const {
-    return single_kanji_prediction_aggregator_.get();
+
+  const dictionary::SingleKanjiDictionary& GetSingleKanjiDictionary() const {
+    DCHECK(single_kanji_dictionary_);
+    return *single_kanji_dictionary_;
   }
-  const ZeroQueryDict &GetZeroQueryDict() const { return zero_query_dict_; }
-  const ZeroQueryDict &GetZeroQueryNumberDict() const {
+
+  const ZeroQueryDict& GetZeroQueryDict() const { return zero_query_dict_; }
+  const ZeroQueryDict& GetZeroQueryNumberDict() const {
     return zero_query_number_dict_;
   }
-  const prediction::RescorerInterface *GetRescorer() const {
-    return rescorer_.get();
-  }
 
-
-  const engine::SpellcheckerInterface *GetSpellchecker() const {
-    return spellchecker_;
-  }
-  void SetSpellchecker(const engine::SpellcheckerInterface *spellchecker) {
-    spellchecker_ = spellchecker;
+  engine::SupplementalModelInterface& GetSupplementalModel() const {
+    DCHECK(supplemental_model_);
+    return *supplemental_model_;
   }
 
  private:
-  bool initialized_ = false;
-  std::unique_ptr<const DataManagerInterface> data_manager_;
+  friend class ModulesPresetBuilder;
+  // For the constructor.
+  friend std::unique_ptr<Modules> std::make_unique<Modules>();
+
+  Modules() = default;
+
+  absl::Status Init(std::unique_ptr<const DataManager> data_manager);
+
+  std::unique_ptr<const DataManager> data_manager_;
   std::unique_ptr<const dictionary::PosMatcher> pos_matcher_;
-  std::unique_ptr<dictionary::SuppressionDictionary> suppression_dictionary_;
   Connector connector_;
   std::unique_ptr<const Segmenter> segmenter_;
   std::unique_ptr<dictionary::UserDictionaryInterface> user_dictionary_;
@@ -139,17 +133,41 @@ class Modules {
   std::unique_ptr<dictionary::DictionaryInterface> dictionary_;
   std::unique_ptr<const dictionary::PosGroup> pos_group_;
   SuggestionFilter suggestion_filter_;
-  std::unique_ptr<const prediction::SingleKanjiPredictionAggregator>
-      single_kanji_prediction_aggregator_;
+  std::unique_ptr<const dictionary::SingleKanjiDictionary>
+      single_kanji_dictionary_;
   ZeroQueryDict zero_query_dict_;
   ZeroQueryDict zero_query_number_dict_;
-  std::unique_ptr<const prediction::RescorerInterface> rescorer_;
 
+  // `supplemental_model_` is a class variable and initialized by
+  // a static singleton object. However, it can also be set to a different value
+  // by a PresetBuilder. Since singleton object cannot be deallocated,
+  // `supplemental_model_` is managed using a shared_ptr.
+  std::shared_ptr<engine::SupplementalModelInterface> supplemental_model_;
+};
 
-  // Spellchecker used for homonym correction.
-  // Module doesn't have the ownership of spellchecker_,
-  // SessionHandler owns this this instance. (usually a singleton object).
-  const engine::SpellcheckerInterface *spellchecker_ = nullptr;
+class ModulesPresetBuilder {
+ public:
+  ModulesPresetBuilder();
+
+  // Preset functions must be called before Build().
+  ModulesPresetBuilder& PresetPosMatcher(
+      std::unique_ptr<const dictionary::PosMatcher> pos_matcher);
+  ModulesPresetBuilder& PresetUserDictionary(
+      std::unique_ptr<dictionary::UserDictionaryInterface> user_dictionary);
+  ModulesPresetBuilder& PresetSuffixDictionary(
+      std::unique_ptr<dictionary::DictionaryInterface> suffix_dictionary);
+  ModulesPresetBuilder& PresetDictionary(
+      std::unique_ptr<dictionary::DictionaryInterface> dictionary);
+  ModulesPresetBuilder& PresetSingleKanjiDictionary(
+      std::unique_ptr<const dictionary::SingleKanjiDictionary>
+          single_kanji_dictionary);
+  ModulesPresetBuilder& PresetSupplementalModel(
+      std::unique_ptr<engine::SupplementalModelInterface> supplemental_model);
+  absl::StatusOr<std::unique_ptr<Modules>> Build(
+      std::unique_ptr<const DataManager> data_manager);
+
+ private:
+  std::unique_ptr<Modules> modules_;
 };
 
 }  // namespace engine

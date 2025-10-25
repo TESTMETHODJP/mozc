@@ -33,18 +33,20 @@
 #include <string>
 #include <utility>
 
+#include "absl/log/check.h"
+#include "absl/strings/string_view.h"
 #include "base/japanese_util.h"
-#include "base/logging.h"
 #include "base/util.h"
 #include "composer/composer.h"
-#include "config/config_handler.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
-#include "usage_stats/usage_stats.h"
+#include "rewriter/rewriter_interface.h"
 
 namespace mozc {
 
@@ -52,19 +54,19 @@ using dictionary::DictionaryInterface;
 using dictionary::PosMatcher;
 
 LanguageAwareRewriter::LanguageAwareRewriter(
-    const PosMatcher &pos_matcher, const DictionaryInterface *dictionary)
-    : unknown_id_(pos_matcher.GetUnknownId()), dictionary_(dictionary) {}
+    const PosMatcher& pos_matcher, const DictionaryInterface& dictionary)
+    : unknown_id_(pos_matcher.GetUnknownId()), dictionary_(&dictionary) {}
 
 LanguageAwareRewriter::~LanguageAwareRewriter() = default;
 
 namespace {
 
-bool IsMobileRequest(const ConversionRequest &request) {
+bool IsMobileRequest(const ConversionRequest& request) {
   return request.request().zero_query_suggestion() &&
          request.request().mixed_conversion();
 }
 
-bool IsRomanHiraganaInput(const ConversionRequest &request) {
+bool IsRomanHiraganaInput(const ConversionRequest& request) {
   const auto table = request.request().special_romanji_table();
   switch (table) {
     case commands::Request::DEFAULT_TABLE:
@@ -76,7 +78,7 @@ bool IsRomanHiraganaInput(const ConversionRequest &request) {
   }
 }
 
-bool IsEnabled(const ConversionRequest &request) {
+bool IsEnabled(const ConversionRequest& request) {
   const auto mode = request.request().language_aware_input();
   if (mode == commands::Request::NO_LANGUAGE_AWARE_INPUT) {
     return false;
@@ -90,7 +92,7 @@ bool IsEnabled(const ConversionRequest &request) {
 
 }  // namespace
 
-int LanguageAwareRewriter::capability(const ConversionRequest &request) const {
+int LanguageAwareRewriter::capability(const ConversionRequest& request) const {
   // Language aware input is performed only on suggestion or prediction.
   if (!IsEnabled(request)) {
     return RewriterInterface::NOT_AVAILABLE;
@@ -100,8 +102,8 @@ int LanguageAwareRewriter::capability(const ConversionRequest &request) const {
 }
 
 namespace {
-bool IsRawQuery(const composer::Composer &composer,
-                const DictionaryInterface *dictionary, int *rank) {
+bool IsRawQuery(const composer::ComposerData& composer,
+                const DictionaryInterface* dictionary, int* rank) {
   const std::string raw_text = composer.GetRawString();
 
   // Check if the length of text is less than or equal to three.
@@ -159,12 +161,12 @@ bool IsRawQuery(const composer::Composer &composer,
 }
 
 // Get T13n candidate ids from existing candidates.
-void GetAlphabetIds(const Segment &segment, uint16_t *lid, uint16_t *rid) {
+void GetAlphabetIds(const Segment& segment, uint16_t* lid, uint16_t* rid) {
   DCHECK(lid);
   DCHECK(rid);
 
   for (int i = 0; i < segment.candidates_size(); ++i) {
-    const Segment::Candidate &candidate = segment.candidate(i);
+    const converter::Candidate& candidate = segment.candidate(i);
     const Util::ScriptType type = Util::GetScriptType(candidate.value);
     if (type == Util::ALPHABET) {
       *lid = candidate.lid;
@@ -183,9 +185,9 @@ void GetAlphabetIds(const Segment &segment, uint16_t *lid, uint16_t *rid) {
 // BM_DesktopAnthyCorpusConversion 25062440090 -> 25101542382 (1.002)
 // BM_DesktopStationPredictionCorpusPrediction 8695341697 -> 8672187681 (0.997)
 // BM_DesktopStationPredictionCorpusSuggestion 6149502840 -> 6152393270 (1.000)
-bool LanguageAwareRewriter::FillRawText(const ConversionRequest &request,
-                                        Segments *segments) const {
-  if (segments->conversion_segments_size() != 1 || !request.has_composer()) {
+bool LanguageAwareRewriter::FillRawText(const ConversionRequest& request,
+                                        Segments* segments) const {
+  if (segments->conversion_segments_size() != 1) {
     return false;
   }
 
@@ -194,7 +196,7 @@ bool LanguageAwareRewriter::FillRawText(const ConversionRequest &request,
     return false;
   }
 
-  Segment *segment = segments->mutable_conversion_segment(0);
+  Segment* segment = segments->mutable_conversion_segment(0);
 
   // Language aware candidates are useful on desktop as users may forget
   // switching the IME. However, on mobile software keyboard, such mistakes do
@@ -204,7 +206,7 @@ bool LanguageAwareRewriter::FillRawText(const ConversionRequest &request,
     // Do no insert the new candidate over the typing corrections.
     while (rank < segment->candidates_size()) {
       if (!(segment->candidate(rank).attributes &
-            Segment::Candidate::TYPING_CORRECTION)) {
+            converter::Attribute::TYPING_CORRECTION)) {
         break;
       }
       ++rank;
@@ -221,7 +223,7 @@ bool LanguageAwareRewriter::FillRawText(const ConversionRequest &request,
   if (rank > segment->candidates_size()) {
     rank = segment->candidates_size();
   }
-  Segment::Candidate *candidate = segment->insert_candidate(rank);
+  converter::Candidate* candidate = segment->insert_candidate(rank);
   candidate->value = raw_string;
   candidate->key = raw_string;
   candidate->content_value = raw_string;
@@ -230,22 +232,14 @@ bool LanguageAwareRewriter::FillRawText(const ConversionRequest &request,
   candidate->lid = lid;
   candidate->rid = rid;
 
-  candidate->attributes |= (Segment::Candidate::NO_VARIANTS_EXPANSION |
-                            Segment::Candidate::NO_EXTRA_DESCRIPTION);
-
-  if (!IsMobileRequest(request)) {
-    candidate->prefix = "→ ";
-    candidate->description = "もしかして";
-  }
-
-  // Set usage stats
-  usage_stats::UsageStats::IncrementCount("LanguageAwareSuggestionTriggered");
+  candidate->attributes |= (converter::Attribute::NO_VARIANTS_EXPANSION |
+                            converter::Attribute::NO_EXTRA_DESCRIPTION);
 
   return true;
 }
 
-bool LanguageAwareRewriter::Rewrite(const ConversionRequest &request,
-                                    Segments *segments) const {
+bool LanguageAwareRewriter::Rewrite(const ConversionRequest& request,
+                                    Segments* segments) const {
   if (!IsEnabled(request)) {
     return false;
   }
@@ -253,43 +247,18 @@ bool LanguageAwareRewriter::Rewrite(const ConversionRequest &request,
 }
 
 namespace {
-bool IsLanguageAwareInputCandidate(const composer::Composer &composer,
-                                   const Segment::Candidate &candidate) {
+bool IsLanguageAwareInputCandidate(absl::string_view raw_string,
+                                   const converter::Candidate& candidate) {
   // Check candidate.prefix to filter if the candidate is probably generated
   // from LanguangeAwareInput or not.
   if (candidate.prefix != "→ ") {
     return false;
   }
 
-  const std::string raw_string = composer.GetRawString();
   if (raw_string != candidate.value) {
     return false;
   }
   return true;
 }
 }  // namespace
-
-void LanguageAwareRewriter::Finish(const ConversionRequest &request,
-                                   Segments *segments) {
-  if (!IsEnabled(request)) {
-    return;
-  }
-
-  if (segments->conversion_segments_size() != 1 || !request.has_composer()) {
-    return;
-  }
-
-  // Update usage stats
-  const Segment &segment = segments->conversion_segment(0);
-  // Ignores segments which are not converted or not committed.
-  if (segment.candidates_size() == 0 ||
-      segment.segment_type() != Segment::FIXED_VALUE) {
-    return;
-  }
-
-  if (IsLanguageAwareInputCandidate(request.composer(), segment.candidate(0))) {
-    usage_stats::UsageStats::IncrementCount("LanguageAwareSuggestionCommitted");
-  }
-}
-
 }  // namespace mozc

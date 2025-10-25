@@ -42,13 +42,15 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
+#include "base/strings/zstring_view.h"
 #include "base/version.h"
 #include "client/client.h"
 #include "client/client_interface.h"
 #include "composer/key_event_util.h"
 #include "config/config_handler.h"
+#include "ipc/ipc.h"
 #include "ipc/ipc_mock.h"
 #include "protocol/commands.pb.h"
 #include "session/key_info_util.h"
@@ -135,16 +137,11 @@ class TestServerLauncher : public client::ServerLauncherInterface {
     start_server_called_ = start_server_called;
   }
 
-  void set_restricted(bool restricted) override {}
-
   void set_suppress_error_dialog(bool suppress) override {}
 
   void set_server_program(const absl::string_view server_path) override {}
 
-  const std::string &server_program() const override {
-    static const std::string path;
-    return path;
-  }
+  zstring_view server_program() const override { return ""; }
 
   void set_start_server_result(const bool result) {
     start_server_result_ = result;

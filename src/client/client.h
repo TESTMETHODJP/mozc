@@ -42,12 +42,18 @@
 #include "absl/time/time.h"
 #include "base/run_level.h"
 #include "base/strings/assign.h"
+#include "base/strings/zstring_view.h"
 #include "client/client_interface.h"
 #include "composer/key_event_util.h"
 #include "ipc/ipc.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
-#include "testing/friend_test.h"
+
+// The obsolete and unmaintained *main.cc files (server_launcher_main.cc and
+// ping_server_main.cc, client_performance_test_main.cc,
+// client_quality_test_main.cc, client_scenario_test_main.cc,
+// client_stress_test_main.cc were removed to decrease maintenance costs and
+// accelerate build times.
 
 namespace mozc {
 namespace client {
@@ -75,9 +81,7 @@ class ServerLauncher : public ServerLauncherInterface {
   }
 
   // return server program
-  const std::string &server_program() const override { return server_program_; }
-
-  void set_restricted(bool restricted) override { restricted_ = restricted; }
+  zstring_view server_program() const override { return server_program_; }
 
   // Sets the flag of error dialog suppression.
   void set_suppress_error_dialog(bool suppress) override {
@@ -86,7 +90,6 @@ class ServerLauncher : public ServerLauncherInterface {
 
  private:
   std::string server_program_;
-  bool restricted_;
   bool suppress_error_dialog_;
 };
 
@@ -152,7 +155,6 @@ class Client : public ClientInterface {
   void EnableCascadingWindow(bool enable) override;
 
   void set_timeout(absl::Duration timeout) override;
-  void set_restricted(bool restricted) override;
   void set_server_program(absl::string_view program_path) override;
   void set_suppress_error_dialog(bool suppress) override;
   void set_client_capability(const commands::Capability &capability) override;
@@ -168,12 +170,7 @@ class Client : public ClientInterface {
   bool OpenBrowser(const std::string &url) override;
 
  private:
-  FRIEND_TEST(SessionPlaybackTest, PushAndResetHistoryWithNoModeTest);
-  FRIEND_TEST(SessionPlaybackTest, PushAndResetHistoryWithModeTest);
-  FRIEND_TEST(SessionPlaybackTest, PushAndResetHistoryWithDirectTest);
-  FRIEND_TEST(SessionPlaybackTest, PlaybackHistoryTest);
-  FRIEND_TEST(SessionPlaybackTest, SetModeInitializerTest);
-  FRIEND_TEST(SessionPlaybackTest, ConsumedTest);
+  friend class ClientTestPeer;
 
   enum ServerStatus {
     SERVER_UNKNOWN,           // initial status

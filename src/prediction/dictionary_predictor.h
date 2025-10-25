@@ -30,171 +30,68 @@
 #ifndef MOZC_PREDICTION_DICTIONARY_PREDICTOR_H_
 #define MOZC_PREDICTION_DICTIONARY_PREDICTOR_H_
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/thread.h"
 #include "converter/connector.h"
-#include "converter/converter_interface.h"
-#include "converter/immutable_converter_interface.h"
 #include "converter/segmenter.h"
-#include "converter/segments.h"
-#include "data_manager/data_manager_interface.h"
 #include "dictionary/pos_matcher.h"
-#include "dictionary/single_kanji_dictionary.h"
 #include "engine/modules.h"
-#include "prediction/prediction_aggregator_interface.h"
+#include "prediction/dictionary_prediction_aggregator.h"
 #include "prediction/predictor_interface.h"
-#include "prediction/rescorer_interface.h"
+#include "prediction/realtime_decoder.h"
 #include "prediction/result.h"
 #include "prediction/suggestion_filter.h"
 #include "request/conversion_request.h"
 
 namespace mozc::prediction {
-namespace dictionary_predictor_internal {
-
-// Views for a key and a value. Pass by value.
-struct KeyValueView {
-  absl::string_view key, value;
-};
-
-}  // namespace dictionary_predictor_internal
-
-// Parameters to mix the literal and typing corrected results.
-// These parameters define the position of literal and typing corrected
-// results, and determined dynamically using various quality signals.
-struct TypingCorrectionMixingParams {
-  // Moves the literal candidate to the top position even when
-  // the typing corrected result is placed at top.
-  // Set this flag when the typing correction is less confident.
-  bool literal_on_top = false;
-
-  // Moves the literal candidate to the at least second position.
-  // When the literal candidate is already at the top, do nothing.
-  bool literal_at_least_second = false;
-};
-
-// Computes the typing correction mixing params.
-// from the `base_result` and `typing_corrected_results`.
-// TODO(taku): Introduces more advanced algorithms to make better decision.
-TypingCorrectionMixingParams GetTypingCorrectionMixingParams(
-    const ConversionRequest &request, const Segments &segments,
-    absl::Span<const Result> base_results,
-    absl::Span<const Result> typing_corrected_results);
 
 // Dictionary-based predictor
 class DictionaryPredictor : public PredictorInterface {
  public:
-  // Cost penalty 1151 means that expanded candidates are evaluated
-  // 10 times smaller in frequency.
-  // Note that the cost is calcurated by cost = -500 * log(prob)
-  // 1151 = 500 * log(10)
-  static constexpr int kKeyExpansionPenalty = 1151;
-
   // Initializes a predictor with given references to submodules. Note that
   // pointers are not owned by the class and to be deleted by the caller.
-  DictionaryPredictor(const engine::Modules &modules,
-                      const ConverterInterface *converter,
-                      const ImmutableConverterInterface *immutable_converter);
+  DictionaryPredictor(const engine::Modules& modules,
+                      std::unique_ptr<const RealtimeDecoder> decoder);
 
-  DictionaryPredictor(const DictionaryPredictor &) = delete;
-  DictionaryPredictor &operator=(const DictionaryPredictor &) = delete;
+  DictionaryPredictor(const DictionaryPredictor&) = delete;
+  DictionaryPredictor& operator=(const DictionaryPredictor&) = delete;
 
-  bool PredictForRequest(const ConversionRequest &request,
-                         Segments *segments) const override;
+  std::vector<Result> Predict(const ConversionRequest& request) const override;
 
-  void Finish(const ConversionRequest &request, Segments *segments) override;
-
-  const std::string &GetPredictorName() const override {
-    return predictor_name_;
+  absl::string_view GetPredictorName() const override {
+    return "DictionaryPredictor";
   }
 
  private:
-  class ResultFilter {
-   public:
-    ResultFilter(const ConversionRequest &request, const Segments &segments,
-                 dictionary::PosMatcher pos_matcher,
-                 const SuggestionFilter &suggestion_filter
-                     ABSL_ATTRIBUTE_LIFETIME_BOUND);
-    bool ShouldRemove(const Result &result, int added_num,
-                      std::string *log_message);
-
-   private:
-    bool CheckDupAndReturn(absl::string_view value, const Result &result,
-                           std::string *log_message);
-
-    const std::string input_key_;
-    const size_t input_key_len_;
-    const dictionary::PosMatcher pos_matcher_;
-    const SuggestionFilter &suggestion_filter_;
-    const bool is_mixed_conversion_;
-    const bool auto_partial_suggestion_;
-    const bool include_exact_key_;
-
-    std::string history_key_;
-    std::string history_value_;
-    std::string exact_bigram_key_;
-
-    int tc_max_count_;
-    int tc_max_rank_;
-
-    int suffix_count_;
-    int predictive_count_;
-    int realtime_count_;
-    int prefix_tc_count_;
-    int tc_count_;
-
-    // Seen set for dup value check.
-    absl::flat_hash_set<std::string> seen_;
-  };
+  // Test peer to access private methods
+  friend class DictionaryPredictorTestPeer;
+  friend class MockDataAndPredictor;
 
   // pair: <rid, key_length>
   using PrefixPenaltyKey = std::pair<uint16_t, int16_t>;
 
   // Constructor for testing
   DictionaryPredictor(
-      std::string predictor_name, const engine::Modules &modules,
-      std::unique_ptr<const prediction::PredictionAggregatorInterface>
-          aggregator,
-      const ImmutableConverterInterface *immutable_converter);
+      const engine::Modules& modules,
+      std::unique_ptr<const DictionaryPredictionAggregatorInterface> aggregator,
+      std::unique_ptr<const RealtimeDecoder> decoder);
 
-  bool AddPredictionToCandidates(
-      const ConversionRequest &request, Segments *segments,
-      const TypingCorrectionMixingParams &typing_correction_mixing_params,
-      absl::Span<Result> results) const;
-
-  void FillCandidate(
-      const ConversionRequest &request, const Result &result,
-      dictionary_predictor_internal::KeyValueView key_value,
-      const absl::flat_hash_map<std::string, int32_t> &merged_types,
-      Segment::Candidate *candidate) const;
-
-  // Returns the position of misspelled character position.
-  //
-  // Example:
-  // key: "れみおめろん"
-  // value: "レミオロメン"
-  // returns 3
-  //
-  // Example:
-  // key: "ろっぽんぎ"
-  // value: "六本木"
-  // returns 5 (charslen("ろっぽんぎ"))
-  static size_t GetMissSpelledPosition(absl::string_view key,
-                                       absl::string_view value);
+  std::vector<Result> RerankAndFilterResults(const ConversionRequest& request,
+                                             std::vector<Result> result) const;
 
   // Returns language model cost of |token| given prediction type |type|.
   // |rid| is the right id of previous word (token).
   // If |rid| is unknown, set 0 as a default value.
-  int GetLMCost(const Result &result, int rid) const;
+  int GetLMCost(const Result& result, int rid) const;
 
   // Given the results aggregated by aggregates, remove
   // miss-spelled results from the |results|.
@@ -236,35 +133,32 @@ class DictionaryPredictor : public PredictorInterface {
   // } else {
   //   do nothing.
   // }
-  static void RemoveMissSpelledCandidates(size_t request_key_len,
-                                          std::vector<Result> *results);
+  static void RemoveMissSpelledCandidates(const ConversionRequest& request,
+                                          absl::Span<Result> results);
 
   // Populate conversion costs to `results`.
-  void RewriteResultsForPrediction(const ConversionRequest &request,
-                                   const Segments &segments,
-                                   std::vector<Result> *results) const;
+  void RewriteResultsForPrediction(const ConversionRequest& request,
+                                   absl::Span<Result> results) const;
 
   // Scoring function which takes prediction bounus into account.
   // It basically reranks the candidate by lang_prob * (1 + remain_len).
   // This algorithm is mainly used for desktop.
-  void SetPredictionCost(ConversionRequest::RequestType request_type,
-                         const Segments &segments,
-                         std::vector<Result> *results) const;
+  void SetPredictionCost(const ConversionRequest& request,
+                         absl::Span<Result> results) const;
 
   // Scoring function for mixed conversion.
   // In the mixed conversion we basically use the pure language model-based
   // scoring function. This algorithm is mainly used for mobile.
-  void SetPredictionCostForMixedConversion(const ConversionRequest &request,
-                                           const Segments &segments,
-                                           std::vector<Result> *results) const;
+  void SetPredictionCostForMixedConversion(const ConversionRequest& request,
+                                           absl::Span<Result> results) const;
 
   // Returns the cost offset for SINGLE_KANJI results.
   // Aggregated SINGLE_KANJI results does not have LM based wcost(word cost),
   // so we want to add the offset based on the other entries.
   int CalculateSingleKanjiCostOffset(
-      const ConversionRequest &request, uint16_t rid,
-      absl::string_view input_key, absl::Span<const Result> results,
-      absl::flat_hash_map<PrefixPenaltyKey, int> *cache) const;
+      const ConversionRequest& request, uint16_t rid,
+      absl::Span<const Result> results,
+      absl::flat_hash_map<PrefixPenaltyKey, int>* cache) const;
 
   // Returns true if the suggestion is classified
   // as "aggressive".
@@ -272,57 +166,45 @@ class DictionaryPredictor : public PredictorInterface {
                                      bool is_suggestion,
                                      size_t total_candidates_size);
 
-  void MaybeRecordUsageStats(const Segment::Candidate &candidate) const;
-
-  // Sets candidate description.
-  void SetDescription(PredictionTypes types,
-                      Segment::Candidate *candidate) const;
-  // Description for DEBUG mode.
-  static void SetDebugDescription(PredictionTypes types,
-                                  Segment::Candidate *candidate);
-
-  static std::string GetPredictionTypeDebugString(PredictionTypes types);
-
   int CalculatePrefixPenalty(
-      const ConversionRequest &request, absl::string_view input_key,
-      const Result &result,
-      const ImmutableConverterInterface *immutable_converter,
-      absl::flat_hash_map<PrefixPenaltyKey, int> *cache) const;
+      const ConversionRequest& request, const Result& result,
+      absl::flat_hash_map<PrefixPenaltyKey, int>* cache) const;
 
-  // Populates typing corrected results to `results`.
-  TypingCorrectionMixingParams MaybePopulateTypingCorrectedResults(
-      const ConversionRequest &request, const Segments &segments,
-      std::vector<Result> *results) const;
+  std::vector<Result> AggregateTypingCorrectedResultsForMixedConversion(
+      const ConversionRequest& request) const;
 
-  static void MaybeSuppressAggressiveTypingCorrection(
-      const ConversionRequest &request,
-      const TypingCorrectionMixingParams &typing_correction_mixing_params,
-      Segments *segments);
+  void MaybeApplyPostCorrection(const ConversionRequest& request,
+                                std::vector<Result>& results) const;
 
-  static void MaybeApplyHomonymCorrection(const engine::Modules &modules,
-                                          Segments *segments);
-
-  void MaybeRescoreResults(const ConversionRequest &request,
-                           const Segments &segments,
+  void MaybeRescoreResults(const ConversionRequest& request,
                            absl::Span<Result> results) const;
-  static void AddRescoringDebugDescription(Segments *segments);
 
-  // Test peer to access private methods
-  friend class DictionaryPredictorTestPeer;
+  static void AddRescoringDebugDescription(absl::Span<Result> results);
 
-  std::unique_ptr<const prediction::PredictionAggregatorInterface> aggregator_;
+  std::shared_ptr<Result> MaybeGetPreviousTopResult(
+      const Result& current_top_result, const ConversionRequest& request) const;
 
-  const ImmutableConverterInterface *immutable_converter_;
-  const Connector &connector_;
-  const Segmenter *segmenter_;
-  const SuggestionFilter &suggestion_filter_;
-  std::unique_ptr<const dictionary::SingleKanjiDictionary>
-      single_kanji_dictionary_;
+  std::unique_ptr<const DictionaryPredictionAggregatorInterface> aggregator_;
+
+  // Previous top result and request key length. (not result length).
+  // When the previous and current result are consistent, we still keep showing
+  // the previous result to prevent flickering.
+  //
+  // We can still keep the purely functional decoder design as
+  // result = Decode("ABCD") = Decode(Decode("ABC"), "D") =
+  //          Decode(Decode(Decode("AB"), "C"), "D")) ...
+  // These variables work as a cache of previous results to prevent recursive
+  // and expensive functional calls.
+  mutable AtomicSharedPtr<Result> prev_top_result_;
+  mutable std::atomic<int32_t> prev_top_key_length_ = 0;
+
+  std::unique_ptr<const RealtimeDecoder> decoder_;
+  const Connector& connector_;
+  const Segmenter& segmenter_;
+  const SuggestionFilter& suggestion_filter_;
   const dictionary::PosMatcher pos_matcher_;
   const uint16_t general_symbol_id_;
-  const std::string predictor_name_;
-  const prediction::RescorerInterface *rescorer_ = nullptr;
-  const engine::Modules &modules_;
+  const engine::Modules& modules_;
 };
 
 }  // namespace mozc::prediction

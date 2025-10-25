@@ -30,26 +30,37 @@
 #include "prediction/number_decoder.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "base/container/trie.h"
+#include "base/util.h"
+#include "converter/attribute.h"
+#include "dictionary/pos_matcher.h"
+#include "prediction/result.h"
+#include "request/conversion_request.h"
 
-namespace mozc {
+namespace mozc::prediction {
 namespace {
 
-using ::mozc::number_decoder_internal::Entry;
-using ::mozc::number_decoder_internal::State;
-using ::mozc::number_decoder_internal::Type;
+using ::mozc::prediction::number_decoder_internal::Entry;
+using ::mozc::prediction::number_decoder_internal::State;
+using ::mozc::prediction::number_decoder_internal::Type;
 
-void MaybeAppendResult(const State &state,
-                       std::vector<NumberDecoder::Result> &results) {
-  std::optional<NumberDecoder::Result> result = state.Result();
+void MaybeAppendResult(const State& state,
+                       std::vector<NumberDecoderResult>& results) {
+  std::optional<NumberDecoderResult> result = state.Result();
   if (!result.has_value()) {
     return;
   }
@@ -74,65 +85,65 @@ void MaybeAppendResult(const State &state,
   results.push_back(*std::move(result));
 }
 
-Trie<Entry> InitEntries() {
-  Trie<Entry> result;
+std::unique_ptr<const Trie<Entry>> CreateDefaultEntries() {
+  auto result = std::make_unique<Trie<Entry>>();
   // unit
-  result.AddEntry("ぜろ", Entry({Type::UNIT, 0}));
-  result.AddEntry("いち", Entry({Type::UNIT, 1}));
-  result.AddEntry("いっ", Entry({Type::UNIT, 1}));
-  result.AddEntry("に", Entry({Type::UNIT, 2}));
-  result.AddEntry("さん", Entry({Type::UNIT, 3}));
-  result.AddEntry("し", Entry({Type::UNIT, 4}));
-  result.AddEntry("よん", Entry({Type::UNIT, 4}));
-  result.AddEntry("よ", Entry({Type::UNIT, 4}));
-  result.AddEntry("ご", Entry({Type::UNIT, 5}));
-  result.AddEntry("ろく", Entry({Type::UNIT, 6}));
-  result.AddEntry("ろっ", Entry({Type::UNIT, 6}));
-  result.AddEntry("なな", Entry({Type::UNIT, 7}));
-  result.AddEntry("しち", Entry({Type::UNIT, 7}));
-  result.AddEntry("はち", Entry({Type::UNIT, 8}));
-  result.AddEntry("はっ", Entry({Type::UNIT, 8}));
-  result.AddEntry("きゅう", Entry({Type::UNIT, 9}));
-  result.AddEntry("きゅー", Entry({Type::UNIT, 9}));
-  result.AddEntry("く", Entry({Type::UNIT, 9}));
+  result->AddEntry("ぜろ", Entry({Type::UNIT, 0}));
+  result->AddEntry("いち", Entry({Type::UNIT, 1}));
+  result->AddEntry("いっ", Entry({Type::UNIT, 1}));
+  result->AddEntry("に", Entry({Type::UNIT, 2}));
+  result->AddEntry("さん", Entry({Type::UNIT, 3}));
+  result->AddEntry("し", Entry({Type::UNIT, 4}));
+  result->AddEntry("よん", Entry({Type::UNIT, 4}));
+  result->AddEntry("よ", Entry({Type::UNIT, 4}));
+  result->AddEntry("ご", Entry({Type::UNIT, 5}));
+  result->AddEntry("ろく", Entry({Type::UNIT, 6}));
+  result->AddEntry("ろっ", Entry({Type::UNIT, 6}));
+  result->AddEntry("なな", Entry({Type::UNIT, 7}));
+  result->AddEntry("しち", Entry({Type::UNIT, 7}));
+  result->AddEntry("はち", Entry({Type::UNIT, 8}));
+  result->AddEntry("はっ", Entry({Type::UNIT, 8}));
+  result->AddEntry("きゅう", Entry({Type::UNIT, 9}));
+  result->AddEntry("きゅー", Entry({Type::UNIT, 9}));
+  result->AddEntry("く", Entry({Type::UNIT, 9}));
 
   // small digit
   // "重", etc
-  result.AddEntry("じゅう", Entry({Type::SMALL_DIGIT, 10, 2, "", true}));
-  result.AddEntry("じゅー", Entry({Type::SMALL_DIGIT, 10, 2, "", true}));
-  result.AddEntry("じゅっ", Entry({Type::SMALL_DIGIT, 10, 2}));
-  result.AddEntry("ひゃく", Entry({Type::SMALL_DIGIT, 100, 3}));
-  result.AddEntry("ひゃっ", Entry({Type::SMALL_DIGIT, 100, 3}));
-  result.AddEntry("びゃく", Entry({Type::SMALL_DIGIT, 100, 3}));
-  result.AddEntry("びゃっ", Entry({Type::SMALL_DIGIT, 100, 3}));
-  result.AddEntry("ぴゃく", Entry({Type::SMALL_DIGIT, 100, 3}));
-  result.AddEntry("ぴゃっ", Entry({Type::SMALL_DIGIT, 100, 3}));
+  result->AddEntry("じゅう", Entry({Type::SMALL_DIGIT, 10, 2, "", true}));
+  result->AddEntry("じゅー", Entry({Type::SMALL_DIGIT, 10, 2, "", true}));
+  result->AddEntry("じゅっ", Entry({Type::SMALL_DIGIT, 10, 2}));
+  result->AddEntry("ひゃく", Entry({Type::SMALL_DIGIT, 100, 3}));
+  result->AddEntry("ひゃっ", Entry({Type::SMALL_DIGIT, 100, 3}));
+  result->AddEntry("びゃく", Entry({Type::SMALL_DIGIT, 100, 3}));
+  result->AddEntry("びゃっ", Entry({Type::SMALL_DIGIT, 100, 3}));
+  result->AddEntry("ぴゃく", Entry({Type::SMALL_DIGIT, 100, 3}));
+  result->AddEntry("ぴゃっ", Entry({Type::SMALL_DIGIT, 100, 3}));
   // "戦", etc
-  result.AddEntry("せん", Entry({Type::SMALL_DIGIT, 1000, 4, "", true}));
+  result->AddEntry("せん", Entry({Type::SMALL_DIGIT, 1000, 4, "", true}));
   // "膳"
-  result.AddEntry("ぜん", Entry({Type::SMALL_DIGIT, 1000, 4, "", true}));
+  result->AddEntry("ぜん", Entry({Type::SMALL_DIGIT, 1000, 4, "", true}));
 
   // big digit
-  result.AddEntry("まん", Entry({Type::BIG_DIGIT, 10000, 5, "万"}));
-  result.AddEntry("おく", Entry({Type::BIG_DIGIT, -1, 9, "億"}));
-  result.AddEntry("おっ", Entry({Type::BIG_DIGIT, -1, 9, "億"}));
+  result->AddEntry("まん", Entry({Type::BIG_DIGIT, 10000, 5, "万"}));
+  result->AddEntry("おく", Entry({Type::BIG_DIGIT, -1, 9, "億"}));
+  result->AddEntry("おっ", Entry({Type::BIG_DIGIT, -1, 9, "億"}));
   // "町", etc
-  result.AddEntry("ちょう", Entry({Type::BIG_DIGIT, -1, 13, "兆", true}));
+  result->AddEntry("ちょう", Entry({Type::BIG_DIGIT, -1, 13, "兆", true}));
   // "系", etc
-  result.AddEntry("けい", Entry({Type::BIG_DIGIT, -1, 17, "京", true}));
-  result.AddEntry("がい", Entry({Type::BIG_DIGIT, -1, 21, "垓"}));
+  result->AddEntry("けい", Entry({Type::BIG_DIGIT, -1, 17, "京", true}));
+  result->AddEntry("がい", Entry({Type::BIG_DIGIT, -1, 21, "垓"}));
 
   // spacial cases
   // conflict with "にち"
-  result.AddEntry("にちょう",
-                  Entry({Type::UNIT_AND_BIG_DIGIT, 2, 13, "兆", true, 3}));
-  result.AddEntry("にちょうめ",
-                  Entry({Type::UNIT_AND_STOP_DECODING, 2, -1, "", false, 3}));
-  result.AddEntry("にちゃん",
-                  Entry({Type::UNIT_AND_STOP_DECODING, 2, -1, "", false, 3}));
+  result->AddEntry("にちょう",
+                   Entry({Type::UNIT_AND_BIG_DIGIT, 2, 13, "兆", true, 3}));
+  result->AddEntry("にちょうめ",
+                   Entry({Type::UNIT_AND_STOP_DECODING, 2, -1, "", false, 3}));
+  result->AddEntry("にちゃん",
+                   Entry({Type::UNIT_AND_STOP_DECODING, 2, -1, "", false, 3}));
   // サンチーム (currency) v.s. 3チーム
-  result.AddEntry("さんちーむ",
-                  Entry({Type::UNIT_AND_STOP_DECODING, 3, -1, "", true, 6}));
+  result->AddEntry("さんちーむ",
+                   Entry({Type::UNIT_AND_STOP_DECODING, 3, -1, "", true, 6}));
 
   // number suffix conflicting with the other entries
   constexpr absl::string_view kSuffixEntries[] = {
@@ -181,34 +192,74 @@ Trie<Entry> InitEntries() {
       // 丁目
       "ちょうめ",
   };
-  for (const auto &key : kSuffixEntries) {
-    result.AddEntry(key, Entry());
+  for (const auto& key : kSuffixEntries) {
+    result->AddEntry(key, Entry());
   }
   return result;
 }
 
+const Trie<Entry>& InitEntries() {
+  // Returns a singleton enries.
+  static const absl::NoDestructor<std::unique_ptr<const Trie<Entry>>>
+      kDefaultEntries(CreateDefaultEntries());
+  return **kDefaultEntries;
+}
+
 }  // namespace
 
-std::ostream &operator<<(std::ostream &os, const NumberDecoderResult &r) {
+std::ostream& operator<<(std::ostream& os, const NumberDecoderResult& r) {
   os << absl::StreamFormat("%v", r);
   return os;
 }
 
-NumberDecoder::NumberDecoder() : entries_(InitEntries()) {}
+NumberDecoder::NumberDecoder(const dictionary::PosMatcher& pos_matcher)
+    : entries_(InitEntries()),
+      kanji_number_id_(pos_matcher.GetKanjiNumberId()),
+      number_id_(pos_matcher.GetNumberId()) {}
 
-std::vector<NumberDecoder::Result> NumberDecoder::Decode(
+std::vector<prediction::Result> NumberDecoder::Decode(
+    const ConversionRequest& request) const {
+  std::vector<prediction::Result> results;
+  absl::string_view request_key = request.key();
+
+  for (const auto& decode_result : Decode(request_key)) {
+    Result result;
+    const bool is_arabic =
+        Util::GetScriptType(decode_result.candidate) == Util::NUMBER;
+    result.types = PredictionType::NUMBER;
+    result.key = request_key.substr(0, decode_result.consumed_key_byte_len);
+    result.value = std::move(decode_result.candidate);
+    result.candidate_attributes |= converter::Attribute::NO_SUGGEST_LEARNING;
+    // Heuristic cost:
+    // Large digit number (1億, 1兆, etc) should have larger cost
+    // 1000 ~= 500 * log(10)
+    result.wcost = 1000 * (1 + decode_result.digit_num);
+    result.lid = is_arabic ? number_id_ : kanji_number_id_;
+    result.rid = is_arabic ? number_id_ : kanji_number_id_;
+    if (decode_result.consumed_key_byte_len < request_key.size()) {
+      result.candidate_attributes |=
+          converter::Attribute::PARTIALLY_KEY_CONSUMED;
+      result.consumed_key_size = Util::CharsLen(result.key);
+    }
+    results.emplace_back(std::move(result));
+  }
+
+  return results;
+}
+
+std::vector<NumberDecoderResult> NumberDecoder::Decode(
     absl::string_view key) const {
   State state;
   state.key = key;
-  std::vector<NumberDecoder::Result> results;
+  std::vector<NumberDecoderResult> results;
   DecodeAux(key, state, results);
 
   MaybeAppendResult(state, results);
   return results;
 }
 
-void NumberDecoder::DecodeAux(absl::string_view key, State &state,
-                              std::vector<Result> &results) const {
+void NumberDecoder::DecodeAux(absl::string_view key, State& state,
+                              std::vector<NumberDecoderResult>& results) const {
   if (key.empty()) {
     return;
   }
@@ -272,9 +323,9 @@ void NumberDecoder::DecodeAux(absl::string_view key, State &state,
   DecodeAux(key.substr(key_byte_len), state, results);
 }
 
-bool NumberDecoder::HandleUnitEntry(absl::string_view key, const Entry &entry,
-                                    State &state,
-                                    std::vector<Result> &results) const {
+bool NumberDecoder::HandleUnitEntry(
+    absl::string_view key, const Entry& entry, State& state,
+    std::vector<NumberDecoderResult>& results) const {
   results.clear();
   if (state.IsValid() && entry.number == 0) {
     // Supports 0 only as a dependent number.
@@ -302,9 +353,9 @@ bool NumberDecoder::HandleUnitEntry(absl::string_view key, const Entry &entry,
   return true;
 }
 
-bool NumberDecoder::HandleSmallDigitEntry(absl::string_view key,
-                                          const Entry &entry, State &state,
-                                          std::vector<Result> &results) const {
+bool NumberDecoder::HandleSmallDigitEntry(
+    absl::string_view key, const Entry& entry, State& state,
+    std::vector<NumberDecoderResult>& results) const {
   results.clear();
   if (state.small_digit > 1 && entry.digit >= state.small_digit) {
     // Invalid: じゅうせん
@@ -332,9 +383,9 @@ bool NumberDecoder::HandleSmallDigitEntry(absl::string_view key,
   return true;
 }
 
-bool NumberDecoder::HandleBigDigitEntry(absl::string_view key,
-                                        const Entry &entry, State &state,
-                                        std::vector<Result> &results) const {
+bool NumberDecoder::HandleBigDigitEntry(
+    absl::string_view key, const Entry& entry, State& state,
+    std::vector<NumberDecoderResult>& results) const {
   results.clear();
   if (state.big_digit > 0 && entry.digit >= state.big_digit) {
     // Invalid: おくまん
@@ -392,4 +443,4 @@ std::optional<NumberDecoderResult> State::Result() const {
 }
 
 }  // namespace number_decoder_internal
-}  // namespace mozc
+}  // namespace mozc::prediction

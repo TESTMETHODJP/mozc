@@ -30,18 +30,21 @@
 #include "rewriter/emoticon_rewriter.h"
 
 #include <algorithm>
-#include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
-#include "base/logging.h"
 #include "base/vlog.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
+#include "data_manager/data_manager.h"
 #include "data_manager/serialized_dictionary.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
@@ -74,13 +77,13 @@ class IsEqualValue {
 void InsertCandidates(SerializedDictionary::const_iterator begin,
                       SerializedDictionary::const_iterator end,
                       size_t initial_insert_pos, size_t initial_insert_size,
-                      bool is_no_learning, Segment *segment) {
+                      bool is_no_learning, Segment* segment) {
   if (segment->candidates_size() == 0) {
     LOG(WARNING) << "candidates_size is 0";
     return;
   }
 
-  const Segment::Candidate &base_candidate = segment->candidate(0);
+  const converter::Candidate& base_candidate = segment->candidate(0);
   size_t offset = std::min(initial_insert_pos, segment->candidates_size());
 
   // Sort values by cost just in case
@@ -99,7 +102,7 @@ void InsertCandidates(SerializedDictionary::const_iterator begin,
       sorted_value.end());
 
   for (size_t i = 0; i < sorted_value.size(); ++i) {
-    Segment::Candidate *c = nullptr;
+    converter::Candidate* c = nullptr;
 
     if (i < initial_insert_size) {
       c = segment->insert_candidate(offset);
@@ -123,11 +126,11 @@ void InsertCandidates(SerializedDictionary::const_iterator begin,
     c->key = base_candidate.key;
     c->content_key = base_candidate.content_key;
     // no full/half width normalizations
-    c->attributes |= Segment::Candidate::NO_EXTRA_DESCRIPTION;
-    c->attributes |= Segment::Candidate::NO_VARIANTS_EXPANSION;
-    c->attributes |= Segment::Candidate::CONTEXT_SENSITIVE;
+    c->attributes |= converter::Attribute::NO_EXTRA_DESCRIPTION;
+    c->attributes |= converter::Attribute::NO_VARIANTS_EXPANSION;
+    c->attributes |= converter::Attribute::CONTEXT_SENSITIVE;
     if (is_no_learning) {
-      c->attributes |= Segment::Candidate::NO_LEARNING;
+      c->attributes |= converter::Attribute::NO_LEARNING;
     }
 
     constexpr char kBaseEmoticonDescription[] = "顔文字";
@@ -141,16 +144,16 @@ void InsertCandidates(SerializedDictionary::const_iterator begin,
                          sorted_value[i].description().size());
       c->description = description;
     }
-    c->category = Segment::Candidate::SYMBOL;
+    c->category = converter::Candidate::SYMBOL;
   }
 }
 
 }  // namespace
 
-bool EmoticonRewriter::RewriteCandidate(Segments *segments) const {
+bool EmoticonRewriter::RewriteCandidate(Segments* segments) const {
   bool modified = false;
-  for (Segment &segment : segments->conversion_segments()) {
-    const std::string &key = segment.key();
+  for (Segment& segment : segments->conversion_segments()) {
+    absl::string_view key = segment.key();
     if (key.empty()) {
       // This case happens for zero query suggestion.
       continue;
@@ -188,7 +191,8 @@ bool EmoticonRewriter::RewriteCandidate(Segments *segments) const {
       begin = dic_.begin();
       CHECK(begin != dic_.end());
       // use secure random not to predict the next emoticon.
-      begin += absl::Uniform(bitgen_, 0u, dic_.size());
+      absl::BitGen bitgen;
+      begin += absl::Uniform(bitgen, 0u, dic_.size());
       end = begin + 1;
       initial_insert_pos = RewriterUtil::CalculateInsertPosition(segment, 4);
       initial_insert_size = 1;
@@ -216,7 +220,7 @@ bool EmoticonRewriter::RewriteCandidate(Segments *segments) const {
 }
 
 std::unique_ptr<EmoticonRewriter> EmoticonRewriter::CreateFromDataManager(
-    const DataManagerInterface &data_manager) {
+    const DataManager& data_manager) {
   absl::string_view token_array_data, string_array_data;
   data_manager.GetEmoticonRewriterData(&token_array_data, &string_array_data);
   return std::make_unique<EmoticonRewriter>(token_array_data,
@@ -227,15 +231,15 @@ EmoticonRewriter::EmoticonRewriter(absl::string_view token_array_data,
                                    absl::string_view string_array_data)
     : dic_(token_array_data, string_array_data) {}
 
-int EmoticonRewriter::capability(const ConversionRequest &request) const {
+int EmoticonRewriter::capability(const ConversionRequest& request) const {
   if (request.request().mixed_conversion()) {
     return RewriterInterface::ALL;
   }
   return RewriterInterface::CONVERSION;
 }
 
-bool EmoticonRewriter::Rewrite(const ConversionRequest &request,
-                               Segments *segments) const {
+bool EmoticonRewriter::Rewrite(const ConversionRequest& request,
+                               Segments* segments) const {
   if (!request.config().use_emoticon_conversion()) {
     MOZC_VLOG(2) << "no use_emoticon_conversion";
     return false;

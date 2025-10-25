@@ -30,31 +30,33 @@
 #include "converter/quality_regression_test_lib.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/container/btree_map.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include "base/logging.h"
 #include "converter/quality_regression_util.h"
+#include "testing/gunit.h"
 
 namespace mozc {
 
 // Test data is provided in external file.
 struct TestCase {
   const bool enabled;
-  const char *line;
+  const char* line;
 };
 extern TestCase kTestData[];
 
 using quality_regression::QualityRegressionUtil;
 
 absl::Status QualityRegressionTest::RunTestForPlatform(
-    uint32_t platform, QualityRegressionUtil *util) {
+    uint32_t platform, QualityRegressionUtil* util) {
   if (!util) {
     return absl::InvalidArgumentError("util is null");
   }
@@ -68,7 +70,7 @@ absl::Status QualityRegressionTest::RunTestForPlatform(
     if (i % 1000 == 0) {
       LOG(INFO) << "Testing: " << i << " " << kTestData[i].line;
     }
-    const std::string &tsv_line = kTestData[i].line;
+    const std::string& tsv_line = kTestData[i].line;
     QualityRegressionUtil::TestItem item;
     if (!item.ParseFromTSV(tsv_line).ok()) {
       return absl::FailedPreconditionError(
@@ -79,14 +81,14 @@ absl::Status QualityRegressionTest::RunTestForPlatform(
       continue;
     }
     std::string actual_value;
-    const auto &test_result = util->ConvertAndTest(item, &actual_value);
+    const auto& test_result = util->ConvertAndTest(item, &actual_value);
     if (!test_result.ok()) {
       return absl::InvalidArgumentError(
           absl::StrCat("Failed to test the entry: ", tsv_line));
     }
 
-    absl::btree_map<std::string, std::vector<std::pair<float, std::string>>>
-        *table = nullptr;
+    absl::btree_map<std::string, std::vector<std::pair<float, std::string>>>*
+        table = nullptr;
     if (kTestData[i].enabled) {
       ++num_executed_cases;
       table = &results;
@@ -96,7 +98,7 @@ absl::Status QualityRegressionTest::RunTestForPlatform(
       table = &disabled_results;
     }
 
-    const std::string &label = item.label;
+    const std::string& label = item.label;
     std::string line = absl::StrCat(tsv_line, "\tActual: ", actual_value);
     if (*test_result) {
       // use "-1.0" as a dummy expected ratio
@@ -118,14 +120,14 @@ absl::Status QualityRegressionTest::RunTestForPlatform(
 
 void QualityRegressionTest::ExamineResults(
     const bool enabled, uint32_t platform,
-    absl::btree_map<std::string, std::vector<std::pair<float, std::string>>>
-        *results) {
+    absl::btree_map<std::string, std::vector<std::pair<float, std::string>>>*
+        results) {
   for (auto it = results->begin(); it != results->end(); ++it) {
-    std::vector<std::pair<float, std::string>> *values = &it->second;
+    std::vector<std::pair<float, std::string>>* values = &it->second;
     std::sort(values->begin(), values->end());
     size_t correct = 0;
     bool all_passed = true;
-    for (const auto &value : *values) {
+    for (const auto& value : *values) {
       const float accuracy = value.first;
       if (accuracy < 0) {
         ++correct;

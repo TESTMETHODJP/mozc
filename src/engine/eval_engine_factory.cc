@@ -33,9 +33,7 @@
 #include <string>
 #include <utility>
 
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "data_manager/data_manager.h"
 #include "engine/engine.h"
@@ -43,23 +41,15 @@
 namespace mozc {
 
 absl::StatusOr<std::unique_ptr<Engine>> CreateEvalEngine(
-    absl::string_view data_file_path, absl::string_view data_type,
-    absl::string_view engine_type) {
+    absl::string_view data_file_path, absl::string_view data_type) {
   const absl::string_view magic_number =
       DataManager::GetDataSetMagicNumber(data_type);
-  absl::StatusOr<std::unique_ptr<DataManager>> data_manager =
+  absl::StatusOr<std::unique_ptr<const DataManager>> data_manager =
       DataManager::CreateFromFile(std::string(data_file_path), magic_number);
   if (!data_manager.ok()) {
     return std::move(data_manager).status();
   }
-  if (engine_type == "desktop") {
-    return Engine::CreateDesktopEngine(*std::move(data_manager));
-  }
-  if (engine_type == "mobile") {
-    return Engine::CreateMobileEngine(*std::move(data_manager));
-  }
-  return absl::InvalidArgumentError(
-      absl::StrCat("Invalid engine type: ", engine_type));
+  return Engine::CreateEngine(*std::move(data_manager));
 }
 
 }  // namespace mozc

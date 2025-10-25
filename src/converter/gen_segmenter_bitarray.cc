@@ -34,6 +34,7 @@
 
 #include "converter/gen_segmenter_bitarray.h"
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <ios>
@@ -42,11 +43,10 @@
 #include <utility>
 #include <vector>
 
-#include "absl/base/config.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
 #include "base/container/bitarray.h"
 #include "base/file_stream.h"
-#include "base/logging.h"
 #include "protocol/segmenter_data.pb.h"
 
 namespace mozc {
@@ -58,8 +58,8 @@ class StateTable {
     idarray_.resize(size);
   }
 
-  StateTable(const StateTable &) = delete;
-  StateTable &operator=(const StateTable &) = delete;
+  StateTable(const StateTable&) = delete;
+  StateTable& operator=(const StateTable&) = delete;
 
   // |str| is an 1-dimensional row (or column) represented in byte array.
   void Add(uint16_t id, std::string str) {
@@ -100,8 +100,8 @@ class StateTable {
 
   size_t compressed_size() const { return compressed_size_; }
 
-  void Output(std::ostream *os) {
-    const char *data = reinterpret_cast<const char *>(compressed_table_.data());
+  void Output(std::ostream* os) {
+    const char* data = reinterpret_cast<const char*>(compressed_table_.data());
     const size_t bytelen = compressed_table_.size() * sizeof(uint16_t);
     os->write(data, bytelen);
   }
@@ -114,9 +114,9 @@ class StateTable {
 }  // namespace
 
 void SegmenterBitarrayGenerator::GenerateBitarray(
-    int lsize, int rsize, const IsBoundaryFunc is_boundary,
-    const std::string &output_size_info, const std::string &output_ltable,
-    const std::string &output_rtable, const std::string &output_bitarray) {
+    int lsize, int rsize, IsBoundaryFunc is_boundary,
+    const std::string& output_size_info, const std::string& output_ltable,
+    const std::string& output_rtable, const std::string& output_bitarray) {
   // Load the original matrix into an array
   std::vector<uint8_t> array((lsize + 1) * (rsize + 1));
 
@@ -196,7 +196,8 @@ void SegmenterBitarrayGenerator::GenerateBitarray(
   CHECK(barray.array());
   CHECK_GT(barray.size(), 0);
 
-  static_assert(ABSL_IS_LITTLE_ENDIAN, "Architecture must be little endian");
+  static_assert(std::endian::native == std::endian::little,
+                "Architecture must be little endian");
   {
     converter::SegmenterDataSizeInfo pb;
     pb.set_compressed_lsize(kCompressedLSize);

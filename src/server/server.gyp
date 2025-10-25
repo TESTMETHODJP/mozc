@@ -100,24 +100,8 @@
         'mozc_server.cc',
       ],
       'dependencies': [
-        '<(mozc_oss_src_dir)/base/base.gyp:crash_report_handler',
         '<(mozc_oss_src_dir)/session/session.gyp:session_server',
         '<(mozc_oss_src_dir)/protocol/protocol.gyp:state_proto',
-        '<(mozc_oss_src_dir)/usage_stats/usage_stats_base.gyp:usage_stats',
-      ],
-    },
-    {
-      'target_name': 'mozc_rpc_server_main',
-      'type': 'executable',
-      'sources': [
-        'mozc_rpc_server_main.cc',
-      ],
-      'dependencies': [
-        '<(mozc_oss_src_dir)/base/base.gyp:base',
-        '<(mozc_oss_src_dir)/engine/engine.gyp:engine_factory',
-        '<(mozc_oss_src_dir)/session/session.gyp:session_handler',
-        '<(mozc_oss_src_dir)/session/session.gyp:session_server',
-        '<(mozc_oss_src_dir)/session/session.gyp:random_keyevents_generator',
       ],
     },
   ],

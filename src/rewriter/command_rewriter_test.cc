@@ -29,9 +29,12 @@
 
 #include "rewriter/command_rewriter.h"
 
+#include <cstddef>
 #include <string>
 
 #include "config/config_handler.h"
+#include "converter/attribute.h"
+#include "converter/candidate.h"
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
@@ -42,21 +45,21 @@
 namespace mozc {
 namespace {
 
-size_t CommandCandidatesSize(const Segment &segment) {
+size_t CommandCandidatesSize(const Segment& segment) {
   size_t result = 0;
   for (int i = 0; i < segment.candidates_size(); ++i) {
     if (segment.candidate(i).attributes &
-        Segment::Candidate::COMMAND_CANDIDATE) {
+        converter::Attribute::COMMAND_CANDIDATE) {
       result++;
     }
   }
   return result;
 }
 
-std::string GetCommandCandidateValue(const Segment &segment) {
+std::string GetCommandCandidateValue(const Segment& segment) {
   for (int i = 0; i < segment.candidates_size(); ++i) {
     if (segment.candidate(i).attributes &
-        Segment::Candidate::COMMAND_CANDIDATE) {
+        converter::Attribute::COMMAND_CANDIDATE) {
       return segment.candidate(i).value;
     }
   }
@@ -65,11 +68,6 @@ std::string GetCommandCandidateValue(const Segment &segment) {
 
 class CommandRewriterTest : public testing::TestWithTempUserProfile {
  protected:
-  CommandRewriterTest() {
-    convreq_.set_request(&request_);
-    convreq_.set_config(&config_);
-  }
-
   void SetUp() override {
     config::ConfigHandler::GetDefaultConfig(&config_);
     request_.Clear();
@@ -80,7 +78,14 @@ class CommandRewriterTest : public testing::TestWithTempUserProfile {
     request_.Clear();
   }
 
-  ConversionRequest convreq_;
+  static ConversionRequest ConvReq(const config::Config& config,
+                                   const commands::Request& request) {
+    return ConversionRequestBuilder()
+        .SetConfig(config)
+        .SetRequest(request)
+        .Build();
+  }
+
   commands::Request request_;
   config::Config config_;
 };
@@ -88,56 +93,57 @@ class CommandRewriterTest : public testing::TestWithTempUserProfile {
 TEST_F(CommandRewriterTest, Rewrite) {
   CommandRewriter rewriter;
   Segments segments;
-  Segment *seg = segments.push_back_segment();
+  Segment* seg = segments.push_back_segment();
 
-  EXPECT_FALSE(rewriter.Rewrite(convreq_, &segments));
+  const ConversionRequest convreq = ConvReq(config_, request_);
+  EXPECT_FALSE(rewriter.Rewrite(convreq, &segments));
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("こまんど");
     candidate->value = "コマンド";
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(CommandCandidatesSize(*seg), 2);
     seg->clear_candidates();
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("さじぇすと");
     candidate->value = "サジェスト";
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(CommandCandidatesSize(*seg), 1);
     seg->clear_candidates();
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("ひみつ");
     candidate->value = "秘密";
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(CommandCandidatesSize(*seg), 1);
     seg->clear_candidates();
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("きょうと");
     candidate->value = "京都";
-    EXPECT_FALSE(rewriter.Rewrite(convreq_, &segments));
+    EXPECT_FALSE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(CommandCandidatesSize(*seg), 0);
     seg->clear_candidates();
   }
 
   {
     // don't trigger when multiple segments.
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("こまんど");
     candidate->value = "コマンド";
-    Segment *seg2 = segments.push_back_segment();
-    Segment::Candidate *candidate2 = seg2->add_candidate();
+    Segment* seg2 = segments.push_back_segment();
+    converter::Candidate* candidate2 = seg2->add_candidate();
     seg2->set_key("です");
     candidate2->value = "です";
-    EXPECT_FALSE(rewriter.Rewrite(convreq_, &segments));
+    EXPECT_FALSE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(CommandCandidatesSize(*seg), 0);
   }
 }
@@ -145,44 +151,48 @@ TEST_F(CommandRewriterTest, Rewrite) {
 TEST_F(CommandRewriterTest, ValueCheck) {
   CommandRewriter rewriter;
   Segments segments;
-  Segment *seg = segments.push_back_segment();
+  Segment* seg = segments.push_back_segment();
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("さじぇすと");
     candidate->value = "サジェスト";
     config_.set_presentation_mode(false);
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    const ConversionRequest convreq = ConvReq(config_, request_);
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(GetCommandCandidateValue(*seg), "サジェスト機能の一時停止");
     seg->clear_candidates();
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("さじぇすと");
     candidate->value = "サジェスト";
     config_.set_presentation_mode(true);
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    const ConversionRequest convreq = ConvReq(config_, request_);
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(GetCommandCandidateValue(*seg), "サジェスト機能を元に戻す");
     seg->clear_candidates();
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("ひみつ");
     candidate->value = "秘密";
     config_.set_incognito_mode(false);
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    const ConversionRequest convreq = ConvReq(config_, request_);
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(GetCommandCandidateValue(*seg), "シークレットモードをオン");
     seg->clear_candidates();
   }
 
   {
-    Segment::Candidate *candidate = seg->add_candidate();
+    converter::Candidate* candidate = seg->add_candidate();
     seg->set_key("ひみつ");
     candidate->value = "秘密";
     config_.set_incognito_mode(true);
-    EXPECT_TRUE(rewriter.Rewrite(convreq_, &segments));
+    const ConversionRequest convreq = ConvReq(config_, request_);
+    EXPECT_TRUE(rewriter.Rewrite(convreq, &segments));
     EXPECT_EQ(GetCommandCandidateValue(*seg), "シークレットモードをオフ");
     seg->clear_candidates();
   }
