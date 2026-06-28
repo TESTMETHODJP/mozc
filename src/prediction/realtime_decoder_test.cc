@@ -30,6 +30,8 @@
 #include "prediction/realtime_decoder.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -40,17 +42,21 @@
 #include "converter/immutable_converter_interface.h"
 #include "converter/inner_segment.h"
 #include "converter/segments.h"
+#include "data_manager/testing/mock_data_manager.h"
 #include "prediction/result.h"
 #include "request/conversion_request.h"
+#include "request/options.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 
 namespace mozc::prediction {
 
+using ::mozc::converter::Attribute;
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Return;
 using ::testing::SetArgPointee;
+using ::testing::Truly;
 
 // Simple immutable converter mock for the realtime conversion test
 class MockImmutableConverter : public ImmutableConverterInterface {
@@ -59,10 +65,10 @@ class MockImmutableConverter : public ImmutableConverterInterface {
   ~MockImmutableConverter() override = default;
 
   MOCK_METHOD(bool, Convert,
-              (const ConversionRequest& request, Segments* segments),
+              (const ConversionOptions& options, Segments* segments),
               (const, override));
 
-  static bool ConvertImpl(const ConversionRequest& request,
+  static bool ConvertImpl(const ConversionOptions& options,
                           Segments* segments) {
     if (!segments || segments->conversion_segments_size() != 1 ||
         segments->conversion_segment(0).key().empty()) {
@@ -75,6 +81,14 @@ class MockImmutableConverter : public ImmutableConverterInterface {
     candidate->key = key;
     return true;
   }
+};
+
+class MockRealtimeDecoder : public RealtimeDecoder {
+ public:
+  using RealtimeDecoder::RealtimeDecoder;
+
+  MOCK_METHOD(std::vector<Result>, Decode, (const ConversionRequest& request),
+              (const, override));
 };
 
 TEST(RealtimeDecoderTest, Decode) {
@@ -150,11 +164,11 @@ TEST(RealtimeDecoderTest, Decode) {
 
     std::vector<Result> results = decoder.Decode(convreq);
     ASSERT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0].types, REALTIME);
+    EXPECT_EQ(results[0].GetPredictionTypesForTesting(),
+              Attribute::REALTIME_CONVERSION);
     EXPECT_EQ(results[0].key, kKey);
     EXPECT_EQ(results[0].inner_segment_boundary.size(), 3);
-    EXPECT_TRUE(results[0].candidate_attributes &
-                converter::Attribute::NO_VARIANTS_EXPANSION);
+    EXPECT_TRUE(results[0].attributes & Attribute::NO_VARIANTS_EXPANSION);
   }
 
   // A test case with use_actual_converter_for_realtime_conversion being
@@ -183,17 +197,53 @@ TEST(RealtimeDecoderTest, Decode) {
     ASSERT_EQ(2, results.size());
     bool realtime_top_found = false;
     for (size_t i = 0; i < results.size(); ++i) {
-      EXPECT_TRUE(results[i].types & REALTIME);
-      EXPECT_TRUE(results[i].candidate_attributes &
-                  converter::Attribute::NO_VARIANTS_EXPANSION);
+      EXPECT_TRUE(results[i].attributes & Attribute::REALTIME_CONVERSION);
+      EXPECT_TRUE(results[i].attributes & Attribute::NO_VARIANTS_EXPANSION);
       if (results[i].key == kKey &&
           results[i].value == "WatashinoNamaehaNakanodesu" &&
           results[i].inner_segment_boundary.size() == 3) {
-        EXPECT_TRUE(results[i].types & REALTIME_TOP);
+        EXPECT_TRUE(results[i].attributes & Attribute::REALTIME_TOP);
         realtime_top_found = true;
       }
     }
     EXPECT_TRUE(realtime_top_found);
+  }
+}
+
+TEST(RealtimeDecoderTest, DecodeSuffix) {
+  MockConverter converter;
+  MockImmutableConverter immutable_converter;
+
+  const MockRealtimeDecoder decoder(immutable_converter, converter);
+
+  std::vector<Result> results(1);
+  results[0].value = "さんに";
+  results[0].key = "さんに";
+  results[0].cost = 1000;
+
+  for (const uint16_t prefix_rid : {0, 20, 100}) {
+    // Only called once as the result is cached.
+    EXPECT_CALL(
+        decoder, Decode(Truly([&](const ConversionRequest& req) {
+          const ConversionRequest::Options options = req.options();
+          return (options.max_conversion_candidates_size == 1 &&
+                  !options.create_partial_candidates &&
+                  !options.kana_modifier_insensitive_conversion &&
+                  !options.use_actual_converter_for_realtime_conversion &&
+                  options.bos_id == prefix_rid &&
+                  (prefix_rid > 0 == options.disable_prefix_penalty) &&
+                  req.key() == results[0].key);
+        })))
+        .WillOnce(Return(results));
+
+    for (int i = 0; i < 10; ++i) {
+      const ConversionRequest convreq = ConversionRequestBuilder().Build();
+      const auto result =
+          decoder.DecodeSuffix(convreq, prefix_rid, "さんに").value();
+      EXPECT_EQ(result.key, results[0].key);
+      EXPECT_EQ(result.value, results[0].value);
+      EXPECT_EQ(result.cost, results[0].cost);
+    }
   }
 }
 

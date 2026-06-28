@@ -53,6 +53,14 @@ class PredictorInterface {
   virtual std::vector<Result> Predict(
       const ConversionRequest& request) const = 0;
 
+  // Returns conversions.
+  // Almost the same as Prediction, but it returns exact-match results only.
+  // Note: Convert method is not fully supported and still experimental feature.
+  // Do not use it in production.
+  virtual std::vector<Result> Convert(const ConversionRequest& request) const {
+    return {};
+  }
+
   // Finish the conversion. Stores the history for penalization.
   // results[0] stores the committed result.
   // We can revert the Finish operation with the revert_id and Revert method.
@@ -62,6 +70,9 @@ class PredictorInterface {
   // Reverts the last Finish operation.
   virtual void Revert(uint32_t revert_id) {}
 
+  // Syncs user-modified context.
+  virtual void CommitContext(const ConversionRequest& request) const {}
+
   // Clears all history data of UserHistoryPredictor.
   virtual bool ClearAllHistory() { return true; }
 
@@ -69,8 +80,12 @@ class PredictorInterface {
   virtual bool ClearUnusedHistory() { return true; }
 
   // Clears a specific history data of UserHistoryPredictor.
-  virtual bool ClearHistoryEntry(const absl::string_view key,
-                                 const absl::string_view value) {
+  virtual bool ClearHistoryEntry(absl::string_view key,
+                                 absl::string_view value) {
+    return true;
+  }
+
+  virtual bool AddHistoryEntry(absl::string_view key, absl::string_view value) {
     return true;
   }
 

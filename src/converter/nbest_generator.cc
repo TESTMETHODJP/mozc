@@ -56,7 +56,7 @@
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "prediction/suggestion_filter.h"
-#include "request/conversion_request.h"
+#include "request/options.h"
 
 namespace mozc {
 namespace {
@@ -67,7 +67,7 @@ using ::mozc::converter::CandidateFilter;
 using ::mozc::dictionary::PosMatcher;
 using ::mozc::dictionary::UserDictionaryInterface;
 
-constexpr int kFreeListSize = 512;
+constexpr int kArenaChunkSize = 512;
 constexpr int kCostDiff = 3453;  // log prob of 1/1000
 
 bool IsBetweenAlphabetKeys(const Node& left, const Node& right) {
@@ -83,7 +83,7 @@ NBestGenerator::CreateNewElement(const Node* absl_nonnull node,
                                  const QueueElement* absl_nullable next,
                                  int32_t fx, int32_t gx, int32_t structure_gx,
                                  int32_t w_gx) {
-  QueueElement* absl_nonnull elm = freelist_.Alloc();
+  QueueElement* absl_nonnull elm = arena_.Alloc();
   elm->node = node;
   elm->next = next;
   elm->fx = fx;
@@ -118,20 +118,20 @@ NBestGenerator::NBestGenerator(const UserDictionaryInterface& user_dictionary,
       connector_(connector),
       pos_matcher_(pos_matcher),
       lattice_(lattice),
-      freelist_(kFreeListSize),
+      arena_(kArenaChunkSize),
       filter_(user_dictionary_, pos_matcher, suggestion_filter) {
   if (!lattice_.has_lattice()) {
     LOG(ERROR) << "lattice is not available";
     return;
   }
-  agenda_.Reserve(kFreeListSize);
+  agenda_.Reserve(kArenaChunkSize);
 }
 
 void NBestGenerator::Reset(const Node* absl_nonnull begin_node,
                            const Node* absl_nonnull end_node,
                            const Options options) {
   agenda_.Clear();
-  freelist_.Free();
+  arena_.Clear();
   top_nodes_.clear();
   filter_.Reset();
   viterbi_result_checked_ = false;
@@ -278,7 +278,7 @@ void NBestGenerator::FillInnerSegmentInfo(
 }
 
 CandidateFilter::ResultType NBestGenerator::MakeCandidateFromElement(
-    const ConversionRequest& request, absl::string_view original_key,
+    const ConversionOptions& options, absl::string_view original_key,
     const NBestGenerator::QueueElement& element, Candidate& candidate) {
   std::vector<const Node* absl_nonnull> nodes;
 
@@ -317,12 +317,12 @@ CandidateFilter::ResultType NBestGenerator::MakeCandidateFromElement(
                   nodes);
   }
 
-  return filter_.FilterCandidate(request, original_key, &candidate, top_nodes_,
+  return filter_.FilterCandidate(options, original_key, &candidate, top_nodes_,
                                  nodes);
 }
 
 // Set candidates.
-void NBestGenerator::SetCandidates(const ConversionRequest& request,
+void NBestGenerator::SetCandidates(const ConversionOptions& options,
                                    absl::string_view original_key,
                                    const size_t expand_size,
                                    Segment* absl_nonnull segment) {
@@ -339,7 +339,7 @@ void NBestGenerator::SetCandidates(const ConversionRequest& request,
     DCHECK(candidate);
 
     // if Next() returns false, no more entries are generated.
-    if (!Next(request, original_key, *candidate)) {
+    if (!Next(options, original_key, *candidate)) {
       segment->pop_back_candidate();
       break;
     }
@@ -354,7 +354,7 @@ void NBestGenerator::SetCandidates(const ConversionRequest& request,
 #endif  // MOZC_CANDIDATE_DEBUG
 }
 
-bool NBestGenerator::Next(const ConversionRequest& request,
+bool NBestGenerator::Next(const ConversionOptions& options,
                           absl::string_view original_key,
                           Candidate& candidate) {
   // |cost| and |structure_cost| are calculated as follows:
@@ -388,7 +388,7 @@ bool NBestGenerator::Next(const ConversionRequest& request,
     viterbi_result_checked_ = true;
     // Use CandidateFilter so that filter is initialized with the
     // Viterbi-best path.
-    switch (InsertTopResult(request, original_key, candidate)) {
+    switch (InsertTopResult(options, original_key, candidate)) {
       case CandidateFilter::GOOD_CANDIDATE:
         return true;
       case CandidateFilter::STOP_ENUMERATION:
@@ -421,7 +421,7 @@ bool NBestGenerator::Next(const ConversionRequest& request,
     // reached to the goal.
     if (rnode->end_pos == begin_node_->end_pos) {
       const CandidateFilter::ResultType filter_result =
-          MakeCandidateFromElement(request, original_key, *top, candidate);
+          MakeCandidateFromElement(options, original_key, *top, candidate);
 
       switch (filter_result) {
         case CandidateFilter::GOOD_CANDIDATE:
@@ -699,7 +699,7 @@ void NBestGenerator::MakePrefixCandidateFromBestPath(Candidate& candidate) {
   MakeCandidate(candidate, cost, structure_cost, wcost, top_nodes_);
 }
 
-int NBestGenerator::InsertTopResult(const ConversionRequest& request,
+int NBestGenerator::InsertTopResult(const ConversionOptions& options,
                                     absl::string_view original_key,
                                     Candidate& candidate) {
   if (options_.candidate_mode &
@@ -710,11 +710,11 @@ int NBestGenerator::InsertTopResult(const ConversionRequest& request,
       return CandidateFilter::STOP_ENUMERATION;
     }
   }
-  if (request.request_type() == ConversionRequest::SUGGESTION) {
+  if (options.request_type == RequestType::SUGGESTION) {
     candidate.attributes |= Attribute::REALTIME_CONVERSION;
   }
 
-  const int result = filter_.FilterCandidate(request, original_key, &candidate,
+  const int result = filter_.FilterCandidate(options, original_key, &candidate,
                                              top_nodes_, top_nodes_);
   return result;
 }

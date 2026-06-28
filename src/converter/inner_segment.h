@@ -31,6 +31,7 @@
 #define MOZC_CONVERTER_INNER_SEGMENT_H_
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -94,11 +95,11 @@ inline std::optional<uint32_t> EncodeLengths(uint32_t key_len,
 
   const internal::LengthData data{key_len, value_len, content_key_len,
                                   content_value_len};
-  return *reinterpret_cast<const uint32_t*>(&data);
+  return std::bit_cast<uint32_t>(data);
 }
 
 inline internal::LengthData DecodeLengths(uint32_t encoded) {
-  return *reinterpret_cast<const struct internal::LengthData*>(&encoded);
+  return std::bit_cast<internal::LengthData>(encoded);
 }
 
 // Iterator class to access inner segments.
@@ -244,6 +245,29 @@ class InnerSegments {
     absl::string_view value = begin_.data_.value_;
     key.remove_suffix(last_functional_key_len);
     value.remove_suffix(last_functional_value_len);
+    return std::make_pair(key, value);
+  }
+
+  // Returns the concatenated prefix key and value of segments size `size`, used
+  // in history result. When size is -1, returns all key/value.
+  std::pair<absl::string_view, absl::string_view> GetPrefixKeyAndValue(
+      int size = -1) const {
+    absl::string_view key = begin_.data_.key_;
+    absl::string_view value = begin_.data_.value_;
+
+    if (size < 0) return std::make_pair(key, value);
+
+    int key_len = 0;
+    int value_len = 0;
+    for (const auto& iter : *this) {
+      if (size-- == 0 || key_len >= key.size() || value_len >= value.size()) {
+        return std::make_pair(key.substr(0, key_len),
+                              value.substr(0, value_len));
+      }
+      key_len += iter.GetKey().size();
+      value_len += iter.GetValue().size();
+    }
+
     return std::make_pair(key, value);
   }
 

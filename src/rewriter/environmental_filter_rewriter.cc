@@ -46,13 +46,13 @@
 #include "absl/log/log.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/bits.h"
 #include "base/container/serialized_string_array.h"
 #include "base/text_normalizer.h"
 #include "base/util.h"
 #include "converter/attribute.h"
 #include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager.h"
 #include "data_manager/emoji_data.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
@@ -198,25 +198,23 @@ bool NormalizeCandidate(converter::Candidate* candidate,
   return true;
 }
 
-EmojiDataIterator begin(const absl::string_view token_array_data) {
-  return EmojiDataIterator(token_array_data.data());
-}
-
-EmojiDataIterator end(const absl::string_view token_array_data) {
-  return EmojiDataIterator(token_array_data.data() + token_array_data.size());
-}
-
 absl::flat_hash_map<EmojiVersion, std::vector<std::u32string>>
-ExtractTargetEmojis(
-    absl::Span<const EmojiVersion> target_versions,
-    const std::pair<EmojiDataIterator, EmojiDataIterator>& range,
-    const SerializedStringArray& string_array) {
+ExtractTargetEmojis(absl::Span<const EmojiVersion> target_versions,
+                    const absl::string_view token_array_data,
+                    const absl::string_view string_array_data) {
+  SerializedStringArray string_array;
+  string_array.Set(string_array_data);
+
   absl::flat_hash_map<EmojiVersion, std::vector<std::u32string>> results;
   for (const EmojiVersion target_version : target_versions) {
     results[target_version] = {};
   }
-  for (auto iter = range.first; iter != range.second; ++iter) {
-    const uint32_t unicode_version_index = iter.unicode_version_index();
+
+  const absl::Span<const EmojiData> tokens =
+      MakeAlignedConstSpan<EmojiData>(token_array_data);
+
+  for (const EmojiData& token : tokens) {
+    const uint32_t unicode_version_index = token.unicode_version_index;
     // unicode_version_index will not be negative.
     if (unicode_version_index > EMOJI_MAX_VERSION) {
       continue;
@@ -226,7 +224,7 @@ ExtractTargetEmojis(
     if (!results.contains(version)) {
       continue;
     }
-    const absl::string_view utf8_emoji = string_array[iter.emoji_index()];
+    const absl::string_view utf8_emoji = string_array[token.emoji_index];
     results[version].push_back(Util::Utf8ToUtf32(utf8_emoji));
   }
   return results;
@@ -365,26 +363,18 @@ int EnvironmentalFilterRewriter::capability(
 }
 
 EnvironmentalFilterRewriter::EnvironmentalFilterRewriter(
-    const DataManager& data_manager) {
-  absl::string_view token_array_data;
-  absl::string_view string_array_data;
-
+    absl::string_view token_array_data, absl::string_view string_array_data) {
   // TODO(mozc-team):
   // Currently, this rewriter uses data from emoji_data.tsv, which is for Emoji
   // conversion, as a source of Emoji version information. However,
   // emoji_data.tsv lacks some Emoji, including Emoji with skin-tones and
   // family/couple Emojis. As a future work, the data source should be refined.
-  data_manager.GetEmojiRewriterData(&token_array_data, &string_array_data);
-  SerializedStringArray string_array;
-  string_array.Set(string_array_data);
-  std::pair<EmojiDataIterator, EmojiDataIterator> range =
-      std::make_pair(begin(token_array_data), end(token_array_data));
   const absl::flat_hash_map<EmojiVersion, std::vector<std::u32string>>
       version_to_targets = ExtractTargetEmojis(
           {EmojiVersion::E12_1, EmojiVersion::E13_0, EmojiVersion::E13_1,
            EmojiVersion::E14_0, EmojiVersion::E15_0, EmojiVersion::E15_1,
            EmojiVersion::E16_0, EmojiVersion::E17_0},
-          range, string_array);
+          token_array_data, string_array_data);
   finder_e12_1_.Initialize(version_to_targets.at(EmojiVersion::E12_1));
   finder_e13_0_.Initialize(version_to_targets.at(EmojiVersion::E13_0));
   finder_e13_1_.Initialize(version_to_targets.at(EmojiVersion::E13_1));

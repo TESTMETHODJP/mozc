@@ -30,8 +30,7 @@
 
 """A helper script to update OSS Mozc build dependencies.
 
-This helper script takes care of updaring build dependencies for legacy GYP
-build for OSS Mozc.
+This helper script takes care of updating build dependencies.
 """
 
 import argparse
@@ -40,6 +39,7 @@ import dataclasses
 import hashlib
 import os
 import pathlib
+import platform
 import shutil
 import stat
 import subprocess
@@ -89,33 +89,45 @@ QT6 = ArchiveInfo(
 )
 
 NDK_LINUX = ArchiveInfo(
-    url='https://dl.google.com/android/repository/android-ndk-r28-linux.zip',
-    size=723148067,
-    sha256='a186b67e8810cb949514925e4f7a2255548fb55f5e9b0824a6430d012c1b695b',
+    url='https://dl.google.com/android/repository/android-ndk-r29-linux.zip',
+    size=783549481,
+    sha256='4abbbcdc842f3d4879206e9695d52709603e52dd68d3c1fff04b3b5e7a308ecf',
 )
 
 NDK_MAC = ArchiveInfo(
-    url='https://dl.google.com/android/repository/android-ndk-r28-darwin.zip',
-    size=950413046,
-    sha256='19b16241e8e8d4c8e4f3729b8a0a625dd240394e1f1cd072596df891317e22a9',
+    url='https://dl.google.com/android/repository/android-ndk-r29-darwin.zip',
+    size=1049519838,
+    sha256='ce5e4b100ec5fe5be4eb3edcb2c02528824ff9cda3860f5304619be6c3da34d3',
 )
 
 NINJA_MAC = ArchiveInfo(
-    url='https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-mac.zip',
-    size=277298,
-    sha256='21915277db59756bfc61f6f281c1f5e3897760b63776fd3d360f77dd7364137f',
+    url='https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip',
+    size=314051,
+    sha256='c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b',
 )
 
 NINJA_WIN = ArchiveInfo(
-    url='https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-win.zip',
-    size=285411,
-    sha256='d0ee3da143211aa447e750085876c9b9d7bcdd637ab5b2c5b41349c617f22f3b',
+    url='https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip',
+    size=291570,
+    sha256='07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65',
+)
+
+NINJA_WIN_ARM64 = ArchiveInfo(
+    url='https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-winarm64.zip',
+    size=270354,
+    sha256='e52f0bdef9dfb1003229dbd6508a508c4073fd017247002adc66e5e806cb0391',
 )
 
 LLVM_WIN = ArchiveInfo(
     url='https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.1/clang+llvm-20.1.1-x86_64-pc-windows-msvc.tar.xz',
     size=939286624,
     sha256='f8114cb674317e8a303731b1f9d22bf37b8c571b64f600abe528e92275ed4ace',
+)
+
+LLVM_WIN_ARM64 = ArchiveInfo(
+    url='https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.1/clang+llvm-20.1.1-aarch64-pc-windows-msvc.tar.xz',
+    size=900502024,
+    sha256='6ee4c1a8c51cf081e19a7225d802d160cc888cdc3a8da07dcbdb5768e3160244',
 )
 
 MSYS2 = ArchiveInfo(
@@ -244,8 +256,9 @@ def llvm_extract_filter(
       paths = info.name.split('/')
       if '..' in paths:
         continue
-      if len(paths) < 1:
+      if len(paths) < 2:
         continue
+
       skipping = True
       if (
           len(paths) == 3
@@ -255,10 +268,13 @@ def llvm_extract_filter(
         skipping = False
       elif len(paths) >= 2 and paths[1] in ['include', 'lib']:
         skipping = False
+
+      new_path = '/'.join(paths[1:])
       if skipping:
-        printer.print_line('skipping   ' + info.name)
+        printer.print_line('skipping   ' + new_path)
         continue
-      printer.print_line('extracting ' + info.name)
+      printer.print_line('extracting ' + new_path)
+      info.name = new_path
       yield info
 
 
@@ -294,23 +310,25 @@ class StatefulLLVMExtractionFilter:
       skipping = False
     elif len(paths) >= 2 and paths[1] in ['include', 'lib']:
       skipping = False
+
+    new_path = '/'.join(paths[1:])
     if skipping:
-      self.printer.print_line('skipping   ' + member.name)
+      self.printer.print_line('skipping   ' + new_path)
       return None
-    self.printer.print_line('extracting ' + member.name)
-    return member
+    self.printer.print_line('extracting ' + new_path)
+    return member.replace(name=new_path, deep=False)
 
 
-def extract_llvm(dryrun: bool = False) -> None:
+def extract_llvm(archive: ArchiveInfo, dryrun: bool = False) -> None:
   """Extract LLVM archive.
 
   Args:
+    archive: LLVM archive.
     dryrun: True if this is a dry-run.
   """
   if not is_windows():
     return
 
-  archive = LLVM_WIN
   src = CACHE_DIR.joinpath(archive.filename)
   dest = ABS_THIRD_PARTY_DIR.joinpath('llvm').absolute()
 
@@ -435,18 +453,17 @@ def extract_msys2(archive: ArchiveInfo, dryrun: bool = False) -> None:
         f.extractall(path=dest, members=msys2_extract_filter(f))
 
 
-def extract_ninja(dryrun: bool = False) -> None:
+def extract_ninja(archive: ArchiveInfo, dryrun: bool = False) -> None:
   """Extract ninja-win archive.
 
   Args:
+    archive: Ninja archive
     dryrun: True if this is a dry-run.
   """
   dest = ABS_THIRD_PARTY_DIR.joinpath('ninja').absolute()
   if is_mac():
-    archive = NINJA_MAC
     exe = 'ninja'
   elif is_windows():
-    archive = NINJA_WIN
     exe = 'ninja.exe'
   else:
     return
@@ -509,19 +526,6 @@ def is_mac() -> bool:
 def is_linux() -> bool:
   """Returns true if the platform is Linux."""
   return os.name == 'posix' and os.uname()[0] == 'Linux'
-
-
-def update_submodules(dryrun: bool = False) -> None:
-  """Run 'git submodule update --init --recursive'.
-
-  Args:
-    dryrun: true to perform dryrun.
-  """
-  command = ' '.join(['git', 'submodule', 'update', '--init', '--recursive'])
-  if dryrun:
-    print(f'dryrun: subprocess.run({command}, shell=True, check=True)')
-  else:
-    subprocess.run(command, shell=True, check=True)
 
 
 def exec_command(
@@ -587,7 +591,6 @@ def main():
   parser.add_argument('--nomsys2', action='store_true', default=False)
   parser.add_argument('--nowix', action='store_true', default=False)
   parser.add_argument('--nondk', action='store_true', default=False)
-  parser.add_argument('--nosubmodules', action='store_true', default=False)
   parser.add_argument('--cache_only', action='store_true', default=False)
 
   args = parser.parse_args()
@@ -599,7 +602,10 @@ def main():
     if is_mac():
       archives.append(NINJA_MAC)
     elif is_windows():
-      archives.append(NINJA_WIN)
+      if platform.machine().lower() == 'arm64':
+        archives.append(NINJA_WIN_ARM64)
+      else:
+        archives.append(NINJA_WIN)
   if not args.nondk:
     if is_linux():
       archives.append(NDK_LINUX)
@@ -607,7 +613,10 @@ def main():
       archives.append(NDK_MAC)
   if is_windows():
     if not args.nollvm:
-      archives.append(LLVM_WIN)
+      if platform.machine().lower() == 'arm64':
+        archives.append(LLVM_WIN_ARM64)
+      else:
+        archives.append(LLVM_WIN)
     if not args.nomsys2:
       archives.append(MSYS2)
 
@@ -617,8 +626,10 @@ def main():
   if args.cache_only:
     return
 
-  if LLVM_WIN in archives:
-    extract_llvm(args.dryrun)
+  for llvm in [LLVM_WIN, LLVM_WIN_ARM64]:
+    if llvm in archives:
+      extract_llvm(llvm, args.dryrun)
+      break
 
   if MSYS2 in archives:
     extract_msys2(MSYS2, args.dryrun)
@@ -626,15 +637,14 @@ def main():
   if (not args.nowix) and is_windows():
     restore_dotnet_tools(args.dryrun)
 
-  if (NINJA_WIN in archives) or (NINJA_MAC in archives):
-    extract_ninja(args.dryrun)
+  for ninja in [NINJA_MAC, NINJA_WIN, NINJA_WIN_ARM64]:
+    if ninja in archives:
+      extract_ninja(ninja, args.dryrun)
+      break
 
   for ndk in [NDK_LINUX, NDK_MAC]:
     if ndk in archives:
       extract_ndk(ndk, args.dryrun)
-
-  if not args.nosubmodules:
-    update_submodules(args.dryrun)
 
 
 if __name__ == '__main__':

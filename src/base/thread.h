@@ -31,14 +31,21 @@
 #define MOZC_BASE_THREAD_H_
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <utility>
 
+#include "absl/base/internal/sysinfo.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/log/check.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
+
+#if defined(__wasm__) && !defined(__EMSCRIPTEN_PTHREADS__)
+#error "Please build with -pthreads for thread."
+#endif  // defined(__wasm__) && !defined(__EMSCRIPTEN_PTHREADS__)
 
 #include <thread>  // NOLINT(build/c++11): this is external environment only.
 
@@ -256,6 +263,32 @@ inline bool BackgroundFuture<void>::Ready() const noexcept {
   return done_->HasBeenNotified();
 }
 
+// Thread-safe wrapper of BackgroundFuture.
+class TaskManager {
+ public:
+  template <class F>
+  void Schedule(F&& f) {
+    absl::MutexLock guard(mutex_);
+    if (task_.has_value()) task_->Wait();
+    task_.emplace(std::forward<F>(f));
+  }
+
+  bool IsRunning() const {
+    absl::MutexLock guard(mutex_);
+    return task_.has_value() && !task_->Ready();
+  }
+
+  void Wait() {
+    absl::MutexLock guard(mutex_);
+    if (task_.has_value()) task_->Wait();
+    task_.reset();
+  }
+
+ private:
+  std::optional<BackgroundFuture<void>> task_;
+  mutable absl::Mutex mutex_;
+};
+
 // AtomicSharedPtr is a temporary implementation using mutex until
 // std::atomic<std::shared_ptr<T>> becomes available. std::atomic_load and
 // std::atomic_store will be deprecated in the future and the interface can be
@@ -272,12 +305,12 @@ class AtomicSharedPtr {
   AtomicSharedPtr& operator=(const AtomicSharedPtr&) = delete;
 
   std::shared_ptr<T> load() const ABSL_LOCKS_EXCLUDED(mutex_) {
-    absl::MutexLock gurad(&mutex_);
+    absl::MutexLock guard(mutex_);
     return ptr_;
   }
 
   void store(std::shared_ptr<T> ptr) ABSL_LOCKS_EXCLUDED(mutex_) {
-    absl::MutexLock gurad(&mutex_);
+    absl::MutexLock guard(mutex_);
     ptr_ = std::move(ptr);
   }
 
@@ -305,6 +338,71 @@ class CopyableAtomic : public std::atomic<T> {
     std::atomic<T>::store(val, std::memory_order_relaxed);
     return *this;
   }
+};
+
+// Simple recursive mutex based on absl::Mutex.
+// The lock() requests from the same thread are not repeated.
+// Recursive locks are used in extremely limited situations, e.g.,
+// introducing thread-safeness to legacy non-thread-safety classes
+// without breaking the current design.
+class ABSL_LOCKABLE RecursiveMutex {
+ public:
+  ~RecursiveMutex() {
+    // when lock/unlock are constantly called, these conditions must be true.
+    DCHECK_EQ(owner_.load(std::memory_order_relaxed), 0);
+    DCHECK_EQ(recursion_depth_, 0);
+  }
+
+  void lock() ABSL_EXCLUSIVE_LOCK_FUNCTION() {
+    const uint32_t current_tid = GetTID();
+
+    // Check if the `current_tid` is the owner
+    if (owner_.load(std::memory_order_relaxed) == current_tid) {
+      // Since the owner is guaranteed to be the current thread,
+      // recursion_depth_ can be safely incremented without a lock.
+      ++recursion_depth_;
+      return;
+    }
+
+    mutex_.lock();
+
+    // Acquiring the lock, and set the owner and recursion_depth_.
+    DCHECK_EQ(recursion_depth_, 0);
+    owner_.store(current_tid, std::memory_order_relaxed);
+    recursion_depth_ = 1;
+  }
+
+  void unlock() ABSL_UNLOCK_FUNCTION() {
+    // Assuming the current thread is the owner, no internal Mutex lock is
+    // needed. Decrement the depth.
+    DCHECK(owns_lock());
+    if (--recursion_depth_ > 0) {
+      return;
+    }
+
+    // Depth reached 0, so clear the owner and release the internal Mutex so
+    // other thread can start the task.
+    owner_.store(0, std::memory_order_relaxed);
+    mutex_.unlock();
+  }
+
+  // Returns true if the mute is owned by the current thread.
+  bool owns_lock() const {
+    return owner_.load(std::memory_order_relaxed) == GetTID();
+  }
+
+ private:
+  static uint32_t GetTID() {
+    // NOLINTBEGIN(abseil-no-internal-dependencies)
+    // Abseil's cached version is 100 times faster.
+    // Since `pid_t` is not used in all architectures, use uint32_t.
+    return static_cast<uint32_t>(absl::base_internal::GetCachedTID());
+    // NOLINTEND(abseil-no-internal-dependencies)
+  }
+
+  absl::Mutex mutex_;
+  std::atomic<uint32_t> owner_{0};  // Written under mutex_.
+  int recursion_depth_ = 0;         // Read and written under mutex_.
 };
 
 }  // namespace mozc

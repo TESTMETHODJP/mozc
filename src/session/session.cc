@@ -82,8 +82,8 @@ void SwitchInputMode(const transliteration::TransliterationType mode,
 
 // Set input mode to the |composer| if the input mode of |composer| is not
 // the given |mode|.
-void ApplyInputMode(const commands::CompositionMode mode,
-                    composer::Composer* composer) {
+void ApplyCompositionMode(const commands::CompositionMode mode,
+                          composer::Composer* composer) {
   switch (mode) {
     case commands::HIRAGANA:
       SwitchInputMode(transliteration::HIRAGANA, composer);
@@ -289,7 +289,8 @@ bool Session::SendCommand(commands::Command* command) {
 
   const commands::SessionCommand& session_command = command->input().command();
   bool result = false;
-  if (session_command.type() == commands::SessionCommand::SWITCH_INPUT_MODE) {
+  if (session_command.type() ==
+      commands::SessionCommand::SWITCH_COMPOSITION_MODE) {
     if (!session_command.has_composition_mode()) {
       return false;
     }
@@ -298,19 +299,19 @@ bool Session::SendCommand(commands::Command* command) {
         // TODO(komatsu): Implement here.
         break;
       case commands::HIRAGANA:
-        result = InputModeHiragana(command);
+        result = CompositionModeHiragana(command);
         break;
       case commands::FULL_KATAKANA:
-        result = InputModeFullKatakana(command);
+        result = CompositionModeFullKatakana(command);
         break;
       case commands::HALF_ASCII:
-        result = InputModeHalfASCII(command);
+        result = CompositionModeHalfASCII(command);
         break;
       case commands::FULL_ASCII:
-        result = InputModeFullASCII(command);
+        result = CompositionModeFullASCII(command);
         break;
       case commands::HALF_KATAKANA:
-        result = InputModeHalfKatakana(command);
+        result = CompositionModeHalfKatakana(command);
         break;
       default:
         LOG(ERROR) << "Unknown mode: " << session_command.composition_mode();
@@ -385,6 +386,22 @@ bool Session::SendCommand(commands::Command* command) {
     case commands::SessionCommand::UPDATE_COMPOSITION:
       result = UpdateComposition(command);
       break;
+    case commands::SessionCommand::REQUEST_NWP: {
+      ConversionPreferences conversion_preferences =
+          context_->converter().conversion_preferences();
+      conversion_preferences.request_suggestion =
+          command->input().request_suggestion();
+      // Resets converter's state (e.g. previous segments).
+      // NWP will be generated from surrounding text given by the client.
+      context_->mutable_converter()->Reset();
+      result = context_->mutable_converter()->SuggestWithPreferences(
+          context_->composer(), command->input().context(),
+          conversion_preferences);
+      if (result) {
+        Output(command);
+      }
+      break;
+    }
     default:
       LOG(WARNING) << "Unknown command" << *command;
       result = DoNothing(command);
@@ -578,16 +595,16 @@ bool Session::SendKeyDirectInputState(commands::Command* command) {
   switch (key_command) {
     case keymap::DirectInputState::IME_ON:
       return IMEOn(command);
-    case keymap::DirectInputState::INPUT_MODE_HIRAGANA:
-      return InputModeHiragana(command);
-    case keymap::DirectInputState::INPUT_MODE_FULL_KATAKANA:
-      return InputModeFullKatakana(command);
-    case keymap::DirectInputState::INPUT_MODE_HALF_KATAKANA:
-      return InputModeHalfKatakana(command);
-    case keymap::DirectInputState::INPUT_MODE_FULL_ALPHANUMERIC:
-      return InputModeFullASCII(command);
-    case keymap::DirectInputState::INPUT_MODE_HALF_ALPHANUMERIC:
-      return InputModeHalfASCII(command);
+    case keymap::DirectInputState::COMPOSITION_MODE_HIRAGANA:
+      return CompositionModeHiragana(command);
+    case keymap::DirectInputState::COMPOSITION_MODE_FULL_KATAKANA:
+      return CompositionModeFullKatakana(command);
+    case keymap::DirectInputState::COMPOSITION_MODE_HALF_KATAKANA:
+      return CompositionModeHalfKatakana(command);
+    case keymap::DirectInputState::COMPOSITION_MODE_FULL_ALPHANUMERIC:
+      return CompositionModeFullASCII(command);
+    case keymap::DirectInputState::COMPOSITION_MODE_HALF_ALPHANUMERIC:
+      return CompositionModeHalfASCII(command);
     case keymap::DirectInputState::NONE:
       return EchoBackAndClearUndoContext(command);
     case keymap::DirectInputState::RECONVERT:
@@ -641,18 +658,18 @@ bool Session::SendKeyPrecompositionState(commands::Command* command) {
     case keymap::PrecompositionState::IME_ON:
       return DoNothing(command);
 
-    case keymap::PrecompositionState::INPUT_MODE_HIRAGANA:
-      return InputModeHiragana(command);
-    case keymap::PrecompositionState::INPUT_MODE_FULL_KATAKANA:
-      return InputModeFullKatakana(command);
-    case keymap::PrecompositionState::INPUT_MODE_HALF_KATAKANA:
-      return InputModeHalfKatakana(command);
-    case keymap::PrecompositionState::INPUT_MODE_FULL_ALPHANUMERIC:
-      return InputModeFullASCII(command);
-    case keymap::PrecompositionState::INPUT_MODE_HALF_ALPHANUMERIC:
-      return InputModeHalfASCII(command);
-    case keymap::PrecompositionState::INPUT_MODE_SWITCH_KANA_TYPE:
-      return InputModeSwitchKanaType(command);
+    case keymap::PrecompositionState::COMPOSITION_MODE_HIRAGANA:
+      return CompositionModeHiragana(command);
+    case keymap::PrecompositionState::COMPOSITION_MODE_FULL_KATAKANA:
+      return CompositionModeFullKatakana(command);
+    case keymap::PrecompositionState::COMPOSITION_MODE_HALF_KATAKANA:
+      return CompositionModeHalfKatakana(command);
+    case keymap::PrecompositionState::COMPOSITION_MODE_FULL_ALPHANUMERIC:
+      return CompositionModeFullASCII(command);
+    case keymap::PrecompositionState::COMPOSITION_MODE_HALF_ALPHANUMERIC:
+      return CompositionModeHalfASCII(command);
+    case keymap::PrecompositionState::COMPOSITION_MODE_SWITCH_KANA_TYPE:
+      return CompositionModeSwitchKanaType(command);
 
     case keymap::PrecompositionState::LAUNCH_CONFIG_DIALOG:
       return LaunchConfigDialog(command);
@@ -681,6 +698,9 @@ bool Session::SendKeyPrecompositionState(commands::Command* command) {
       return EchoBackAndClearUndoContext(command);
     case keymap::PrecompositionState::RECONVERT:
       return RequestConvertReverse(command);
+
+    case keymap::PrecompositionState::IME_ACTION:
+      return ImeAction(command);
   }
   return false;
 }
@@ -803,20 +823,20 @@ bool Session::SendKeyCompositionState(commands::Command* command) {
     case keymap::CompositionState::TOGGLE_ALPHANUMERIC_MODE:
       return ToggleAlphanumericMode(command);
 
-    case keymap::CompositionState::INPUT_MODE_HIRAGANA:
-      return InputModeHiragana(command);
+    case keymap::CompositionState::COMPOSITION_MODE_HIRAGANA:
+      return CompositionModeHiragana(command);
 
-    case keymap::CompositionState::INPUT_MODE_FULL_KATAKANA:
-      return InputModeFullKatakana(command);
+    case keymap::CompositionState::COMPOSITION_MODE_FULL_KATAKANA:
+      return CompositionModeFullKatakana(command);
 
-    case keymap::CompositionState::INPUT_MODE_HALF_KATAKANA:
-      return InputModeHalfKatakana(command);
+    case keymap::CompositionState::COMPOSITION_MODE_HALF_KATAKANA:
+      return CompositionModeHalfKatakana(command);
 
-    case keymap::CompositionState::INPUT_MODE_FULL_ALPHANUMERIC:
-      return InputModeFullASCII(command);
+    case keymap::CompositionState::COMPOSITION_MODE_FULL_ALPHANUMERIC:
+      return CompositionModeFullASCII(command);
 
-    case keymap::CompositionState::INPUT_MODE_HALF_ALPHANUMERIC:
-      return InputModeHalfASCII(command);
+    case keymap::CompositionState::COMPOSITION_MODE_HALF_ALPHANUMERIC:
+      return CompositionModeHalfASCII(command);
 
     case keymap::CompositionState::NONE:
       return DoNothing(command);
@@ -948,20 +968,20 @@ bool Session::SendKeyConversionState(commands::Command* command) {
     case keymap::ConversionState::TOGGLE_ALPHANUMERIC_MODE:
       return ToggleAlphanumericMode(command);
 
-    case keymap::ConversionState::INPUT_MODE_HIRAGANA:
-      return InputModeHiragana(command);
+    case keymap::ConversionState::COMPOSITION_MODE_HIRAGANA:
+      return CompositionModeHiragana(command);
 
-    case keymap::ConversionState::INPUT_MODE_FULL_KATAKANA:
-      return InputModeFullKatakana(command);
+    case keymap::ConversionState::COMPOSITION_MODE_FULL_KATAKANA:
+      return CompositionModeFullKatakana(command);
 
-    case keymap::ConversionState::INPUT_MODE_HALF_KATAKANA:
-      return InputModeHalfKatakana(command);
+    case keymap::ConversionState::COMPOSITION_MODE_HALF_KATAKANA:
+      return CompositionModeHalfKatakana(command);
 
-    case keymap::ConversionState::INPUT_MODE_FULL_ALPHANUMERIC:
-      return InputModeFullASCII(command);
+    case keymap::ConversionState::COMPOSITION_MODE_FULL_ALPHANUMERIC:
+      return CompositionModeFullASCII(command);
 
-    case keymap::ConversionState::INPUT_MODE_HALF_ALPHANUMERIC:
-      return InputModeHalfASCII(command);
+    case keymap::ConversionState::COMPOSITION_MODE_HALF_ALPHANUMERIC:
+      return CompositionModeHalfASCII(command);
 
     case keymap::ConversionState::REPORT_BUG:
       return ReportBug(command);
@@ -1006,7 +1026,8 @@ bool Session::IMEOn(commands::Command* command) {
 
   SetSessionState(ImeContext::PRECOMPOSITION, context_.get());
   if (command->input().has_key() && command->input().key().has_mode()) {
-    ApplyInputMode(command->input().key().mode(), context_->mutable_composer());
+    ApplyCompositionMode(command->input().key().mode(),
+                         context_->mutable_composer());
   }
   OutputMode(command);
   return true;
@@ -1041,8 +1062,8 @@ bool Session::MakeSureIMEOn(mozc::commands::Command* command) {
   }
   if (command->input().has_command() &&
       command->input().command().has_composition_mode()) {
-    ApplyInputMode(command->input().command().composition_mode(),
-                   context_->mutable_composer());
+    ApplyCompositionMode(command->input().command().composition_mode(),
+                         context_->mutable_composer());
   }
   OutputMode(command);
   return true;
@@ -1066,8 +1087,8 @@ bool Session::MakeSureIMEOff(mozc::commands::Command* command) {
   }
   if (command->input().has_command() &&
       command->input().command().has_composition_mode()) {
-    ApplyInputMode(command->input().command().composition_mode(),
-                   context_->mutable_composer());
+    ApplyCompositionMode(command->input().command().composition_mode(),
+                         context_->mutable_composer());
   }
   OutputMode(command);
   return true;
@@ -1507,7 +1528,7 @@ bool Session::InsertCharacter(commands::Command* command) {
           commands::Request::SPACE_OR_CONVERT_COMMITTING_COMPOSITION &&
       context_->state() == ImeContext::COMPOSITION &&
       // TODO(komatsu): Support FullWidthSpace
-      composition.ends_with(" ")) {
+      composition.ends_with(' ')) {
     should_commit = true;
   }
 
@@ -1573,7 +1594,7 @@ bool Session::IsFullWidthInsertSpace(const commands::Input& input) const {
 
     // Copy the current composer state just in case.
     composer::Composer temporary_composer = context_->composer();
-    ApplyInputMode(input.key().mode(), &temporary_composer);
+    ApplyCompositionMode(input.key().mode(), &temporary_composer);
     // Refer to this temporary composer in this method.
     return temporary_composer.GetInputMode();
   };
@@ -2092,7 +2113,7 @@ bool Session::TranslateHalfASCII(commands::Command* command) {
   }
 }
 
-bool Session::InputModeHiragana(commands::Command* command) {
+bool Session::CompositionModeHiragana(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
   // The temporary mode should not be overridden.
@@ -2101,7 +2122,7 @@ bool Session::InputModeHiragana(commands::Command* command) {
   return true;
 }
 
-bool Session::InputModeFullKatakana(commands::Command* command) {
+bool Session::CompositionModeFullKatakana(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
   // The temporary mode should not be overridden.
@@ -2110,7 +2131,7 @@ bool Session::InputModeFullKatakana(commands::Command* command) {
   return true;
 }
 
-bool Session::InputModeHalfKatakana(commands::Command* command) {
+bool Session::CompositionModeHalfKatakana(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
   // The temporary mode should not be overridden.
@@ -2119,7 +2140,7 @@ bool Session::InputModeHalfKatakana(commands::Command* command) {
   return true;
 }
 
-bool Session::InputModeFullASCII(commands::Command* command) {
+bool Session::CompositionModeFullASCII(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
   // The temporary mode should not be overridden.
@@ -2128,7 +2149,7 @@ bool Session::InputModeFullASCII(commands::Command* command) {
   return true;
 }
 
-bool Session::InputModeHalfASCII(commands::Command* command) {
+bool Session::CompositionModeHalfASCII(commands::Command* command) {
   command->mutable_output()->set_consumed(true);
   EnsureIMEIsOn();
   // The temporary mode should not be overridden.
@@ -2137,7 +2158,7 @@ bool Session::InputModeHalfASCII(commands::Command* command) {
   return true;
 }
 
-bool Session::InputModeSwitchKanaType(commands::Command* command) {
+bool Session::CompositionModeSwitchKanaType(commands::Command* command) {
   if (context_->state() != ImeContext::PRECOMPOSITION) {
     return DoNothing(command);
   }
@@ -2322,7 +2343,7 @@ bool Session::Convert(commands::Command* command) {
       command->input().key().has_special_key() &&
       command->input().key().special_key() == commands::KeyEvent::SPACE) {
     // TODO(komatsu): Consider FullWidth Space too.
-    if (!composition.ends_with(" ") ||
+    if (!composition.ends_with(' ') ||
         context_->composer().GetLength() != context_->composer().GetCursor()) {
       if (context_->GetRequest().space_on_alphanumeric() ==
           commands::Request::COMMIT) {
@@ -2871,6 +2892,23 @@ bool Session::HandleIndirectImeOnOff(commands::Command* command) {
       return false;
     }
   }
+  return true;
+}
+
+bool Session::ImeAction(commands::Command* command) {
+  if (context_->state() != ImeContext::PRECOMPOSITION ||
+      context_->composer().GetInputFieldType() != commands::Context::NORMAL) {
+    return false;
+  }
+
+  // ImeAction is triggered when the mobile-specific IME action buttons such as
+  // Search, Go, or Next, are tapped. After a user finishes an IME session, they
+  // might still perform manual edits using the Backspace key. To sync these
+  // edits with the converter, we call CommitContext. Typical use case is the
+  // partial-revert on user history training.
+  context_->mutable_converter()->CommitContext(context_->composer(),
+                                               command->input().context());
+
   return true;
 }
 

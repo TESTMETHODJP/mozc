@@ -38,9 +38,9 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "base/number_util.h"
-#include "base/strings/zstring_view.h"
 #include "base/version.h"
 #include "ipc/ipc.h"
 #include "protocol/commands.pb.h"
@@ -50,6 +50,8 @@
 namespace mozc {
 namespace renderer {
 namespace {
+
+constexpr char kTestServiceName[] = "renderer_test";
 
 std::string UpdateVersion(int diff) {
   std::vector<std::string> tokens =
@@ -76,14 +78,14 @@ class TestIPCClient : public IPCClientInterface {
     return params_.server_protocol_version;
   }
 
-  const std::string& GetServerProductVersion() const override {
+  absl::string_view GetServerProductVersion() const override {
     return params_.server_product_version;
   }
 
   uint32_t GetServerProcessId() const override { return 0; }
 
   // just count up how many times Call is called.
-  bool Call(const std::string& request, std::string* response,
+  bool Call(absl::string_view request, std::string* response,
             absl::Duration timeout) override {
     ++params_.counter;
     return true;
@@ -101,11 +103,12 @@ class TestIPCClientFactory : public IPCClientFactoryInterface {
       : client_params_(client_params) {}
 
   std::unique_ptr<IPCClientInterface> NewClient(
-      zstring_view name, zstring_view path_name) override {
+      absl::string_view name, absl::string_view path_name) override {
     return std::make_unique<TestIPCClient>(client_params_);
   }
 
-  std::unique_ptr<IPCClientInterface> NewClient(zstring_view name) override {
+  std::unique_ptr<IPCClientInterface> NewClient(
+      absl::string_view name) override {
     return std::make_unique<TestIPCClient>(client_params_);
   }
 
@@ -124,14 +127,14 @@ class TestRendererLauncher : public RendererLauncherInterface {
   // implement StartServer.
   // return true if server can launched successfully.
   void StartRenderer(
-      const std::string& name, const std::string& renderer_path,
+      absl::string_view name, absl::string_view renderer_path,
       bool disable_renderer_path_check,
       IPCClientFactoryInterface* ipc_client_factory_interface) override {
     start_renderer_called_ = true;
     LOG(INFO) << name << " " << renderer_path;
   }
 
-  bool ForceTerminateRenderer(const std::string& name) override {
+  bool ForceTerminateRenderer(absl::string_view name) override {
     force_terminate_renderer_called_ = true;
     return true;
   }
@@ -186,11 +189,10 @@ class RendererClientTest : public ::testing::Test {
  protected:
   RendererClientTest() : factory_(client_params_) {}
 
-  RendererClient NewClient() {
-    RendererClient client;
-    client.SetIPCClientFactory(&factory_);
-    client.SetRendererLauncherInterface(&launcher_);
-    return client;
+  std::unique_ptr<RendererClient> NewClient() {
+    return RendererClient::CreateForTesting(
+        kTestServiceName, &factory_, &launcher_,
+        RendererClient::RendererPathCheckMode::ENABLED);
   }
 
   void Reset() { client_params_.counter = 0; }
@@ -200,31 +202,18 @@ class RendererClientTest : public ::testing::Test {
   TestRendererLauncher launcher_;
 };
 
-TEST_F(RendererClientTest, InvalidTest) {
-  RendererClient client = NewClient();
-
-  client.SetIPCClientFactory(nullptr);
-  client.SetRendererLauncherInterface(nullptr);
-  commands::RendererCommand command;
-
-  // IPCClientFactory and Launcher must be set.
-  EXPECT_FALSE(client.ExecCommand(command));
-  EXPECT_FALSE(client.IsAvailable());
-  EXPECT_FALSE(client.Activate());
-}
-
 TEST_F(RendererClientTest, InitialState) {
-  RendererClient client = NewClient();
-  EXPECT_FALSE(client.IsAvailable());
+  std::unique_ptr<RendererClient> client = NewClient();
+  EXPECT_FALSE(client->IsAvailable());
 }
 
 TEST_F(RendererClientTest, ActivateTest) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
   {
     launcher_.set_available(true);
-    EXPECT_TRUE(client.IsAvailable());
+    EXPECT_TRUE(client->IsAvailable());
     launcher_.set_available(false);
-    EXPECT_FALSE(client.IsAvailable());
+    EXPECT_FALSE(client->IsAvailable());
   }
 
   {
@@ -232,7 +221,7 @@ TEST_F(RendererClientTest, ActivateTest) {
     launcher_.set_available(false);
     launcher_.set_can_connect(false);
     Reset();
-    EXPECT_TRUE(client.Activate());
+    EXPECT_TRUE(client->Activate());
     EXPECT_EQ(client_params_.counter, 0);
   }
 
@@ -242,7 +231,7 @@ TEST_F(RendererClientTest, ActivateTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = false;
     Reset();
-    EXPECT_TRUE(client.Activate());
+    EXPECT_TRUE(client->Activate());
     EXPECT_EQ(client_params_.counter, 0);
   }
 
@@ -252,7 +241,7 @@ TEST_F(RendererClientTest, ActivateTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = true;
     Reset();
-    EXPECT_TRUE(client.Activate());
+    EXPECT_TRUE(client->Activate());
     EXPECT_EQ(client_params_.counter, 1);
   }
 
@@ -261,15 +250,15 @@ TEST_F(RendererClientTest, ActivateTest) {
     // with Activate()
     launcher_.set_available(true);
     Reset();
-    EXPECT_TRUE(client.Activate());
-    EXPECT_TRUE(client.Activate());
-    EXPECT_TRUE(client.Activate());
+    EXPECT_TRUE(client->Activate());
+    EXPECT_TRUE(client->Activate());
+    EXPECT_TRUE(client->Activate());
     EXPECT_EQ(client_params_.counter, 0);
   }
 }
 
 TEST_F(RendererClientTest, LaunchTest) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.mutable_output()->set_id(0);
@@ -281,7 +270,7 @@ TEST_F(RendererClientTest, LaunchTest) {
     launcher_.Reset();
     launcher_.set_can_connect(false);
     client_params_.connected = false;
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_start_renderer_called());
   }
 
@@ -291,7 +280,7 @@ TEST_F(RendererClientTest, LaunchTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = false;
     command.set_visible(true);
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_TRUE(launcher_.is_start_renderer_called());
   }
 
@@ -303,7 +292,7 @@ TEST_F(RendererClientTest, LaunchTest) {
     client_params_.connected = false;
     command.set_visible(false);
     command.set_type(commands::RendererCommand::UPDATE);
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_start_renderer_called());
   }
 
@@ -314,15 +303,15 @@ TEST_F(RendererClientTest, LaunchTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = true;
     command.set_visible(true);
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_start_renderer_called());
   }
 }
 
 TEST_F(RendererClientTest, ConnectionTest) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
@@ -332,9 +321,9 @@ TEST_F(RendererClientTest, ConnectionTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = true;
     Reset();
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
 
     // IPC should be called three times
     EXPECT_EQ(client_params_.counter, 3);
@@ -346,9 +335,9 @@ TEST_F(RendererClientTest, ConnectionTest) {
     launcher_.set_can_connect(false);
     client_params_.connected = true;
     Reset();
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_EQ(client_params_.counter, 0);
   }
 
@@ -358,15 +347,15 @@ TEST_F(RendererClientTest, ConnectionTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = false;
     Reset();
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_EQ(client_params_.counter, 0);
   }
 }
 
 TEST_F(RendererClientTest, ShutdownTest) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   {
     launcher_.Reset();
@@ -375,7 +364,7 @@ TEST_F(RendererClientTest, ShutdownTest) {
     Reset();
 
     // Shutdown with commands::RendererCommand::SHUTDOWN command
-    EXPECT_TRUE(client.Shutdown(false));
+    EXPECT_TRUE(client->Shutdown(false));
     EXPECT_FALSE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 1);
   }
@@ -387,7 +376,7 @@ TEST_F(RendererClientTest, ShutdownTest) {
     Reset();
 
     // Shutdown with ForceTerminateRenderer
-    EXPECT_TRUE(client.Shutdown(true));
+    EXPECT_TRUE(client->Shutdown(true));
     EXPECT_TRUE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 0);
   }
@@ -398,7 +387,7 @@ TEST_F(RendererClientTest, ShutdownTest) {
     client_params_.connected = false;
     Reset();
 
-    EXPECT_TRUE(client.Shutdown(false));
+    EXPECT_TRUE(client->Shutdown(false));
     EXPECT_FALSE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 0);
   }
@@ -409,14 +398,14 @@ TEST_F(RendererClientTest, ShutdownTest) {
     client_params_.connected = false;
     Reset();
 
-    EXPECT_TRUE(client.Shutdown(true));
+    EXPECT_TRUE(client->Shutdown(true));
     EXPECT_FALSE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 0);
   }
 }
 
 TEST_F(RendererClientTest, ProtocolVersionMismatchNewer) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
@@ -427,14 +416,14 @@ TEST_F(RendererClientTest, ProtocolVersionMismatchNewer) {
     client_params_.connected = true;
     Reset();
     client_params_.server_protocol_version = IPC_PROTOCOL_VERSION - 1;
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_TRUE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 0);
   }
 }
 
 TEST_F(RendererClientTest, ProtocolVersionMismatchOlder) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
@@ -445,14 +434,14 @@ TEST_F(RendererClientTest, ProtocolVersionMismatchOlder) {
     client_params_.connected = true;
     Reset();
     client_params_.server_protocol_version = IPC_PROTOCOL_VERSION + 1;
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 0);
   }
 }
 
 TEST_F(RendererClientTest, MozcVersionMismatchNewer) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
@@ -464,14 +453,14 @@ TEST_F(RendererClientTest, MozcVersionMismatchNewer) {
     client_params_.connected = true;
     Reset();
     client_params_.server_protocol_version = IPC_PROTOCOL_VERSION;
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 1);
   }
 }
 
 TEST_F(RendererClientTest, MozcVersionMismatchOlder) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
@@ -483,14 +472,14 @@ TEST_F(RendererClientTest, MozcVersionMismatchOlder) {
     client_params_.connected = true;
     Reset();
     client_params_.server_protocol_version = IPC_PROTOCOL_VERSION;
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_force_terminate_renderer_called());
     EXPECT_EQ(client_params_.counter, 1);
   }
 }
 
 TEST_F(RendererClientTest, SetPendingCommandTest) {
-  RendererClient client = NewClient();
+  std::unique_ptr<RendererClient> client = NewClient();
 
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
@@ -500,7 +489,7 @@ TEST_F(RendererClientTest, SetPendingCommandTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = false;
     command.set_visible(true);
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_TRUE(launcher_.is_start_renderer_called());
     EXPECT_TRUE(launcher_.is_set_pending_command_called());
   }
@@ -510,7 +499,7 @@ TEST_F(RendererClientTest, SetPendingCommandTest) {
     launcher_.set_can_connect(false);
     client_params_.connected = false;
     command.set_visible(true);
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_TRUE(launcher_.is_set_pending_command_called());
   }
 
@@ -519,7 +508,7 @@ TEST_F(RendererClientTest, SetPendingCommandTest) {
     launcher_.set_can_connect(true);
     client_params_.connected = true;
     command.set_visible(true);
-    EXPECT_TRUE(client.ExecCommand(command));
+    EXPECT_TRUE(client->ExecCommand(command));
     EXPECT_FALSE(launcher_.is_set_pending_command_called());
   }
 }

@@ -37,7 +37,7 @@
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "base/container/freelist.h"
+#include "base/container/arena.h"
 #include "converter/candidate.h"
 #include "converter/candidate_filter.h"
 #include "converter/connector.h"
@@ -48,7 +48,7 @@
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/pos_matcher.h"
 #include "prediction/suggestion_filter.h"
-#include "request/conversion_request.h"
+#include "request/options.h"
 
 #undef STRICT  // minwindef.h has the definition.
 
@@ -113,7 +113,7 @@ class NBestGenerator {
              const Node* absl_nonnull end_node, Options options);
 
   // Set candidates.
-  void SetCandidates(const ConversionRequest& request,
+  void SetCandidates(const ConversionOptions& options,
                      absl::string_view original_key, size_t expand_size,
                      Segment* absl_nonnull segment);
 
@@ -171,10 +171,10 @@ class NBestGenerator {
 
   // Iterator:
   // Can obtain N-best results by calling Next() in sequence.
-  bool Next(const ConversionRequest& request, absl::string_view original_key,
+  bool Next(const ConversionOptions& options, absl::string_view original_key,
             converter::Candidate& candidate);
 
-  int InsertTopResult(const ConversionRequest& request,
+  int InsertTopResult(const ConversionOptions& options,
                       absl::string_view original_key,
                       converter::Candidate& candidate);
 
@@ -186,7 +186,7 @@ class NBestGenerator {
                      absl::Span<const Node* absl_nonnull const> nodes) const;
 
   converter::CandidateFilter::ResultType MakeCandidateFromElement(
-      const ConversionRequest& request, absl::string_view original_key,
+      const ConversionOptions& options, absl::string_view original_key,
       const QueueElement& element, converter::Candidate& candidate);
 
   void FillInnerSegmentInfo(absl::Span<const Node* absl_nonnull const> odes,
@@ -205,7 +205,7 @@ class NBestGenerator {
 
   int GetTransitionCost(const Node& lnode, const Node& rnode) const;
 
-  // Create queue element from freelist
+  // Create queue element from arena
   const QueueElement* absl_nonnull CreateNewElement(
       const Node* absl_nonnull node, const QueueElement* absl_nullable next,
       int32_t fx, int32_t gx, int32_t structure_gx, int32_t w_gx);
@@ -221,7 +221,7 @@ class NBestGenerator {
   const Node* absl_nullable end_node_ = nullptr;
 
   Agenda agenda_;
-  FreeList<QueueElement> freelist_;
+  Arena<QueueElement> arena_;
   std::vector<const Node* absl_nonnull> top_nodes_;
   converter::CandidateFilter filter_;
   bool viterbi_result_checked_ = false;

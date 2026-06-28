@@ -40,10 +40,13 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
+#include "absl/base/no_destructor.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/hash/hash.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -57,14 +60,15 @@
 #include "base/strings/unicode.h"
 #include "base/util.h"
 #include "base/vlog.h"
+#include "dictionary/user_dictionary_storage.h"
 #include "dictionary/user_dictionary_util.h"
 #include "protocol/user_dictionary_storage.pb.h"
 
 namespace mozc {
+namespace user_dictionary {
 namespace {
 
 using ::mozc::user_dictionary::UserDictionary;
-using ::mozc::user_dictionary::UserDictionaryCommandStatus;
 
 size_t HashOf(const UserDictionary::Entry& entry) {
   DCHECK(UserDictionary::PosType_IsValid(entry.pos()));
@@ -72,7 +76,7 @@ size_t HashOf(const UserDictionary::Entry& entry) {
 }
 
 // Normalizes POS (removes full width ascii and half width katakana).
-std::string NormalizePos(const absl::string_view input) {
+std::string NormalizePos(absl::string_view input) {
   std::string tmp = japanese_util::FullWidthAsciiToHalfWidthAscii(input);
   return japanese_util::HalfWidthKatakanaToFullWidthKatakana(tmp);
 }
@@ -82,20 +86,22 @@ std::pair<absl::string_view, absl::string_view> SplitPosAndLocale(
   return absl::StrSplit(pos, absl::MaxSplits(':', 1));
 }
 
+// hash_map from third_party IME pos to Mozc pos.
 // A data type to hold conversion rules of POSes. If mozc_pos is set to be an
 // empty string (""), it means that words of the POS should be ignored in Mozc.
-struct PosMap {
-  absl::string_view source_pos;      // POS string of a third party IME.
-  UserDictionary::PosType mozc_pos;  // POS of Mozc.
-};
+// key: string user POS defined in third_party_pos_map.def
+// value: PosType enum.
+using PosMap = absl::flat_hash_map<absl::string_view, UserDictionary::PosType>;
 
 // Include actual POS mapping rules defined outside the file.
 #include "dictionary/pos_map.inc"
 
+}  // namespace
+
 // Convert POS of a third party IME to that of Mozc using the given mapping.
-bool ConvertEntryInternal(const absl::Span<const PosMap> pos_map,
-                          const UserDictionaryImporter::RawEntry& from,
-                          UserDictionary::Entry* to) {
+bool ConvertEntry(const RawEntry& from, UserDictionary::Entry* to) {
+  const PosMap& pos_map = *kPosMap;
+
   if (to == nullptr) {
     LOG(ERROR) << "Null pointer is passed.";
     return false;
@@ -112,31 +118,24 @@ bool ConvertEntryInternal(const absl::Span<const PosMap> pos_map,
 
   // ATOK's POS has a special marker for distinguishing auto-registered
   // words/manually-registered words. Remove the mark here.
-  absl::ConsumePrefix(&pos, "$");
-  absl::ConsumePrefix(&pos, "*");
+  absl::ConsumeSuffix(&pos, "$");
+  absl::ConsumeSuffix(&pos, "*");
 
   // Search for mapping for the given POS.
-  const auto found = absl::c_lower_bound(
-      pos_map, pos, [](const PosMap map, absl::string_view pos) -> bool {
-        return map.source_pos < pos;
-      });
-  if (found == pos_map.end() || found->source_pos != pos) {
+  const auto it = pos_map.find(pos);
+  if (it == pos_map.end()) {
     LOG(WARNING) << "Invalid POS is passed: " << from.pos;
     return false;
   }
-  if (!UserDictionary::PosType_IsValid(found->mozc_pos)) {
-    to->clear_key();
-    to->clear_value();
-    to->clear_pos();
+
+  const UserDictionary::PosType pos_type = it->second;
+  if (!UserDictionary::PosType_IsValid(pos_type)) {
     return false;
   }
 
-  to->set_key(from.key);
+  to->set_key(user_dictionary::NormalizeReading(from.key));
   to->set_value(from.value);
-  to->set_pos(found->mozc_pos);
-
-  // Normalize reading.
-  to->set_key(UserDictionaryUtil::NormalizeReading(to->key()));
+  to->set_pos(pos_type);
 
   // Copy comment.
   if (!from.comment.empty()) {
@@ -149,26 +148,17 @@ bool ConvertEntryInternal(const absl::Span<const PosMap> pos_map,
   }
 
   // Validation.
-  if (UserDictionaryUtil::ValidateEntry(*to) !=
-      UserDictionaryCommandStatus::USER_DICTIONARY_COMMAND_SUCCESS) {
-    return false;
-  }
-
-  return true;
+  return user_dictionary::ValidateEntry(*to).ok();
 }
 
-}  // namespace
-
-UserDictionaryImporter::ErrorType UserDictionaryImporter::ImportFromIterator(
-    InputIteratorInterface* iter, UserDictionary* user_dic) {
+absl::Status ImportFromIterator(InputIteratorInterface* iter,
+                                UserDictionary* user_dic) {
   if (iter == nullptr || user_dic == nullptr) {
     LOG(ERROR) << "iter or user_dic is nullptr";
-    return IMPORT_FATAL;
+    return ToStatus(ExtendedErrorCode::IMPORT_FATAL);
   }
 
-  const size_t max_size = UserDictionaryUtil::max_entry_size();
-
-  ErrorType ret = IMPORT_NO_ERROR;
+  ExtendedErrorCode ret = ExtendedErrorCode::OK;
 
   absl::flat_hash_set<size_t> existent_entries;
   for (const auto& entry : user_dic->entries()) {
@@ -177,9 +167,9 @@ UserDictionaryImporter::ErrorType UserDictionaryImporter::ImportFromIterator(
 
   RawEntry raw_entry;
   while (iter->Next(&raw_entry)) {
-    if (user_dic->entries_size() >= max_size) {
+    if (mozc::UserDictionaryStorage::IsDictionaryFull(*user_dic)) {
       LOG(WARNING) << "Too many words in one dictionary";
-      return IMPORT_TOO_MANY_WORDS;
+      return ToStatus(ExtendedErrorCode::IMPORT_TOO_MANY_WORDS);
     }
 
     if (raw_entry.key.empty() && raw_entry.value.empty() &&
@@ -192,7 +182,7 @@ UserDictionaryImporter::ErrorType UserDictionaryImporter::ImportFromIterator(
     UserDictionary::Entry entry;
     if (!ConvertEntry(raw_entry, &entry)) {
       LOG(WARNING) << "Entry is not valid";
-      ret = IMPORT_INVALID_ENTRIES;
+      ret = ExtendedErrorCode::IMPORT_INVALID_ENTRIES;
       continue;
     }
 
@@ -204,30 +194,28 @@ UserDictionaryImporter::ErrorType UserDictionaryImporter::ImportFromIterator(
     user_dic->mutable_entries()->Add(std::move(entry));
   }
 
-  return ret;
+  return ret == ExtendedErrorCode::OK ? absl::OkStatus() : ToStatus(ret);
 }
 
-UserDictionaryImporter::ErrorType
-UserDictionaryImporter::ImportFromTextLineIterator(
-    IMEType ime_type, TextLineIteratorInterface* iter,
-    UserDictionary* user_dic) {
+absl::Status ImportFromTextLineIterator(IMEType ime_type,
+                                        TextLineIteratorInterface* iter,
+                                        UserDictionary* user_dic) {
   TextInputIterator text_iter(ime_type, iter);
   if (text_iter.ime_type() == NUM_IMES) {
-    return IMPORT_NOT_SUPPORTED;
+    return ToStatus(ExtendedErrorCode::IMPORT_NOT_SUPPORTED);
   }
 
   return ImportFromIterator(&text_iter, user_dic);
 }
 
-UserDictionaryImporter::StringTextLineIterator::StringTextLineIterator(
-    absl::string_view data)
+StringTextLineIterator::StringTextLineIterator(absl::string_view data)
     : data_(data), first_(data_.begin()) {}
 
-bool UserDictionaryImporter::StringTextLineIterator::IsAvailable() const {
+bool StringTextLineIterator::IsAvailable() const {
   return data_.end() != first_;
 }
 
-bool UserDictionaryImporter::StringTextLineIterator::Next(std::string* line) {
+bool StringTextLineIterator::Next(std::string* line) {
   if (!IsAvailable()) {
     return false;
   }
@@ -251,12 +239,10 @@ bool UserDictionaryImporter::StringTextLineIterator::Next(std::string* line) {
   return true;
 }
 
-void UserDictionaryImporter::StringTextLineIterator::Reset() {
-  first_ = data_.begin();
-}
+void StringTextLineIterator::Reset() { first_ = data_.begin(); }
 
-UserDictionaryImporter::TextInputIterator::TextInputIterator(
-    IMEType ime_type, TextLineIteratorInterface* iter)
+TextInputIterator::TextInputIterator(IMEType ime_type,
+                                     TextLineIteratorInterface* iter)
     : ime_type_(NUM_IMES), iter_(iter) {
   CHECK(iter_);
   if (!iter_->IsAvailable()) {
@@ -275,13 +261,13 @@ UserDictionaryImporter::TextInputIterator::TextInputIterator(
   MOZC_VLOG(1) << "Setting type to: " << static_cast<int>(ime_type_);
 }
 
-bool UserDictionaryImporter::TextInputIterator::IsAvailable() const {
+bool TextInputIterator::IsAvailable() const {
   DCHECK(iter_);
   return (iter_->IsAvailable() && ime_type_ != IME_AUTO_DETECT &&
           ime_type_ != NUM_IMES);
 }
 
-bool UserDictionaryImporter::TextInputIterator::Next(RawEntry* entry) {
+bool TextInputIterator::Next(RawEntry* entry) {
   DCHECK(iter_);
   if (!IsAvailable()) {
     LOG(ERROR) << "iterator is not available";
@@ -356,13 +342,7 @@ bool UserDictionaryImporter::TextInputIterator::Next(RawEntry* entry) {
   return false;
 }
 
-bool UserDictionaryImporter::ConvertEntry(const RawEntry& from,
-                                          UserDictionary::Entry* to) {
-  return ConvertEntryInternal(kPosMap, from, to);
-}
-
-UserDictionaryImporter::IMEType UserDictionaryImporter::GuessIMEType(
-    absl::string_view line) {
+IMEType GuessIMEType(absl::string_view line) {
   if (line.empty()) {
     return NUM_IMES;
   }
@@ -405,8 +385,7 @@ UserDictionaryImporter::IMEType UserDictionaryImporter::GuessIMEType(
   return NUM_IMES;
 }
 
-UserDictionaryImporter::IMEType UserDictionaryImporter::DetermineFinalIMEType(
-    IMEType user_ime_type, IMEType guessed_ime_type) {
+IMEType DetermineFinalIMEType(IMEType user_ime_type, IMEType guessed_ime_type) {
   IMEType result_ime_type = NUM_IMES;
 
   if (user_ime_type == IME_AUTO_DETECT) {
@@ -428,8 +407,7 @@ UserDictionaryImporter::IMEType UserDictionaryImporter::DetermineFinalIMEType(
   return result_ime_type;
 }
 
-UserDictionaryImporter::EncodingType UserDictionaryImporter::GuessEncodingType(
-    absl::string_view str) {
+EncodingType GuessEncodingType(absl::string_view str) {
   // Unicode BOM.
   if (str.size() >= 2 && ((static_cast<uint8_t>(str[0]) == 0xFF &&
                            static_cast<uint8_t>(str[1]) == 0xFE) ||
@@ -473,9 +451,8 @@ UserDictionaryImporter::EncodingType UserDictionaryImporter::GuessEncodingType(
   return SHIFT_JIS;
 }
 
-UserDictionaryImporter::EncodingType
-UserDictionaryImporter::GuessFileEncodingType(const std::string& filename) {
-  absl::StatusOr<Mmap> mmap = Mmap::Map(filename, Mmap::READ_ONLY);
+EncodingType GuessFileEncodingType(absl::string_view filename) {
+  absl::StatusOr<Mmap> mmap = Mmap::Map(std::string(filename), Mmap::READ_ONLY);
   if (!mmap.ok()) {
     LOG(ERROR) << "cannot open: " << filename << ": " << mmap.status();
     return NUM_ENCODINGS;
@@ -486,4 +463,5 @@ UserDictionaryImporter::GuessFileEncodingType(const std::string& filename) {
   return GuessEncodingType(mapped_data);
 }
 
+}  // namespace user_dictionary
 }  // namespace mozc

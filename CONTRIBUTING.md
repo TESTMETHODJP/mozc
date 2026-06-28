@@ -15,3 +15,18 @@ was for a different project), you probably don't need to do it again.
 
 Visit <https://cla.developers.google.com/> to see your current agreements or to
 sign a new one.
+
+## Coding style guide
+
+The Mozc project follows Google Style Guide. Your PR is also requested to follow
+the style guide.
+
+https://google.github.io/styleguide/
+
+## Policies on Vocabulary and Conversion Results
+
+Please refer to [Vocabulary Policy](VOCABULARY_POLICY.md) before submitting
+suggestions or issues regarding language models, vocabularies (dictionary data),
+or conversion results. We accept such suggestions exclusively through dedicated
+forms, and do not engage in individual discussions or accept Pull Requests on
+these topics.

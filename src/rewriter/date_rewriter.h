@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "composer/composer.h"
 #include "converter/segments.h"
 #include "dictionary/dictionary_interface.h"
@@ -150,14 +151,18 @@ class DateRewriter : public RewriterInterface {
   // https://abseil.io/docs/cpp/guides/time#formatting-absltime
   //
   // THIS IS EXPERIMENTAL. This functionality may be dropped or changed.
-  static constexpr char kExtraFormatKey[] = "DATE_FORMAT";
+  static constexpr absl::string_view kExtraDateFormatKey = "DATE_FORMAT";
+  static constexpr absl::string_view kExtraDatetimeFormatKey =
+      "DATETIME_FORMAT";
 
  private:
   // If the rewrite is done, returns `true` and sets the `num_done_out` to the
   // number of segments processed. The `num_done_out` is not modified if the
   // rewrite is not done.
-  static bool RewriteDate(Segment* segment, absl::string_view extra_format,
-                          size_t& num_done_out);
+  static bool RewriteDate(
+      Segment* segment, absl::Span<const std::string> extra_date_formats,
+      absl::Span<const std::string>  extra_datetime_formats,
+      size_t& num_done_out);
   static bool RewriteEra(Segments::range segments_range, size_t& num_done_out);
   static bool RewriteAd(Segments::range segments_range, size_t& num_done_out);
 

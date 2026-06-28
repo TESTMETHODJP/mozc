@@ -44,7 +44,6 @@
 #include "converter/attribute.h"
 #include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager.h"
 #include "data_manager/serialized_dictionary.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
@@ -54,22 +53,6 @@
 
 namespace mozc {
 namespace {
-
-class ValueCostCompare {
- public:
-  bool operator()(SerializedDictionary::const_iterator a,
-                  SerializedDictionary::const_iterator b) const {
-    return a.cost() < b.cost();
-  }
-};
-
-class IsEqualValue {
- public:
-  bool operator()(const SerializedDictionary::const_iterator a,
-                  const SerializedDictionary::const_iterator b) const {
-    return a.value() == b.value();
-  }
-};
 
 // Insert Emoticon into the |segment|
 // Top |initial_insert_size| candidates are inserted from |initial_insert_pos|.
@@ -92,13 +75,21 @@ void InsertCandidates(SerializedDictionary::const_iterator begin,
     sorted_value.push_back(iter);
   }
 
-  std::sort(sorted_value.begin(), sorted_value.end(), ValueCostCompare());
+  std::sort(sorted_value.begin(), sorted_value.end(),
+            [](SerializedDictionary::const_iterator lhs,
+               SerializedDictionary::const_iterator rhs) {
+              return lhs.cost() < rhs.cost();
+            });
 
   // after sorting the values by |cost|, adjacent candidates
   // will have the same value. It is almost OK to use std::unique to
   // remove dup entries, it is not a perfect way though.
   sorted_value.erase(
-      std::unique(sorted_value.begin(), sorted_value.end(), IsEqualValue()),
+      std::unique(sorted_value.begin(), sorted_value.end(),
+                  [](const SerializedDictionary::const_iterator lhs,
+                     const SerializedDictionary::const_iterator rhs) {
+                    return lhs.value() == rhs.value();
+                  }),
       sorted_value.end());
 
   for (size_t i = 0; i < sorted_value.size(); ++i) {
@@ -167,24 +158,15 @@ bool EmoticonRewriter::RewriteCandidate(Segments* segments) const {
     // TODO(taku): Emoticon dictionary does not always include "facemark".
     // Displaying non-facemarks with "かおもじ" is not always correct.
     // We have to distinguish pure facemarks and other symbol marks.
-
-    if (key == "かおもじ") {
-      // When key is "かおもじ", default candidate size should be small enough.
-      // It is safe to expand all candidates at this time.
+    if (key == "かおもじ" || key == "かお") {
+      // When key is "かおもじ" or "かお", default candidate size should be
+      // small enough. It is safe to expand all candidates at this time.
       begin = dic_.begin();
       CHECK(begin != dic_.end());
       end = dic_.end();
       // set large value(100) so that all candidates are pushed to the bottom
       initial_insert_pos = RewriterUtil::CalculateInsertPosition(segment, 100);
       initial_insert_size = dic_.size();
-    } else if (key == "かお") {
-      // When key is "かお", expand all candidates in conservative way.
-      begin = dic_.begin();
-      CHECK(begin != dic_.end());
-      // first 6 candidates are inserted at 4 th position.
-      // Other candidates are pushed to the buttom.
-      initial_insert_pos = RewriterUtil::CalculateInsertPosition(segment, 4);
-      initial_insert_size = 6;
     } else if (key == "ふくわらい") {
       // Choose one emoticon randomly from the dictionary.
       // TODO(taku): want to make it "generate" more funny emoticon.
@@ -217,14 +199,6 @@ bool EmoticonRewriter::RewriteCandidate(Segments* segments) const {
   }
 
   return modified;
-}
-
-std::unique_ptr<EmoticonRewriter> EmoticonRewriter::CreateFromDataManager(
-    const DataManager& data_manager) {
-  absl::string_view token_array_data, string_array_data;
-  data_manager.GetEmoticonRewriterData(&token_array_data, &string_array_data);
-  return std::make_unique<EmoticonRewriter>(token_array_data,
-                                            string_array_data);
 }
 
 EmoticonRewriter::EmoticonRewriter(absl::string_view token_array_data,

@@ -38,15 +38,16 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/bits.h"
 #include "base/config_file_stream.h"
 #include "base/number_util.h"
-#include "base/singleton.h"
 #include "base/strings/assign.h"
 #include "base/strings/japanese.h"
 #include "base/strings/unicode.h"
@@ -379,7 +380,7 @@ Config::CharacterForm CharacterFormManagerImpl::GetCharacterFormFromStorage(
   if (value == nullptr) {
     return Config::FULL_WIDTH;  // Return default setting
   }
-  const uint32_t ivalue = *reinterpret_cast<const uint32_t*>(value);
+  const uint32_t ivalue = LoadUnaligned<uint32_t>(value);
   return static_cast<Config::CharacterForm>(ivalue);
 }
 
@@ -620,7 +621,8 @@ CharacterFormManager::Data::Data() {
 }
 
 CharacterFormManager* CharacterFormManager::GetCharacterFormManager() {
-  return Singleton<CharacterFormManager>::get();
+  static absl::NoDestructor<CharacterFormManager> manager;
+  return manager.get();
 }
 
 CharacterFormManager::CharacterFormManager() : data_(std::make_unique<Data>()) {

@@ -41,7 +41,7 @@
 #include "converter/converter.h"
 #include "converter/converter_interface.h"
 #include "data_manager/data_manager.h"
-#include "dictionary/user_dictionary_session_handler.h"
+#include "dictionary/user_dictionary.h"
 #include "engine/data_loader.h"
 #include "engine/engine_converter.h"
 #include "engine/engine_converter_interface.h"
@@ -94,6 +94,7 @@ class Engine : public EngineInterface {
   bool ClearUserHistory() override;
   bool ClearUserPrediction() override;
   bool ClearUnusedUserPrediction() override;
+  bool AddUserHistory(absl::string_view key, absl::string_view value) override;
 
   absl::Status ReloadModules(std::unique_ptr<engine::Modules> modules);
 
@@ -126,9 +127,9 @@ class Engine : public EngineInterface {
   bool SendSupplementalModelReloadRequest(
       const EngineReloadRequest& request) override;
 
-  bool EvaluateUserDictionaryCommand(
-      const user_dictionary::UserDictionaryCommand& command,
-      user_dictionary::UserDictionaryCommandStatus* status) override;
+  void ClearOldSupplementalModels() override;
+
+  void ImportUserDictionary(std::string name, std::string tsv) override;
 
   void SetAlwaysWaitForTesting(bool value) { always_wait_for_testing_ = value; }
 
@@ -146,10 +147,8 @@ class Engine : public EngineInterface {
   std::shared_ptr<converter::Converter> converter_;
   std::shared_ptr<ConverterInterface> minimal_converter_;
   std::unique_ptr<DataLoader::Response> loader_response_;
-  // Do not initialized with Init() because the cost of initialization is
-  // negligible.
-  user_dictionary::UserDictionarySessionHandler
-      user_dictionary_session_handler_;
+  std::unique_ptr<user_dictionary::AsyncUserDictionaryImporter>
+      async_user_dictionary_importer_;
   bool always_wait_for_testing_ = false;
 };
 

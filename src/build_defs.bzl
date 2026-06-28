@@ -100,13 +100,22 @@ register_extension_info(
     label_regex_for_dep = "{extension_name}",
 )
 
-def mozc_cc_binary(deps = [], copts = [], **kwargs):
+def mozc_cc_binary(deps = [], copts = [], linkopts = [], **kwargs):
     """
     cc_binary wrapper adding //:macro dependecny.
     """
     cc_binary(
         deps = deps + ["//:macro"],
         copts = copts + _copts_unsigned_char(),
+        linkopts = linkopts + mozc_select(
+            wasm = [
+                "-s EXPORTED_RUNTIME_METHODS=['ccall', 'cwrap', 'FS']",
+                "-s MODULARIZE=1",
+                "-s EXPORT_NAME='MozcConverter'",
+                "-s ALLOW_MEMORY_GROWTH=1",
+            ],
+            default = [],
+        ),
         **kwargs
     )
 
@@ -162,6 +171,14 @@ def _mozc_gen_win32_resource_file(
         tool = "//build_tools:gen_win32_resource_header",
     )
 
+# Alias to the rule for Windows resource
+mozc_win32_resource = windows_resource
+
+register_extension_info(
+    extension = mozc_win32_resource,
+    label_regex_for_dep = "{extension_name}",
+)
+
 def mozc_win32_resource_from_template(
         name,
         src,
@@ -191,10 +208,7 @@ def mozc_win32_resource_from_template(
         "GoogleJapaneseInput": ["GOOGLE_JAPANESE_INPUT_BUILD"],
     }.get(BRANDING, [])
 
-    # Create main resource
-    win32_resource_files_main = windows_resource
-
-    win32_resource_files_main(
+    mozc_win32_resource(
         name = name,
         rc_files = [":" + generated_rc_file],
         manifests = manifests,
@@ -319,6 +333,7 @@ def mozc_win32_cc_prod_binary(
         name,
         executable_name_map = {},  # @unused
         srcs = [],
+        defines = [],
         deps = [],
         features = None,
         linkopts = [],
@@ -343,6 +358,7 @@ def mozc_win32_cc_prod_binary(
       name: name of the target.
       executable_name_map: a map from the branding name to the executable name.
       srcs: .cc files to build the executable.
+      defines: preprocessor definitions to be specified.
       deps: deps to build the executable.
       features: features to be passed to mozc_cc_binary.
       linkopts: linker options to build the executable.
@@ -393,6 +409,7 @@ def mozc_win32_cc_prod_binary(
     mozc_cc_binary(
         name = intermediate_name,
         srcs = srcs,
+        defines = defines,
         deps = deps,
         features = features,
         # '/CETCOMPAT' is available only on x86/x64 architectures.
@@ -454,6 +471,11 @@ def mozc_win32_cc_prod_binary(
         subpath = target_name + ".pdb",
         visibility = visibility,
     )
+
+register_extension_info(
+    extension = mozc_win32_cc_prod_binary,
+    label_regex_for_dep = "{extension_name}",
+)
 
 def mozc_cc_win32_library(
         name,
@@ -734,11 +756,16 @@ def mozc_macos_application(name, bundle_name, infoplists, strings = [], bundle_i
         infoplists = _tweak_infoplists(name, infoplists),
         strings = _tweak_strings(name, strings),
         minimum_os_version = MACOS_MIN_OS_VER,
-        version = "//data/version:version_macos",
+        version = "//:version_macos",
         target_compatible_with = ["@platforms//os:macos"],
         tags = tags + MOZC_TAGS.MAC_ONLY,
         **kwargs
     )
+
+register_extension_info(
+    extension = mozc_macos_application,
+    label_regex_for_dep = "{extension_name}",
+)
 
 def mozc_macos_bundle(name, bundle_name, infoplists, strings = [], bundle_id = None, tags = [], **kwargs):
     """Rule to create .bundle for macOS.
@@ -759,11 +786,16 @@ def mozc_macos_bundle(name, bundle_name, infoplists, strings = [], bundle_id = N
         infoplists = _tweak_infoplists(name, infoplists),
         strings = _tweak_strings(name, strings),
         minimum_os_version = MACOS_MIN_OS_VER,
-        version = "//data/version:version_macos",
+        version = "//:version_macos",
         target_compatible_with = ["@platforms//os:macos"],
         tags = tags + MOZC_TAGS.MAC_ONLY,
         **kwargs
     )
+
+register_extension_info(
+    extension = mozc_macos_bundle,
+    label_regex_for_dep = "{extension_name}",
+)
 
 def _get_value(args):
     for arg in args:
@@ -776,6 +808,7 @@ def mozc_select(
         client = None,
         oss = None,
         android = None,
+        apple = None,
         ios = None,
         chromiumos = None,
         linux = None,
@@ -824,20 +857,33 @@ def mozc_select(
     """
     return select({
         "//bazel/cc_target_os:android": _get_value([android, client, default]),
-        "//bazel/cc_target_os:apple": _get_value([ios, client, default]),
+        "//bazel/cc_target_os:apple": _get_value([ios, apple, client, default]),
         "//bazel/cc_target_os:chromiumos": _get_value([chromiumos, client, default]),
-        "//bazel/cc_target_os:darwin": _get_value([macos, ios, client, default]),
-        "//bazel/cc_target_os:wasm": _get_value([wasm, client, default]),
+        "//bazel/cc_target_os:darwin": _get_value([macos, apple, client, default]),
+        "//bazel/cc_target_os:wasm": _get_value([wasm, linux, client, default]),
         "//bazel/cc_target_os:windows": _get_value([windows, client, default]),
         "//bazel/cc_target_os:linux": _get_value([linux, client, default]),
         "//bazel/cc_target_os:oss_android": _get_value([oss_android, oss, android, client, default]),
         "//bazel/cc_target_os:oss_linux": _get_value([oss_linux, oss, linux, client, default]),
-        "//bazel/cc_target_os:oss_macos": _get_value([oss_macos, oss, macos, ios, client, default]),
+        "//bazel/cc_target_os:oss_macos": _get_value([oss_macos, oss, macos, apple, client, default]),
         "//bazel/cc_target_os:oss_windows": _get_value([oss_windows, oss, windows, client, default]),
         "//bazel/cc_target_os:prod_linux": _get_value([prod_linux, prod, oss_linux, oss, linux, client, default]),
-        "//bazel/cc_target_os:prod_macos": _get_value([prod_macos, prod, oss_macos, oss, macos, ios, client, default]),
+        "//bazel/cc_target_os:prod_macos": _get_value([prod_macos, prod, oss_macos, oss, macos, apple, client, default]),
         "//bazel/cc_target_os:prod_windows": _get_value([prod_windows, prod, oss_windows, oss, windows, client, default]),
         "//conditions:default": default,
+    })
+
+# Macros for release channel selection.
+# dev_channel: It contains new/experimental/relatively-unstable features.
+#    The revision number starts from 100 (e.g. 100 for Windows).
+# stable_channel: The main release channel. The revision number starts from 0 (e.g. 0 for Windows).
+#
+# The default of OSS build is dev_channel.
+def mozc_select_release_channel(dev = [], stable = []):
+    return select({
+        "//:dev_channel": dev,
+        "//:stable_channel": stable,
+        "//conditions:default": dev,
     })
 
 # Macros for build config settings.

@@ -173,7 +173,10 @@ bool EngineConverter::ConvertWithPreferences(
 
   segment_index_ = 0;
   state_ = CONVERSION;
-  candidate_list_visible_ = false;
+  // If TalkBack is enabled, the candidate list should be always visible to
+  // propagate the candidate words to TalkBack. Otherwise, the candidate list
+  // is not visible on the first conversion.
+  candidate_list_visible_ = request_->is_a11y_talkback_enabled();
   UpdateCandidateList();
   InitializeSelectedCandidateIndices();
   return true;
@@ -748,6 +751,17 @@ void EngineConverter::Commit(const composer::Composer& composer,
                                                    .Build();
   converter_->FinishConversion(conversion_request, &segments_);
   ResetState();
+}
+
+void EngineConverter::CommitContext(const composer::Composer& composer,
+                                    const commands::Context& context) {
+  const ConversionRequest conversion_request = ConversionRequestBuilder()
+                                                   .SetComposer(composer)
+                                                   .SetRequestView(*request_)
+                                                   .SetContextView(context)
+                                                   .SetConfigView(*config_)
+                                                   .Build();
+  converter_->CommitContext(conversion_request);
 }
 
 bool EngineConverter::CommitSuggestionInternal(
@@ -1482,7 +1496,7 @@ void EngineConverter::AppendCandidateList() {
   const Segment& segment = segments_.conversion_segment(segment_index_);
 
   auto get_candidate_dedup_key =
-      [](const converter::Candidate& c) -> const std::string& {
+      [](const converter::Candidate& c) -> absl::string_view {
     return c.value;
   };
 
@@ -1755,7 +1769,7 @@ void EngineConverter::OnStartComposition(const commands::Context& context) {
     return;
   }
 
-  const std::string& preceding_text = context.preceding_text();
+  absl::string_view preceding_text = context.preceding_text();
   // If preceding text is empty, it is OK to reset the history segments by
   // calling ResetConversion.
   if (preceding_text.empty()) {

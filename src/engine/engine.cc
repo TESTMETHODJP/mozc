@@ -30,6 +30,7 @@
 #include "engine/engine.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/log/check.h"
@@ -42,14 +43,13 @@
 #include "converter/immutable_converter.h"
 #include "converter/immutable_converter_interface.h"
 #include "data_manager/data_manager.h"
-#include "dictionary/user_dictionary_session_handler.h"
+#include "dictionary/user_dictionary.h"
 #include "engine/data_loader.h"
 #include "engine/minimal_converter.h"
 #include "engine/modules.h"
 #include "engine/supplemental_model_interface.h"
 #include "prediction/predictor.h"
 #include "protocol/engine_builder.pb.h"
-#include "protocol/user_dictionary_storage.pb.h"
 #include "rewriter/rewriter.h"
 #include "rewriter/rewriter_interface.h"
 
@@ -102,6 +102,10 @@ absl::Status Engine::Init(std::unique_ptr<engine::Modules> modules) {
     return std::make_unique<Rewriter>(modules);
   };
 
+  async_user_dictionary_importer_ =
+      std::make_unique<user_dictionary::AsyncUserDictionaryImporter>(
+          modules->GetUserDictionary());
+
   auto converter = std::make_shared<converter::Converter>(
       std::move(modules), immutable_converter_factory, predictor_factory,
       rewriter_factory);
@@ -136,6 +140,10 @@ bool Engine::ClearUserPrediction() {
 
 bool Engine::ClearUnusedUserPrediction() {
   return converter_ && converter_->predictor().ClearUnusedHistory();
+}
+
+bool Engine::AddUserHistory(absl::string_view key, absl::string_view value) {
+  return converter_ && converter_->AddUserHistory(key, value);
 }
 
 bool Engine::MaybeReloadEngine(EngineReloadResponse* response) {
@@ -175,10 +183,16 @@ bool Engine::SendSupplementalModelReloadRequest(
   return true;
 }
 
-bool Engine::EvaluateUserDictionaryCommand(
-    const user_dictionary::UserDictionaryCommand& command,
-    user_dictionary::UserDictionaryCommandStatus* status) {
-  return user_dictionary_session_handler_.Evaluate(command, status);
+void Engine::ClearOldSupplementalModels() {
+  if (converter_) {
+    converter_->modules().GetSupplementalModel().ClearOldModels();
+  }
+}
+
+void Engine::ImportUserDictionary(std::string name, std::string tsv) {
+  if (async_user_dictionary_importer_) {
+    async_user_dictionary_importer_->Import(std::move(name), std::move(tsv));
+  }
 }
 
 }  // namespace mozc

@@ -36,15 +36,16 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/thread_annotations.h"
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "base/thread.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_token.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/user_pos.h"
 #include "protocol/user_dictionary_storage.pb.h"
-#include "request/conversion_request.h"
 
 namespace mozc {
 namespace dictionary {
@@ -69,23 +70,15 @@ class UserDictionary : public UserDictionaryInterface {
   // Lookup methods don't support kana modifier insensitive lookup, i.e.,
   // Callback::OnActualKey() is never called.
   void LookupPredictive(absl::string_view key,
-                        const ConversionRequest& conversion_request,
                         Callback* callback) const override;
-  void LookupPrefix(absl::string_view key,
-                    const ConversionRequest& conversion_request,
-                    Callback* callback) const override;
-  void LookupExact(absl::string_view key,
-                   const ConversionRequest& conversion_request,
-                   Callback* callback) const override;
-  void LookupReverse(absl::string_view key,
-                     const ConversionRequest& conversion_request,
-                     Callback* callback) const override;
+  void LookupPrefix(absl::string_view key, Callback* callback) const override;
+  void LookupExact(absl::string_view key, Callback* callback) const override;
+  void LookupReverse(absl::string_view key, Callback* callback) const override;
 
   // Looks up a user comment from a pair of key and value.  When (key, value)
   // doesn't exist in this dictionary or user comment is empty, bool is
   // returned and string is kept as-is.
   bool LookupComment(absl::string_view key, absl::string_view value,
-                     const ConversionRequest& conversion_request,
                      std::string* comment) const override;
 
   // Returns true if the word is registered as a suppression word.
@@ -116,6 +109,8 @@ class UserDictionary : public UserDictionaryInterface {
                                      RequestType request_type,
                                      Token* token) const;
 
+  std::string GetFileName() const override;
+
  private:
   class TokensIndex;
   class UserDictionaryReloader;
@@ -128,8 +123,6 @@ class UserDictionary : public UserDictionaryInterface {
     DCHECK(tokens);
     tokens_.store(std::move(tokens));
   }
-
-  std::string GetFileName() const;
 
   std::unique_ptr<UserDictionaryReloader> reloader_;
   std::unique_ptr<const UserPos> user_pos_;
@@ -153,6 +146,49 @@ class UserDictionary : public UserDictionaryInterface {
 };
 
 }  // namespace dictionary
+
+namespace user_dictionary {
+
+// Utility class to asynchronously import user dictionary in TSV format.
+class AsyncUserDictionaryImporter {
+ public:
+  explicit AsyncUserDictionaryImporter(
+      dictionary::UserDictionaryInterface& dic);
+  ~AsyncUserDictionaryImporter();
+
+  // Imports the TSV formatted dictionary `tsv` as `name`.
+  // This method returns immediately. `tsv` is parsed
+  // and imported in a different thread asynchronously.
+  void Import(std::string name, std::string tsv);
+
+  // Waits until the importer thread finishes. Mainly for unittesting.
+  void Wait() { task_.Wait(); }
+
+ private:
+  struct ImportData {
+    std::string name;
+    std::string data;  // TSV data;
+  };
+
+  // Pop one ImportData from queue.
+  std::optional<ImportData> PopPendingImportData();
+
+  // Returns true if queue has pending data.
+  bool HasPendingImportData() const;
+
+  // Returns true if the import thread is canceled.
+  bool IsCanceled() const { return canceled_signal_.load(); }
+
+  void StartImportLoop();
+
+  std::deque<ImportData> queue_ ABSL_LOCKS_EXCLUDED(mutex_);
+  TaskManager task_;
+  std::atomic<bool> canceled_signal_ = false;
+  mutable absl::Mutex mutex_;
+  dictionary::UserDictionaryInterface& dic_;
+};
+
+}  // namespace user_dictionary
 }  // namespace mozc
 
 #endif  // MOZC_DICTIONARY_USER_DICTIONARY_H_

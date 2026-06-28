@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -49,9 +50,9 @@
 #include "prediction/result.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
+#include "request/options.h"
 
 namespace mozc {
-inline constexpr size_t kMaxConversionCandidatesSize = 200;
 
 namespace internal {
 
@@ -130,79 +131,13 @@ class copy_or_view_ptr {
 // detailed context information such as commands::Context.
 class ConversionRequest {
  public:
-  enum RequestType {
-    CONVERSION,          // normal conversion
-    REVERSE_CONVERSION,  // reverse conversion
-    PREDICTION,          // show prediction with user tab key
-    SUGGESTION,          // show prediction automatically
-    PARTIAL_PREDICTION,  // show prediction using the text before cursor
-    PARTIAL_SUGGESTION,  // show suggestion using the text before cursor
-  };
+  using RequestType = ::mozc::RequestType;
+  using enum ::mozc::RequestType;
 
-  enum ComposerKeySelection {
-    // Use Composer::GetQueryForConversion() to generate conversion key. This
-    // option uses the exact composition which user sees, e.g., "とうk".
-    CONVERSION_KEY,
+  using ComposerKeySelection = ::mozc::ComposerKeySelection;
+  using enum ::mozc::ComposerKeySelection;
 
-    // Use Composer::GetQueryForPrediction() to generate conversion key. This
-    // option trims the trailing unresolved romaji. For example, if composition
-    // is "とうk", the conversion key becomes "とう". This option is mainly used
-    // in dictionary_predictor.cc for realtime conversion.
-    PREDICTION_KEY,
-
-    // TODO(team): We may want to implement other options. For instance,
-    // Composer::GetQueriesForPrediction() expands the trailing romaji to a set
-    // of possible hiragana.
-  };
-
-  // Options must be trivially copyable to get hash value directly.
-  struct Options {
-    RequestType request_type = CONVERSION;
-
-    // Which composer's method to use for conversion key; see the comment around
-    // the definition of ComposerKeySelection above.
-    ComposerKeySelection composer_key_selection = CONVERSION_KEY;
-
-    int max_conversion_candidates_size = kMaxConversionCandidatesSize;
-    int max_user_history_prediction_candidates_size = 3;
-    int max_user_history_prediction_candidates_size_for_zero_query = 4;
-    int max_dictionary_prediction_candidates_size = 20;
-
-    // If true, insert a top candidate from the actual (non-immutable) converter
-    // to realtime conversion results. Note that setting this true causes a big
-    // performance loss (3 times slower).
-    bool use_actual_converter_for_realtime_conversion = false;
-
-    // Don't use this flag directly. This flag is used by DictionaryPredictor to
-    // skip some heavy rewriters, such as UserBoundaryHistoryRewriter and
-    // TransliterationRewriter.
-    // TODO(noriyukit): Fix such a hacky handling for realtime conversion.
-    bool skip_slow_rewriters = false;
-
-    // If true, partial candidates are created on prediction/suggestion.
-    // For example, "私の" is created from composition "わたしのなまえ".
-    bool create_partial_candidates = false;
-
-    // If false, stop using user history for conversion.
-    // This is used for supporting CONVERT_WITHOUT_HISTORY command.
-    // Please refer to session/internal/keymap.h
-    bool enable_user_history_for_conversion = true;
-
-    // If true, enable kana modifier insensitive conversion.
-    bool kana_modifier_insensitive_conversion = true;
-
-    // If true, use conversion_segment(0).key() instead of ComposerData.
-    // TODO(b/365909808): Create a new string field to store the key.
-    bool use_already_typing_corrected_key = false;
-
-    // Enables incognito mode even when Config.incognito_mode() or
-    // Request.is_incognito_mode() is false. Use this flag to dynamically change
-    // the incognito_mode per client request.
-    bool incognito_mode = false;
-  };
-
-  static_assert(std::is_trivially_copyable<Options>::value,
-                "Options must be trivially copyable");
+  using Options = ::mozc::ConversionOptions;
 
   // Default constructor stores the view.
   // All default variable returns global reference.
@@ -227,22 +162,6 @@ class ConversionRequest {
     return *composer_data_;
   }
 
-  bool use_actual_converter_for_realtime_conversion() const {
-    return options_.use_actual_converter_for_realtime_conversion;
-  }
-
-  bool create_partial_candidates() const {
-    return options_.create_partial_candidates;
-  }
-
-  bool enable_user_history_for_conversion() const {
-    return options_.enable_user_history_for_conversion;
-  }
-
-  ComposerKeySelection composer_key_selection() const {
-    return options_.composer_key_selection;
-  }
-
   const commands::Request& request() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return *request_;
   }
@@ -252,17 +171,15 @@ class ConversionRequest {
   const config::Config& config() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return *config_;
   }
-  const Options& options() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // Returns options by value. Cheap to copy and avoids reference lifetime
+  // issues.
+  Options options() const {
     return options_;
   }
   const prediction::Result& history_result() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return *history_result_;
   }
-
-  // TODO(noriyukit): Remove these methods after removing skip_slow_rewriters_
-  // flag.
-  bool skip_slow_rewriters() const { return options_.skip_slow_rewriters; }
 
   bool IsKanaModifierInsensitiveConversion() const {
     return request_->kana_modifier_insensitive_conversion() &&
@@ -271,26 +188,6 @@ class ConversionRequest {
   }
 
   bool IsZeroQuerySuggestion() const { return key().empty(); }
-
-  size_t max_conversion_candidates_size() const {
-    return options_.max_conversion_candidates_size;
-  }
-
-  size_t max_user_history_prediction_candidates_size() const {
-    return options_.max_user_history_prediction_candidates_size;
-  }
-
-  size_t max_user_history_prediction_candidates_size_for_zero_query() const {
-    return options_.max_user_history_prediction_candidates_size_for_zero_query;
-  }
-
-  size_t max_dictionary_prediction_candidates_size() const {
-    return options_.max_dictionary_prediction_candidates_size;
-  }
-
-  bool use_already_typing_corrected_key() const {
-    return options_.use_already_typing_corrected_key;
-  }
 
   // Clients needs to check ConversionRequest::incognito_mode() instead
   // of Config::incognito_mode() or Request::is_incognito_mode(), as the
@@ -361,6 +258,22 @@ class ConversionRequestBuilder {
       request_.key_ =
           GetKey(*request_.composer_data_, request_.options_.request_type,
                  request_.options_.composer_key_selection);
+    }
+    // Populate decoupled ConversionOptions fields from commands::Request and
+    // config::Config.
+    request_.options_.incognito_mode = request_.incognito_mode();
+    request_.options_.kana_modifier_insensitive_conversion =
+        request_.IsKanaModifierInsensitiveConversion();
+    request_.options_.use_spelling_correction =
+        request_.config().use_spelling_correction();
+    request_.options_.use_zip_code_conversion =
+        request_.config().use_zip_code_conversion();
+    request_.options_.use_t13n_conversion =
+        request_.config().use_t13n_conversion();
+    if (request_.config().preedit_method() == config::Config::ROMAN) {
+      request_.options_.input_mode = ConversionOptions::InputMode::ROMAN;
+    } else {
+      request_.options_.input_mode = ConversionOptions::InputMode::KANA;
     }
     return request_;
   }
@@ -464,7 +377,7 @@ class ConversionRequestBuilder {
   ConversionRequestBuilder& SetEmptyHistoryResult() {
     return SetHistoryResultView(prediction::Result::DefaultResult());
   }
-  ConversionRequestBuilder& SetOptions(ConversionRequest::Options&& options) {
+  ConversionRequestBuilder& SetOptions(ConversionRequest::Options options) {
     DCHECK_LE(stage_, 2);
     stage_ = 2;
     request_.options_ = std::move(options);

@@ -32,22 +32,26 @@
 #include <cstddef>
 #include <cstdint>
 #include <ios>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "base/config_file_stream.h"
 #include "base/file_stream.h"
 #include "base/file_util.h"
 #include "base/process_mutex.h"
 #include "base/protobuf/coded_stream.h"
 #include "base/protobuf/zero_copy_stream_impl.h"
 #include "dictionary/user_dictionary_util.h"
+#include "dictionary/user_pos.h"
 #include "protocol/user_dictionary_storage.pb.h"
 
 namespace mozc {
@@ -62,15 +66,40 @@ constexpr size_t kDefaultTotalBytesLimit = 512 << 20;
 // saved correctly. Please make the dictionary size smaller"
 constexpr size_t kDefaultWarningTotalBytesLimit = 256 << 20;
 
-using ::mozc::user_dictionary::UserDictionaryCommandStatus;
+// The limits of dictionary/entry size.
+constexpr size_t kMaxDictionarySize = 100;
+constexpr size_t kMaxEntrySize = 1000000;
+
+// Default filename of user dictionary.
+constexpr absl::string_view kUserDictionaryFile = "user://user_dictionary.db";
 
 }  // namespace
 
+using user_dictionary::ExtendedErrorCode;
+
+// static
+std::string UserDictionaryStorage::GetDefaultUserDictionaryFileName() {
+  return ConfigFileStream::GetFileName(kUserDictionaryFile);
+}
+
+UserDictionaryStorage::UserDictionaryStorage()
+    : UserDictionaryStorage::UserDictionaryStorage(
+          UserDictionaryStorage::GetDefaultUserDictionaryFileName()) {}
+
 UserDictionaryStorage::UserDictionaryStorage(std::string filename)
     : filename_(std::move(filename)),
-      process_mutex_(new ProcessMutex(FileUtil::Basename(filename_))) {}
+      process_mutex_(
+          std::make_unique<ProcessMutex>(FileUtil::Basename(filename_))) {}
 
 UserDictionaryStorage::~UserDictionaryStorage() { UnLock(); }
+
+// static
+size_t UserDictionaryStorage::max_dictionary_size() {
+  return kMaxDictionarySize;
+}
+
+// static
+size_t UserDictionaryStorage::max_entry_size() { return kMaxEntrySize; }
 
 absl::string_view UserDictionaryStorage::filename() const { return filename_; }
 
@@ -115,8 +144,7 @@ absl::Status UserDictionaryStorage::Load() {
   for (int i = 0; i < proto_.dictionaries_size(); ++i) {
     const UserDictionary& dict = proto_.dictionaries(i);
     if (dict.id() == 0) {
-      proto_.mutable_dictionaries(i)->set_id(
-          UserDictionaryUtil::CreateNewDictionaryId(proto_));
+      proto_.mutable_dictionaries(i)->set_id(CreateNewDictionaryId());
     }
   }
 
@@ -191,11 +219,10 @@ bool UserDictionaryStorage::Lock() {
 bool UserDictionaryStorage::UnLock() { return process_mutex_->UnLock(); }
 
 absl::Status UserDictionaryStorage::ExportDictionary(
-    uint64_t dic_id, absl::string_view filename) const {
-  const int index = GetUserDictionaryIndex(dic_id);
+    uint64_t dictionary_id, absl::string_view filename) const {
+  const int index = GetUserDictionaryIndex(dictionary_id);
   if (index < 0) {
-    return absl::Status(static_cast<absl::StatusCode>(INVALID_DICTIONARY_ID),
-                        absl::StrCat("Invalid dictionary id: ", dic_id));
+    return ToStatus(ExtendedErrorCode::UNKNOWN_DICTIONARY_ID);
   }
 
   OutputFileStream ofs(absl::StrCat(filename));
@@ -208,157 +235,148 @@ absl::Status UserDictionaryStorage::ExportDictionary(
   for (size_t i = 0; i < dic.entries_size(); ++i) {
     const UserDictionaryEntry& entry = dic.entries(i);
     ofs << entry.key() << "\t" << entry.value() << "\t"
-        << UserDictionaryUtil::GetStringPosType(entry.pos()) << "\t"
+        << dictionary::UserPos::GetStringPosType(entry.pos()) << "\t"
         << entry.comment() << std::endl;
   }
 
   return absl::OkStatus();
 }
 
-absl::StatusOr<uint64_t> UserDictionaryStorage::CreateDictionary(
-    const absl::string_view dic_name) {
-  uint64_t new_dic_id = 0;
-
-  UserDictionaryCommandStatus::Status status =
-      UserDictionaryUtil::CreateDictionary(&proto_, dic_name, &new_dic_id);
-
-  ExtendedErrorCode error_code = OK;
-
-  switch (status) {
-    case UserDictionaryCommandStatus::DICTIONARY_NAME_EMPTY:
-      error_code = EMPTY_DICTIONARY_NAME;
-      break;
-    case UserDictionaryCommandStatus::DICTIONARY_NAME_TOO_LONG:
-      error_code = TOO_LONG_DICTIONARY_NAME;
-      break;
-    case UserDictionaryCommandStatus ::
-        DICTIONARY_NAME_CONTAINS_INVALID_CHARACTER:
-      error_code = INVALID_CHARACTERS_IN_DICTIONARY_NAME;
-      break;
-    case UserDictionaryCommandStatus::DICTIONARY_NAME_DUPLICATED:
-      error_code = DUPLICATED_DICTIONARY_NAME;
-      break;
-    case UserDictionaryCommandStatus::DICTIONARY_SIZE_LIMIT_EXCEEDED:
-      error_code = TOO_MANY_DICTIONARIES;
-      break;
-    case UserDictionaryCommandStatus::UNKNOWN_ERROR:
-      // Reuses kUnknown.
-      error_code = static_cast<ExtendedErrorCode>(absl::StatusCode::kUnknown);
-      break;
-    default:
-      break;
-  }
-
-  if (error_code == OK) {
-    return new_dic_id;
-  }
-
-  return absl::Status(static_cast<absl::StatusCode>(error_code),
-                      "Failed to create dictionary");
+bool UserDictionaryStorage::IsStorageFull() const {
+  return proto_.dictionaries_size() >= max_dictionary_size();
 }
 
-absl::Status UserDictionaryStorage::DeleteDictionary(uint64_t dic_id) {
-  if (!UserDictionaryUtil::DeleteDictionary(&proto_, dic_id, nullptr,
-                                            nullptr)) {
-    return absl::Status(static_cast<absl::StatusCode>(INVALID_DICTIONARY_ID),
-                        "Failed to delete entry");
-  }
-
-  return absl::OkStatus();
+// static
+bool UserDictionaryStorage::IsDictionaryFull(
+    const user_dictionary::UserDictionary& dictionary) {
+  return dictionary.entries_size() >= max_entry_size();
 }
 
-absl::Status UserDictionaryStorage::RenameDictionary(
-    const uint64_t dic_id, const absl::string_view dic_name) {
-  if (absl::Status status = IsValidDictionaryName(dic_name); !status.ok()) {
-    return status;
-  }
-
-  UserDictionary* dic = GetUserDictionary(dic_id);
-  if (!dic) {
-    return absl::Status(static_cast<absl::StatusCode>(INVALID_DICTIONARY_ID),
-                        absl::StrCat("Invalid dictionary id: ", dic_id));
-  }
-
-  // same name
-  if (dic->name() == dic_name) {
-    return absl::OkStatus();
-  }
-
+int UserDictionaryStorage::GetUserDictionaryIndex(
+    uint64_t dictionary_id) const {
   for (int i = 0; i < proto_.dictionaries_size(); ++i) {
-    if (dic_name == proto_.dictionaries(i).name()) {
-      return absl::Status(
-          static_cast<absl::StatusCode>(DUPLICATED_DICTIONARY_NAME),
-          absl::StrCat("duplicated dictionary name: ", dic_name));
+    if (proto_.dictionaries(i).id() == dictionary_id) {
+      return i;
     }
   }
 
-  dic->set_name(dic_name);
-
-  return absl::OkStatus();
-}
-
-int UserDictionaryStorage::GetUserDictionaryIndex(uint64_t dic_id) const {
-  return UserDictionaryUtil::GetUserDictionaryIndexById(proto_, dic_id);
+  return -1;
 }
 
 absl::StatusOr<uint64_t> UserDictionaryStorage::GetUserDictionaryId(
-    absl::string_view dic_name) const {
+    absl::string_view dictionary_name) const {
   for (size_t i = 0; i < proto_.dictionaries_size(); ++i) {
-    if (dic_name == proto_.dictionaries(i).name()) {
+    if (dictionary_name == proto_.dictionaries(i).name()) {
       return proto_.dictionaries(i).id();
     }
   }
+
   return absl::NotFoundError(
-      absl::StrCat("Dictionary id is not found for ", dic_name));
+      absl::StrCat("Dictionary id is not found for ", dictionary_name));
 }
 
 user_dictionary::UserDictionary* UserDictionaryStorage::GetUserDictionary(
-    uint64_t dic_id) {
-  return UserDictionaryUtil::GetMutableUserDictionaryById(&proto_, dic_id);
-}
-
-// static
-size_t UserDictionaryStorage::max_entry_size() {
-  return UserDictionaryUtil::max_entry_size();
-}
-
-// static
-size_t UserDictionaryStorage::max_dictionary_size() {
-  return UserDictionaryUtil::max_entry_size();
+    uint64_t dictionary_id) {
+  const int index = GetUserDictionaryIndex(dictionary_id);
+  return index < 0 ? nullptr : proto_.mutable_dictionaries(index);
 }
 
 absl::Status UserDictionaryStorage::IsValidDictionaryName(
-    const absl::string_view name) const {
-  const UserDictionaryCommandStatus::Status status =
-      UserDictionaryUtil::ValidateDictionaryName(
-          user_dictionary::UserDictionaryStorage::default_instance(), name);
-
-  ExtendedErrorCode error_code = OK;
-
-  switch (status) {
-    // Succeeded case.
-    case UserDictionaryCommandStatus::USER_DICTIONARY_COMMAND_SUCCESS:
-      return absl::OkStatus();
-    // Failure cases.
-    case UserDictionaryCommandStatus::DICTIONARY_NAME_EMPTY:
-      error_code = EMPTY_DICTIONARY_NAME;
-      break;
-    case UserDictionaryCommandStatus::DICTIONARY_NAME_TOO_LONG:
-      error_code = TOO_LONG_DICTIONARY_NAME;
-      break;
-    case UserDictionaryCommandStatus::
-        DICTIONARY_NAME_CONTAINS_INVALID_CHARACTER:
-      error_code = INVALID_CHARACTERS_IN_DICTIONARY_NAME;
-      break;
-    default:
-      // Reuses kUnknown.
-      error_code = static_cast<ExtendedErrorCode>(absl::StatusCode::kUnknown);
-      break;
+    absl::string_view dictionary_name) const {
+  if (absl::Status status =
+          user_dictionary::ValidateDictionaryName(dictionary_name);
+      !status.ok()) {
+    return status;
   }
 
-  return absl::Status(
-      static_cast<absl::StatusCode>(error_code),
-      absl::StrCat("Invalid dictionary_name is passed: ", name));
+  for (int i = 0; i < proto_.dictionaries_size(); ++i) {
+    if (proto_.dictionaries(i).name() == dictionary_name) {
+      LOG(ERROR) << "duplicated dictionary name";
+      return ToStatus(ExtendedErrorCode::DICTIONARY_NAME_DUPLICATED);
+    }
+  }
+
+  return absl::OkStatus();
+}
+
+uint64_t UserDictionaryStorage::CreateNewDictionaryId() const {
+  static constexpr uint64_t kInvalidDictionaryId = 0;
+  absl::BitGen gen;
+
+  uint64_t id = kInvalidDictionaryId;
+  while (id == kInvalidDictionaryId) {
+    id = absl::Uniform<uint64_t>(gen);
+
+    // Duplication check.
+    for (int i = 0; i < proto_.dictionaries_size(); ++i) {
+      if (proto_.dictionaries(i).id() == id) {
+        // Duplicated id is found. So invalidate it to retry the generating.
+        id = kInvalidDictionaryId;
+        break;
+      }
+    }
+  }
+
+  return id;
+}
+
+absl::StatusOr<uint64_t> UserDictionaryStorage::CreateDictionary(
+    absl::string_view dictionary_name) {
+  if (absl::Status status = IsValidDictionaryName(dictionary_name);
+      !status.ok()) {
+    LOG(ERROR) << "Invalid dictionary name is passed";
+    return status;
+  }
+
+  if (IsStorageFull()) {
+    LOG(ERROR) << "too many dictionaries";
+    return ToStatus(ExtendedErrorCode::DICTIONARY_SIZE_LIMIT_EXCEEDED);
+  }
+
+  UserDictionary* dictionary = proto_.add_dictionaries();
+  if (!dictionary) {
+    LOG(ERROR) << "add_dictionaries failed.";
+    return ToStatus(ExtendedErrorCode::UNKNOWN_ERROR);
+  }
+
+  const uint64_t new_dictionary_id = CreateNewDictionaryId();
+  dictionary->set_id(new_dictionary_id);
+  dictionary->set_name(dictionary_name);
+
+  return new_dictionary_id;
+}
+
+absl::Status UserDictionaryStorage::RenameDictionary(
+    uint64_t dictionary_id, absl::string_view dictionary_name) {
+  UserDictionary* dictionary = GetUserDictionary(dictionary_id);
+  if (!dictionary) {
+    return ToStatus(ExtendedErrorCode::UNKNOWN_DICTIONARY_ID);
+  }
+
+  if (dictionary->name() == dictionary_name) {
+    return absl::OkStatus();
+  }
+
+  if (absl::Status status = IsValidDictionaryName(dictionary_name);
+      !status.ok()) {
+    LOG(ERROR) << "Invalid dictionary name is passed";
+    return status;
+  }
+
+  dictionary->set_name(dictionary_name);
+
+  return absl::OkStatus();
+}
+
+absl::Status UserDictionaryStorage::DeleteDictionary(uint64_t dictionary_id) {
+  const int index = GetUserDictionaryIndex(dictionary_id);
+  if (index < 0) {
+    return ToStatus(ExtendedErrorCode::UNKNOWN_DICTIONARY_ID);
+  }
+
+  proto_.mutable_dictionaries()->DeleteSubrange(index, 1);
+
+  return absl::OkStatus();
 }
 
 }  // namespace mozc

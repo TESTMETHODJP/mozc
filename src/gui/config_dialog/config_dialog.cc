@@ -41,6 +41,7 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/strings/string_view.h"
 #include "base/config_file_stream.h"
 #include "client/client.h"
 #include "config/config_handler.h"
@@ -85,13 +86,31 @@ namespace gui {
 
 using ::mozc::config::StatsConfigUtil;
 
+// Qt Style sheet for the config dialog.
+// https://doc.qt.io/qt-6/stylesheet-reference.html
+constexpr absl::string_view kQss = R"(
+QFrame[class="setting-group-layout"] {
+  padding: 0em 1em;
+}
+QFrame[class="setting-group-header"] {
+}
+QFrame[class="setting-group-line"] {
+}
+)";
+
 ConfigDialog::ConfigDialog()
     : client_(client::ClientFactory::NewClient()),
       initial_preedit_method_(0),
       initial_use_keyboard_to_change_preedit_method_(false),
       initial_use_mode_indicator_(true) {
   setupUi(this);
-  setWindowFlags(Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint);
+  setStyleSheet(QString::fromUtf8(kQss.data(), kQss.size()));
+
+  // Remove the context help button (question mark button) from the window.
+  Qt::WindowFlags flags = windowFlags();
+  flags &= ~Qt::WindowContextHelpButtonHint;
+  setWindowFlags(flags);
+
   setWindowModality(Qt::NonModal);
 
 #ifdef _WIN32
@@ -524,7 +543,7 @@ void ConfigDialog::ConvertFromProto(const config::Config &config) {
       config.information_list_config().use_local_usage_dictionary());
 
   // tab3
-  SET_CHECKBOX(useAutoImeTurnOff, use_auto_ime_turn_off);
+  SET_CHECKBOX(autoSwitchCompositionMode, auto_switch_composition_mode);
 
   SET_CHECKBOX(useAutoConversion, use_auto_conversion);
   kutenCheckBox->setChecked(config.auto_conversion_key() &
@@ -612,7 +631,7 @@ void ConfigDialog::ConvertToProto(config::Config *config) const {
       localUsageDictionaryCheckBox->isChecked());
 
   // tab3
-  GET_CHECKBOX(useAutoImeTurnOff, use_auto_ime_turn_off);
+  GET_CHECKBOX(autoSwitchCompositionMode, auto_switch_composition_mode);
 
   GET_CHECKBOX(useAutoConversion, use_auto_conversion);
 

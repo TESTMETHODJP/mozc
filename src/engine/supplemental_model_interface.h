@@ -58,6 +58,9 @@ class SupplementalModelInterface {
     return EngineReloadResponse();
   }
 
+  // Destroys old models that were replaced during reload.
+  virtual void ClearOldModels() {}
+
   // Returns true if supplemental model is available.
   // Useful to run intensive operations before using supplemental model.
   //
@@ -104,6 +107,11 @@ class SupplementalModelInterface {
   GetReadingAlignment(absl::string_view surface,
                       absl::string_view reading) const {
     return {};
+  }
+
+  virtual bool DecodeEnglish(const ConversionRequest& request,
+                             std::vector<prediction::Result>& results) const {
+    return false;
   }
 };
 

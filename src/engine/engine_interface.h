@@ -39,7 +39,6 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "protocol/engine_builder.pb.h"
-#include "protocol/user_dictionary_storage.pb.h"
 
 namespace mozc {
 
@@ -89,6 +88,11 @@ class EngineInterface {
   // Clears unused user prediction data.
   virtual bool ClearUnusedUserPrediction() { return true; }
 
+  // Adds key/value to user history data. `key` can be empty.
+  virtual bool AddUserHistory(absl::string_view key, absl::string_view value) {
+    return true;
+  }
+
   // Gets the user POS list.
   virtual std::vector<std::string> GetPosList() const { return {}; }
 
@@ -96,6 +100,9 @@ class EngineInterface {
   virtual bool MaybeReloadEngine(EngineReloadResponse* response) {
     return false;
   }
+
+  // Clears old supplemental models to avoid memory leaks.
+  virtual void ClearOldSupplementalModels() {}
   virtual bool SendEngineReloadRequest(const EngineReloadRequest& request) {
     return false;
   }
@@ -104,12 +111,7 @@ class EngineInterface {
     return false;
   }
 
-  // Evaluates user dictionary command.
-  virtual bool EvaluateUserDictionaryCommand(
-      const user_dictionary::UserDictionaryCommand& command,
-      user_dictionary::UserDictionaryCommandStatus* status) {
-    return false;
-  }
+  virtual void ImportUserDictionary(std::string name, std::string tsv) {}
 
  protected:
   EngineInterface() = default;

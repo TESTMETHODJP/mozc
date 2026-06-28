@@ -327,8 +327,8 @@ const KeyEvent::SpecialKey kSpecialKeyMap[] = {
     KeyEvent::NO_SPECIALKEY,  // 0xFF:
 };
 
-void ClearModifyerKeyIfNeeded(const KeyEvent *key,
-                              std::set<KeyEvent::ModifierKey> *modifiers) {
+void ClearModifyerKeyIfNeeded(const KeyEvent* key,
+                              std::set<KeyEvent::ModifierKey>* modifiers) {
   if (key == nullptr) {
     return;
   }
@@ -353,7 +353,7 @@ void ClearModifyerKeyIfNeeded(const KeyEvent *key,
 }
 
 // See b/2576120 for details.
-bool IsNotimplementedKey(const VirtualKey &virtual_key) {
+bool IsNotimplementedKey(const VirtualKey& virtual_key) {
   switch (virtual_key.virtual_key()) {
     case VK_DBE_ROMAN:    // Changes the mode to Roman characters.
     case VK_DBE_NOROMAN:  // Changes the mode to non-Roman characters.
@@ -387,14 +387,14 @@ bool IsNotimplementedKey(const VirtualKey &virtual_key) {
   }
 }
 
-bool ConvertToKeyEventMain(const VirtualKey &virtual_key, BYTE scan_code,
+bool ConvertToKeyEventMain(const VirtualKey& virtual_key, BYTE scan_code,
                            bool is_key_down, bool is_menu_active,
-                           const InputBehavior &behavior,
-                           const InputState &ime_state,
-                           const KeyboardStatus &keyboard_status,
-                           Win32KeyboardInterface *keyboard,
-                           commands::KeyEvent *key,
-                           std::set<KeyEvent::ModifierKey> *modifer_keys) {
+                           const InputBehavior& behavior,
+                           const InputState& ime_state,
+                           const KeyboardStatus& keyboard_status,
+                           Win32KeyboardInterface* keyboard,
+                           commands::KeyEvent* key,
+                           std::set<KeyEvent::ModifierKey>* modifer_keys) {
   if (key == nullptr) {
     return false;
   }
@@ -509,9 +509,9 @@ bool ConvertToKeyEventMain(const VirtualKey &virtual_key, BYTE scan_code,
     const std::string half_katakana = WideToUtf8(whalf_katakana);
     std::string full_katakana =
         mozc::japanese_util::HalfWidthKatakanaToFullWidthKatakana(
-            half_katakana.c_str());
+            half_katakana);
     std::string full_hiragana =
-        mozc::japanese_util::KatakanaToHiragana(full_katakana.c_str());
+        mozc::japanese_util::KatakanaToHiragana(full_katakana);
     key->set_key_string(full_hiragana);
     has_valid_key_string = true;
   }
@@ -637,10 +637,10 @@ KeyEventHandlerResult::KeyEventHandlerResult()
       succeeded(false) {}
 
 KeyEventHandlerResult KeyEventHandler::HandleKey(
-    const VirtualKey &virtual_key, BYTE scan_code, bool is_key_down,
-    const KeyboardStatus &initial_status, const InputBehavior &behavior,
-    const InputState &ime_state, Win32KeyboardInterface *keyboard,
-    mozc::commands::KeyEvent *key) {
+    const VirtualKey& virtual_key, BYTE scan_code, bool is_key_down,
+    const KeyboardStatus& initial_status, const InputBehavior& behavior,
+    const InputState& ime_state, Win32KeyboardInterface* keyboard,
+    mozc::commands::KeyEvent* key) {
   KeyEventHandlerResult result;
 
   if (key == nullptr) {
@@ -768,11 +768,11 @@ KeyEventHandlerResult KeyEventHandler::HandleKey(
 }
 
 KeyEventHandlerResult KeyEventHandler::ImeProcessKey(
-    const VirtualKey &virtual_key, BYTE scan_code, bool is_key_down,
-    const KeyboardStatus &keyboard_status, const InputBehavior &behavior,
-    const InputState &initial_state, const commands::Context &context,
-    client::ClientInterface *client, Win32KeyboardInterface *keyboard,
-    InputState *next_state, commands::Output *output) {
+    const VirtualKey& virtual_key, BYTE scan_code, bool is_key_down,
+    const KeyboardStatus& keyboard_status, const InputBehavior& behavior,
+    const InputState& initial_state, const commands::Context& context,
+    client::ClientInterface* client, Win32KeyboardInterface* keyboard,
+    InputState* next_state, commands::Output* output) {
   // We will update kana-lock state even if the IME is disabled, including
   // safe-mode.
   KeyboardStatus new_keyboard_status;
@@ -860,11 +860,11 @@ KeyEventHandlerResult KeyEventHandler::ImeProcessKey(
 }
 
 KeyEventHandlerResult KeyEventHandler::ImeToAsciiEx(
-    const VirtualKey &virtual_key, BYTE scan_code, bool is_key_down,
-    const KeyboardStatus &keyboard_status, const InputBehavior &behavior,
-    const InputState &initial_state, const commands::Context &context,
-    client::ClientInterface *client, Win32KeyboardInterface *keyboard,
-    InputState *next_state, commands::Output *output) {
+    const VirtualKey& virtual_key, BYTE scan_code, bool is_key_down,
+    const KeyboardStatus& keyboard_status, const InputBehavior& behavior,
+    const InputState& initial_state, const commands::Context& context,
+    client::ClientInterface* client, Win32KeyboardInterface* keyboard,
+    InputState* next_state, commands::Output* output) {
   KeyboardStatus new_keyboard_status;
   UnlockKanaLock(keyboard_status, keyboard, &new_keyboard_status);
 
@@ -879,6 +879,38 @@ KeyEventHandlerResult KeyEventHandler::ImeToAsciiEx(
     output = &dummy_output;
   }
   output->Clear();
+
+  // Although Mozc has not explicitly supported any key-up message, there exist
+  // some situations where the client has to send key message when it receives
+  // a key-up message.  Currently we have following exceptions.
+  // - Shift/Control/Alt keys
+  //    The Mozc protocol had originally allowed the client to ignore key-up
+  //    events of these modifier keys but later has changed to expect the
+  //    client to send a key message which contains only modifiers field and
+  //    mode field to support b/2269058 and b/1995170.
+  if (is_key_down) {
+    // This is an ugly workaround to determine which key-up message for a
+    // modifier key should be sent to the server.  Currently, the Mozc server
+    // expects the client to send such a key-up message only when a modifier
+    // key is released just after the same key is pressed, that is, any other
+    // key is not pressed between the key-down and key-up of a modifier key.
+    // Here are some examples, where [D] and [U] mean 'key down' and 'key up'.
+    //   (1) [D]Shift -> [D]A -> [U]Shift -> [U]A
+    //      In this case, only 'A' will be sent to the server
+    //   (2) [D]Shift -> [U]Shift -> [D]A -> [U]A
+    //      In this case, 'Shift' and 'A' will be sent to the server.
+    //   (3) [D]Shift -> [D]Control -> [U]Shift -> [U]Control
+    //      In this case, no key message will be sent to the server.
+    //   (4) [D]Shift -> [D]Control -> [U]Control -> [U]Shift
+    //      In this case, 'Control+Shift' will be sent to the server.  Note
+    //      that |KeyEvent::modifier_keys| will contain all the modifier keys
+    //      when the client receives '[U]Control'.
+    // Unfortunately, it is currently client's responsibility to remember the
+    // key sequence to generate appropriate key messages as expected by the
+    // server.  Strictly speaking, the Mozc client is actually stateful in
+    // this sense.
+    next_state->last_down_key = virtual_key;
+  }
 
   KeyEvent key;
   KeyEventHandlerResult result =
@@ -921,10 +953,10 @@ KeyEventHandlerResult KeyEventHandler::ImeToAsciiEx(
 }
 
 bool KeyEventHandler::ConvertToKeyEvent(
-    const VirtualKey &virtual_key, BYTE scan_code, bool is_key_down,
-    bool is_menu_active, const InputBehavior &behavior,
-    const InputState &ime_state, const KeyboardStatus &keyboard_status,
-    Win32KeyboardInterface *keyboard, mozc::commands::KeyEvent *key) {
+    const VirtualKey& virtual_key, BYTE scan_code, bool is_key_down,
+    bool is_menu_active, const InputBehavior& behavior,
+    const InputState& ime_state, const KeyboardStatus& keyboard_status,
+    Win32KeyboardInterface* keyboard, mozc::commands::KeyEvent* key) {
   // Since Mozc protocol requires tricky conditions for modifiers, using set
   // container makes the main part of key event conversion simple rather
   // than using vector-like container.
@@ -944,9 +976,9 @@ bool KeyEventHandler::ConvertToKeyEvent(
   return true;
 }
 
-void KeyEventHandler::UnlockKanaLock(const KeyboardStatus &keyboard_status,
-                                     Win32KeyboardInterface *keyboard,
-                                     KeyboardStatus *new_keyboard_status) {
+void KeyEventHandler::UnlockKanaLock(const KeyboardStatus& keyboard_status,
+                                     Win32KeyboardInterface* keyboard,
+                                     KeyboardStatus* new_keyboard_status) {
   KeyboardStatus dummy_status;
   if (new_keyboard_status == nullptr) {
     new_keyboard_status = &dummy_status;
@@ -960,8 +992,8 @@ void KeyEventHandler::UnlockKanaLock(const KeyboardStatus &keyboard_status,
   }
 }
 
-void KeyEventHandler::MaybeSpawnTool(mozc::client::ClientInterface *client,
-                                     commands::Output *output) {
+void KeyEventHandler::MaybeSpawnTool(mozc::client::ClientInterface* client,
+                                     commands::Output* output) {
   // URL handling:
   // When Output::url is set, MozcTool is supposed to be launched by client.
   // At this moment, we disable this feature as it may cause security hole.
@@ -999,8 +1031,8 @@ void KeyEventHandler::MaybeSpawnTool(mozc::client::ClientInterface *client,
 }
 
 void KeyEventHandler::UpdateBehaviorInImeProcessKey(
-    const VirtualKey &virtual_key, bool is_key_down,
-    const InputState &initial_state, InputBehavior *behavior) {
+    const VirtualKey& virtual_key, bool is_key_down,
+    const InputState& initial_state, InputBehavior* behavior) {
   if (behavior == nullptr) {
     return;
   }

@@ -41,6 +41,8 @@
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/util.h"
+#include "converter/attribute.h"
 #include "converter/converter_interface.h"
 #include "converter/immutable_converter_interface.h"
 #include "engine/modules.h"
@@ -96,15 +98,18 @@ void MaybeFillFallbackPos(absl::Span<Result> results) {
 Predictor::Predictor(const engine::Modules& modules,
                      const ConverterInterface& converter,
                      const ImmutableConverterInterface& immutable_converter)
-    : dictionary_predictor_(std::make_unique<DictionaryPredictor>(
-          modules,
-          std::make_unique<RealtimeDecoder>(immutable_converter, converter))),
-      user_history_predictor_(std::make_unique<UserHistoryPredictor>(modules)) {
+    : realtime_decoder_(
+          std::make_unique<RealtimeDecoder>(immutable_converter, converter)),
+      dictionary_predictor_(
+          std::make_unique<DictionaryPredictor>(modules, *realtime_decoder_)),
+      user_history_predictor_(
+          std::make_unique<UserHistoryPredictor>(modules, *realtime_decoder_)) {
   DCHECK(dictionary_predictor_);
   DCHECK(user_history_predictor_);
 }
 
-Predictor::Predictor(std::unique_ptr<PredictorInterface> dictionary_predictor,
+Predictor::Predictor(const engine::Modules& modules,
+                     std::unique_ptr<PredictorInterface> dictionary_predictor,
                      std::unique_ptr<PredictorInterface> user_history_predictor)
     : dictionary_predictor_(std::move(dictionary_predictor)),
       user_history_predictor_(std::move(user_history_predictor)) {
@@ -131,9 +136,23 @@ std::vector<Result> Predictor::Predict(const ConversionRequest& request) const {
                                            : PredictForDesktop(request);
 }
 
+std::vector<Result> Predictor::Convert(const ConversionRequest& request) const {
+  if (request.request_type() != ConversionRequest::CONVERSION) {
+    return {};
+  }
+
+  // Returns history candidates only.
+  // TODO(all): Call dictionary_predictor->Convert() to unify the backend.
+  return user_history_predictor_->Convert(request);
+}
+
 void Predictor::Finish(const ConversionRequest& request,
                        absl::Span<const Result> results, uint32_t revert_id) {
   user_history_predictor_->Finish(request, results, revert_id);
+}
+
+void Predictor::CommitContext(const ConversionRequest& request) const {
+  user_history_predictor_->CommitContext(request);
 }
 
 // Since DictionaryPredictor is immutable, no need
@@ -150,9 +169,14 @@ bool Predictor::ClearUnusedHistory() {
   return user_history_predictor_->ClearUnusedHistory();
 }
 
-bool Predictor::ClearHistoryEntry(const absl::string_view key,
-                                  const absl::string_view value) {
+bool Predictor::ClearHistoryEntry(absl::string_view key,
+                                  absl::string_view value) {
   return user_history_predictor_->ClearHistoryEntry(key, value);
+}
+
+bool Predictor::AddHistoryEntry(absl::string_view key,
+                                absl::string_view value) {
+  return user_history_predictor_->AddHistoryEntry(key, value);
 }
 
 bool Predictor::Wait() { return user_history_predictor_->Wait(); }
@@ -201,10 +225,8 @@ std::vector<Result> Predictor::PredictForDesktop(
         dictionary_predictor_->Predict(request_for_prediction2);
   }
 
-  std::vector<Result> results;
-
-  absl::c_move(user_history_results, std::back_inserter(results));
-  absl::c_move(dictionary_results, std::back_inserter(results));
+  std::vector<Result> results = MixCandidates(
+      request, std::move(user_history_results), std::move(dictionary_results));
 
   return results;
 }
@@ -248,11 +270,49 @@ std::vector<Result> Predictor::PredictForMixedConversion(
       break;
   }
 
+  std::vector<Result> results = MixCandidates(
+      request, std::move(user_history_results), std::move(dictionary_results));
+
+  MaybeFillFallbackPos(absl::MakeSpan(results));
+
+  return results;
+}
+
+// static
+void Predictor::DemoteWeakUserHistory(absl::Span<Result> results) {
+  auto is_weak = [](const Result& result) {
+    return result.attributes & prediction::WEAK_USER_HISTORY_PREDICTION;
+  };
+
+  if (results.empty() || !is_weak(results.front())) {
+    return;
+  }
+
+  if (auto first_no_weak = absl::c_find_if_not(results, is_weak);
+      first_no_weak != results.end()) {
+    std::rotate(results.begin(), first_no_weak, std::next(first_no_weak));
+  }
+}
+
+std::vector<Result> Predictor::MixCandidates(
+    const ConversionRequest& request, std::vector<Result> user_history_results,
+    std::vector<Result> dictionary_results) const {
+  // Add NO_DELETABLE annotation when the top user history result is the same
+  // as the top dictionary result.
+  // when user_history_results.size() > 1, the decoder can still show the second
+  // candidate, so user can be aware of the change after the deleteion.
+  if (user_history_results.size() == 1 && !dictionary_results.empty() &&
+      user_history_results.front().key == dictionary_results.front().key &&
+      user_history_results.front().value == dictionary_results.front().value) {
+    Result& result = user_history_results.front();
+    result.attributes |= converter::Attribute::NO_DELETABLE;
+  }
+
   std::vector<Result> results;
   absl::c_move(user_history_results, std::back_inserter(results));
   absl::c_move(dictionary_results, std::back_inserter(results));
 
-  MaybeFillFallbackPos(absl::MakeSpan(results));
+  DemoteWeakUserHistory(absl::MakeSpan(results));
 
   return results;
 }

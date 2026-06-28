@@ -93,7 +93,6 @@ mozc_cc_library(
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
         "//protocol:engine_builder_cc_proto",
-        "//protocol:user_dictionary_storage_cc_proto",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -122,6 +121,7 @@ mozc_cc_library(
     hdrs = ["supplemental_model_mock.h"],
     visibility = [
         "//prediction:__pkg__",
+        "//rewriter:__pkg__",
     ],
     deps = [
         ":supplemental_model_interface",
@@ -146,6 +146,7 @@ mozc_cc_library(
     ],
     deps = [
         ":supplemental_model_interface",
+        "//base/container:tuple",
         "//converter:connector",
         "//converter:segmenter",
         "//data_manager",
@@ -160,6 +161,7 @@ mozc_cc_library(
         "//dictionary/system:system_dictionary",
         "//dictionary/system:value_dictionary",
         "//prediction:suggestion_filter",
+        "//prediction:user_history_storage",
         "//prediction:zero_query_dict",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -208,15 +210,14 @@ mozc_cc_library(
         ":supplemental_model_interface",
         "//converter",
         "//converter:converter_interface",
+        "//converter:immutable_converter",
         "//converter:immutable_converter_interface",
-        "//converter:immutable_converter_no_factory",
         "//data_manager",
-        "//dictionary:user_dictionary_session_handler",
+        "//dictionary:user_dictionary",
         "//prediction:predictor",
         "//protocol:commands_cc_proto",
         "//protocol:config_cc_proto",
         "//protocol:engine_builder_cc_proto",
-        "//protocol:user_dictionary_storage_cc_proto",
         "//rewriter",
         "//rewriter:rewriter_interface",
         "@com_google_absl//absl/log",
@@ -275,6 +276,7 @@ mozc_cc_library(
         android = [":android_engine_factory"],
         default = [":google_engine_factory"],
         oss = [":oss_engine_factory"],
+        prod = [":google_engine_factory"],
     ),
 )
 

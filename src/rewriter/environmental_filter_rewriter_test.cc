@@ -29,10 +29,12 @@
 
 #include "rewriter/environmental_filter_rewriter.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "absl/container/btree_map.h"
@@ -71,7 +73,7 @@ void AddSegment(const absl::string_view key,
                 absl::Span<const std::string> values, Segments* segments) {
   Segment* seg = segments->add_segment();
   seg->set_key(key);
-  for (const std::string& value : values) {
+  for (absl::string_view value : values) {
     converter::Candidate* candidate = seg->add_candidate();
     candidate->content_key = std::string(key);
     candidate->value = value;
@@ -120,13 +122,18 @@ constexpr EmojiData kTestEmojiList[] = {
     {"🪏", EmojiVersion::E16_0},  // 1FA8F
     {"🫆", EmojiVersion::E16_0},  // 1FAC6
     {"🫟", EmojiVersion::E16_0},  // 1FADF
+
+    // Emoji 17.0 Example
+    {"🛘", EmojiVersion::E17_0},  // 1F6D8 LANDSLIDE
+    {"🫍", EmojiVersion::E17_0},  // 1FACD ORCA
+    {"🫯", EmojiVersion::E17_0},  // 1FAEF FIGHT_CLOUD
 };
 
 // This data manager overrides GetEmojiRewriterData() to return the above test
 // data for EmojiRewriter.
-class TestDataManager : public testing::MockDataManager {
+class TestEmojiData {
  public:
-  TestDataManager() {
+  TestEmojiData() {
     // Collect all the strings and temporarily assign 0 as index.
     absl::btree_map<std::string, size_t> string_index;
     for (const EmojiData& data : kTestEmojiList) {
@@ -157,13 +164,11 @@ class TestDataManager : public testing::MockDataManager {
         SerializedStringArray::SerializeToBuffer(strings, &string_array_buf_);
   }
 
-  void GetEmojiRewriterData(
-      absl::string_view* token_array_data,
-      absl::string_view* string_array_data) const override {
-    *token_array_data =
+  std::array<absl::string_view, 2> GetEmojiRewriterData() const {
+    return {
         absl::string_view(reinterpret_cast<const char*>(token_array_.data()),
-                          token_array_.size() * sizeof(uint32_t));
-    *string_array_data = string_array_data_;
+                          token_array_.size() * sizeof(uint32_t)),
+        string_array_data_};
   }
 
  private:
@@ -174,16 +179,14 @@ class TestDataManager : public testing::MockDataManager {
 
 class EnvironmentalFilterRewriterTest
     : public testing::TestWithTempUserProfile {
+ public:
+  EnvironmentalFilterRewriterTest()
+      : rewriter_(std::make_from_tuple<EnvironmentalFilterRewriter>(
+            test_emoji_data_.GetEmojiRewriterData())) {}
+
  protected:
-  void SetUp() override {
-    rewriter_ =
-        std::make_unique<EnvironmentalFilterRewriter>(test_data_manager_);
-  }
-
-  std::unique_ptr<EnvironmentalFilterRewriter> rewriter_;
-
- private:
-  const TestDataManager test_data_manager_;
+  const TestEmojiData test_emoji_data_;
+  EnvironmentalFilterRewriter rewriter_;
 };
 
 TEST_F(EnvironmentalFilterRewriterTest, CharacterGroupFinderTest) {
@@ -278,7 +281,7 @@ TEST_F(EnvironmentalFilterRewriterTest, EmojiFilterTest) {
     AddSegment("a", {"🛻", "🤵‍♀", "🥸", "🧑‍🌾", "🧑‍🏭"},
                &segments);
 
-    EXPECT_TRUE(rewriter_->Rewrite(request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 0);
   }
 
@@ -294,7 +297,7 @@ TEST_F(EnvironmentalFilterRewriterTest, EmojiFilterTest) {
     segments.Clear();
     AddSegment("a", {"🛻", "🤵‍♀", "🥸"}, &segments);
 
-    EXPECT_FALSE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_FALSE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 3);
   }
 }
@@ -308,7 +311,7 @@ TEST_F(EnvironmentalFilterRewriterTest, EmojiFilterE160Test) {
     segments.Clear();
     AddSegment("えもじ", {"🪏", "🫆", "🫟"}, &segments);
 
-    EXPECT_TRUE(rewriter_->Rewrite(request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 0);
   }
 
@@ -324,7 +327,7 @@ TEST_F(EnvironmentalFilterRewriterTest, EmojiFilterE160Test) {
     segments.Clear();
     AddSegment("えもじ", {"🪏", "🫆", "🫟"}, &segments);
 
-    EXPECT_FALSE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_FALSE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 3);
   }
 }
@@ -336,7 +339,7 @@ TEST_F(EnvironmentalFilterRewriterTest, RemoveTest) {
   segments.Clear();
   AddSegment("a", {"a\t1", "a\n2", "a\n\r3"}, &segments);
 
-  EXPECT_TRUE(rewriter_->Rewrite(request, &segments));
+  EXPECT_TRUE(rewriter_.Rewrite(request, &segments));
   EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 0);
 }
 
@@ -345,7 +348,7 @@ TEST_F(EnvironmentalFilterRewriterTest, NoRemoveTest) {
   AddSegment("a", {"aa1", "a.a", "a-a"}, &segments);
 
   const ConversionRequest request;
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 3);
 }
 
@@ -360,7 +363,7 @@ TEST_F(EnvironmentalFilterRewriterTest, CandidateFilterTest) {
                {kKanaSupplement_6_0, kKanaSupplement_10_0, kKanaExtendedA_14_0},
                &segments);
 
-    EXPECT_TRUE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 0);
   }
 
@@ -377,7 +380,7 @@ TEST_F(EnvironmentalFilterRewriterTest, CandidateFilterTest) {
     segments.mutable_conversion_segment(0)->mutable_candidate(1)->attributes =
         converter::Attribute::USER_DICTIONARY;
 
-    EXPECT_TRUE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 1);
     EXPECT_EQ(segments.conversion_segment(0).candidate(0).value,
               kKanaSupplement_10_0);
@@ -397,7 +400,7 @@ TEST_F(EnvironmentalFilterRewriterTest, CandidateFilterTest) {
                {kKanaSupplement_6_0, kKanaSupplement_10_0, kKanaExtendedA_14_0},
                &segments);
 
-    EXPECT_TRUE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 0);
   }
 
@@ -415,7 +418,7 @@ TEST_F(EnvironmentalFilterRewriterTest, CandidateFilterTest) {
                {kKanaSupplement_6_0, kKanaSupplement_10_0, kKanaExtendedA_14_0},
                &segments);
 
-    EXPECT_TRUE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 1);
   }
 
@@ -435,7 +438,7 @@ TEST_F(EnvironmentalFilterRewriterTest, CandidateFilterTest) {
                {kKanaSupplement_6_0, kKanaSupplement_10_0, kKanaExtendedA_14_0},
                &segments);
 
-    EXPECT_TRUE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_TRUE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 2);
   }
 
@@ -457,7 +460,7 @@ TEST_F(EnvironmentalFilterRewriterTest, CandidateFilterTest) {
                {kKanaSupplement_6_0, kKanaSupplement_10_0, kKanaExtendedA_14_0},
                &segments);
 
-    EXPECT_FALSE(rewriter_->Rewrite(conversion_request, &segments));
+    EXPECT_FALSE(rewriter_.Rewrite(conversion_request, &segments));
     EXPECT_EQ(segments.conversion_segment(0).candidates_size(), 3);
   }
 }
@@ -468,12 +471,12 @@ TEST_F(EnvironmentalFilterRewriterTest, NormalizationTest) {
 
   segments.Clear();
   AddSegment("test", "test", &segments);
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   EXPECT_EQ(segments.segment(0).candidate(0).value, "test");
 
   segments.Clear();
   AddSegment("きょうと", "京都", &segments);
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   EXPECT_EQ(segments.segment(0).candidate(0).value, "京都");
 
   // Wave dash (U+301C) per platform
@@ -482,12 +485,12 @@ TEST_F(EnvironmentalFilterRewriterTest, NormalizationTest) {
   constexpr char description[] = "[全]波ダッシュ";
   segments.mutable_segment(0)->mutable_candidate(0)->description = description;
 #ifdef _WIN32
-  EXPECT_TRUE(rewriter_->Rewrite(request, &segments));
+  EXPECT_TRUE(rewriter_.Rewrite(request, &segments));
   // U+FF5E
   EXPECT_EQ(segments.segment(0).candidate(0).value, "～");
   EXPECT_TRUE(segments.segment(0).candidate(0).description.empty());
 #else   // _WIN32
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   // U+301C
   EXPECT_EQ(segments.segment(0).candidate(0).value, "〜");
   EXPECT_EQ(segments.segment(0).candidate(0).description, description);
@@ -498,8 +501,8 @@ TEST_F(EnvironmentalFilterRewriterTest, NormalizationTest) {
   AddSegment("なみ", "〜", &segments);
   segments.mutable_segment(0)->mutable_candidate(0)->description = description;
 
-  rewriter_->SetNormalizationFlag(TextNormalizer::kAll);
-  EXPECT_TRUE(rewriter_->Rewrite(request, &segments));
+  rewriter_.SetNormalizationFlag(TextNormalizer::kAll);
+  EXPECT_TRUE(rewriter_.Rewrite(request, &segments));
   // U+FF5E
   EXPECT_EQ(segments.segment(0).candidate(0).value, "～");
   EXPECT_TRUE(segments.segment(0).candidate(0).description.empty());
@@ -509,8 +512,8 @@ TEST_F(EnvironmentalFilterRewriterTest, NormalizationTest) {
   AddSegment("なみ", "〜", &segments);
   segments.mutable_segment(0)->mutable_candidate(0)->description = description;
 
-  rewriter_->SetNormalizationFlag(TextNormalizer::kNone);
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  rewriter_.SetNormalizationFlag(TextNormalizer::kNone);
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   // U+301C
   EXPECT_EQ(segments.segment(0).candidate(0).value, "〜");
   EXPECT_EQ(segments.segment(0).candidate(0).description, description);
@@ -521,7 +524,7 @@ TEST_F(EnvironmentalFilterRewriterTest, NormalizationTest) {
   AddSegment("なみ", "〜", &segments);
   segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
       converter::Attribute::USER_DICTIONARY;
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   // U+301C
   EXPECT_EQ(segments.segment(0).candidate(0).value, "〜");
 
@@ -531,7 +534,7 @@ TEST_F(EnvironmentalFilterRewriterTest, NormalizationTest) {
   AddSegment("なみ", "〜", &segments);
   segments.mutable_segment(0)->mutable_candidate(0)->attributes |=
       converter::Attribute::NO_MODIFICATION;
-  EXPECT_FALSE(rewriter_->Rewrite(request, &segments));
+  EXPECT_FALSE(rewriter_.Rewrite(request, &segments));
   // U+301C
   EXPECT_EQ(segments.segment(0).candidate(0).value, "〜");
 }

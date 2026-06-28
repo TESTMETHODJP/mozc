@@ -76,12 +76,14 @@ class TestRenderer : public RendererInterface {
 
 class TestRendererServer : public RendererServer {
  public:
+  TestRendererServer() : RendererServer(true /* for_testing */) {}
+
   int StartMessageLoop() override { return 0; }
 
   // Not async for testing
   bool AsyncExecCommand(absl::string_view proto_message) override {
     commands::RendererCommand command;
-    command.ParseFromArray(proto_message.data(), proto_message.size());
+    command.ParseFromString(proto_message);
     return ExecCommandInternal(command);
   }
 };
@@ -90,13 +92,13 @@ class TestRendererServer : public RendererServer {
 class DummyRendererLauncher : public RendererLauncherInterface {
  public:
   void StartRenderer(
-      const std::string& name, const std::string& renderer_path,
+      absl::string_view name, absl::string_view renderer_path,
       bool disable_renderer_path_check,
       IPCClientFactoryInterface* ipc_client_factory_interface) override {
     LOG(INFO) << name << " " << renderer_path;
   }
 
-  bool ForceTerminateRenderer(const std::string& name) override { return true; }
+  bool ForceTerminateRenderer(absl::string_view name) override { return true; }
 
   void OnFatal(RendererErrorType type) override {
     LOG(ERROR) << static_cast<int>(type);
@@ -129,25 +131,25 @@ TEST_F(RendererServerTest, IPCTest) {
   absl::SleepFor(absl::Seconds(1));
 
   DummyRendererLauncher launcher;
-  RendererClient client;
-  client.SetIPCClientFactory(&on_memory_client_factory);
-  client.DisableRendererServerCheck();
-  client.SetRendererLauncherInterface(&launcher);
+  std::unique_ptr<RendererClient> client = RendererClient::CreateForTesting(
+      server->GetServiceName(), &on_memory_client_factory, &launcher,
+      RendererClient::RendererPathCheckMode::DISABLED);
+
   commands::RendererCommand command;
   command.set_type(commands::RendererCommand::NOOP);
 
   // renderer is called via IPC
-  client.ExecCommand(command);
+  client->ExecCommand(command);
   EXPECT_EQ(renderer.counter(), 1);
 
-  client.ExecCommand(command);
-  client.ExecCommand(command);
-  client.ExecCommand(command);
+  client->ExecCommand(command);
+  client->ExecCommand(command);
+  client->ExecCommand(command);
   EXPECT_EQ(renderer.counter(), 4);
 
   // Gracefully shutdown the server.
   renderer.Shutdown();
-  client.ExecCommand(command);
+  client->ExecCommand(command);
   server->Wait();
 }
 

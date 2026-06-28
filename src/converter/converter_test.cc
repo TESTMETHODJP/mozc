@@ -46,6 +46,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/container/tuple.h"
 #include "base/util.h"
 #include "composer/composer.h"
 #include "composer/table.h"
@@ -231,6 +232,10 @@ class MockPredictor : public mozc::prediction::PredictorInterface {
               (const, override));
   MOCK_METHOD(void, Revert, (uint32_t), (override));
   MOCK_METHOD(absl::string_view, GetPredictorName, (), (const, override));
+  MOCK_METHOD(void, CommitContext, (const ConversionRequest&),
+              (const, override));
+  MOCK_METHOD(bool, AddHistoryEntry,
+              (absl::string_view key, absl::string_view value), (override));
 };
 
 class MockRewriter : public RewriterInterface {
@@ -314,9 +319,10 @@ class ConverterTest : public testing::TestWithTempUserProfile {
 
     auto pos_matcher = std::make_unique<dictionary::PosMatcher>(
         data_manager->GetPosMatcherData());
-    auto user_dictionary = std::make_unique<dictionary::UserDictionary>(
-        dictionary::UserPos::CreateFromDataManager(*data_manager),
-        *pos_matcher);
+    auto user_pos = make_unique_from_tuples<dictionary::UserPos>(
+        data_manager->GetUserPosData());
+    auto user_dictionary = make_unique_from_tuples<dictionary::UserDictionary>(
+        std::move(user_pos), *pos_matcher);
     {
       user_dictionary::UserDictionaryStorage storage;
       user_dictionary::UserDictionary* dictionary = storage.add_dictionaries();
@@ -421,9 +427,9 @@ TEST_F(ConverterTest, ConvertTest) {
 }
 
 namespace {
-std::string ContextAwareConvert(const std::string& first_key,
-                                const std::string& first_value,
-                                const std::string& second_key) {
+std::string ContextAwareConvert(absl::string_view first_key,
+                                absl::string_view first_value,
+                                absl::string_view second_key) {
   std::unique_ptr<Engine> engine = MockDataEngineFactory::Create().value();
   std::shared_ptr<const ConverterInterface> converter = engine->GetConverter();
   CHECK(converter);
@@ -438,7 +444,7 @@ std::string ContextAwareConvert(const std::string& first_key,
     int position = -1;
     for (size_t i = 0; i < segments.segment(segment_num).candidates_size();
          ++i) {
-      const std::string& value =
+      absl::string_view value =
           segments.segment(segment_num).candidate(i).value;
       if (first_value.substr(converted.size(), value.size()) == value) {
         position = static_cast<int>(i);
@@ -753,7 +759,8 @@ TEST_F(ConverterTest, CompletePosIds) {
                 .max_conversion_candidates_size = 20,
             })
             .Build();
-    CHECK(converter->immutable_converter().Convert(request, &segments));
+    CHECK(
+        converter->immutable_converter().Convert(request.options(), &segments));
     const int lid = segments.segment(0).candidate(0).lid;
     const int rid = segments.segment(0).candidate(0).rid;
     Candidate candidate;
@@ -1054,8 +1061,8 @@ TEST_F(ConverterTest, PredictSetKey) {
 // An action that invokes a DictionaryInterface::Callback with the token whose
 // key and value is set to the given ones.
 struct InvokeCallbackWithUserDictionaryToken {
-  template <class T, class U>
-  void operator()(T, U, DictionaryInterface::Callback* callback) {
+  template <class T>
+  void operator()(T, DictionaryInterface::Callback* callback) {
     const Token token(key, value, MockDictionary::kDefaultCost,
                       MockDictionary::kDefaultPosId,
                       MockDictionary::kDefaultPosId, Token::USER_DICTIONARY);
@@ -1069,13 +1076,12 @@ struct InvokeCallbackWithUserDictionaryToken {
 TEST_F(ConverterTest, VariantExpansionForSuggestion) {
   // Create Converter with mock user dictionary
   auto mock_user_dictionary = std::make_unique<MockUserDictionary>();
-  EXPECT_CALL(*mock_user_dictionary, LookupPredictive(_, _, _))
-      .Times(AnyNumber());
-  EXPECT_CALL(*mock_user_dictionary, LookupPredictive(StrEq("てすと"), _, _))
+  EXPECT_CALL(*mock_user_dictionary, LookupPredictive(_, _)).Times(AnyNumber());
+  EXPECT_CALL(*mock_user_dictionary, LookupPredictive(StrEq("てすと"), _))
       .WillRepeatedly(InvokeCallbackWithUserDictionaryToken{"てすと", "<>!?"});
 
-  EXPECT_CALL(*mock_user_dictionary, LookupPrefix(_, _, _)).Times(AnyNumber());
-  EXPECT_CALL(*mock_user_dictionary, LookupPrefix(StrEq("てすとの"), _, _))
+  EXPECT_CALL(*mock_user_dictionary, LookupPrefix(_, _)).Times(AnyNumber());
+  EXPECT_CALL(*mock_user_dictionary, LookupPrefix(StrEq("てすとの"), _))
       .WillRepeatedly(InvokeCallbackWithUserDictionaryToken{"てすと", "<>!?"});
 
   std::unique_ptr<engine::Modules> modules =
@@ -1184,7 +1190,6 @@ TEST_F(ConverterTest, SuppressionDictionaryForRewriter) {
   config::Config config;
   composer::Composer composer(table, default_request(), config);
   composer.InsertCharacter("placeholder");
-  commands::Context context;
   Segments segments;
   const ConversionRequest request =
       ConversionRequestBuilder()
@@ -1216,14 +1221,14 @@ TEST_F(ConverterTest, StartReverseConversion) {
   const std::shared_ptr<const ConverterInterface> converter =
       engine->GetConverter();
 
-  const std::string kHonKanji = "本";
-  const std::string kHonHiragana = "ほん";
-  const std::string kMuryouKanji = "無料";
-  const std::string kMuryouHiragana = "むりょう";
-  const std::string kFullWidthSpace = "　";  // full-width space
+  constexpr absl::string_view kHonKanji = "本";
+  constexpr absl::string_view kHonHiragana = "ほん";
+  constexpr absl::string_view kMuryouKanji = "無料";
+  constexpr absl::string_view kMuryouHiragana = "むりょう";
+  constexpr absl::string_view kFullWidthSpace = "　";  // full-width space
   {
     // Test for single Kanji character.
-    const std::string& kInput = kHonKanji;
+    absl::string_view kInput = kHonKanji;
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 1);
@@ -1232,7 +1237,7 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for multi-Kanji character.
-    const std::string& kInput = kMuryouKanji;
+    absl::string_view kInput = kMuryouKanji;
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 1);
@@ -1256,7 +1261,7 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for multi terms separated by multiple spaces.
-    const std::string kInput = kHonKanji + "   " + kMuryouKanji;
+    const std::string kInput = absl::StrCat(kHonKanji, "   ", kMuryouKanji);
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 3);
@@ -1270,7 +1275,7 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for leading white spaces.
-    const std::string kInput = "  " + kHonKanji;
+    const std::string kInput = absl::StrCat("  ", kHonKanji);
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 2);
@@ -1281,7 +1286,7 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for trailing white spaces.
-    const std::string kInput = kMuryouKanji + "  ";
+    const std::string kInput = absl::StrCat(kMuryouKanji, "  ");
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 2);
@@ -1293,7 +1298,8 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for multi terms separated by a full-width space.
-    const std::string kInput = kHonKanji + kFullWidthSpace + kMuryouKanji;
+    const std::string kInput =
+        absl::StrCat(kHonKanji, kFullWidthSpace, kMuryouKanji);
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 3);
@@ -1308,8 +1314,10 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for multi terms separated by two full-width spaces.
-    const std::string kFullWidthSpace2 = kFullWidthSpace + kFullWidthSpace;
-    const std::string kInput = kHonKanji + kFullWidthSpace2 + kMuryouKanji;
+    const std::string kFullWidthSpace2 =
+        absl::StrCat(kFullWidthSpace, kFullWidthSpace);
+    const std::string kInput =
+        absl::StrCat(kHonKanji, kFullWidthSpace2, kMuryouKanji);
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 3);
@@ -1324,8 +1332,9 @@ TEST_F(ConverterTest, StartReverseConversion) {
   }
   {
     // Test for multi terms separated by the mix of full- and half-width spaces.
-    const std::string kFullWidthSpace2 = kFullWidthSpace + " ";
-    const std::string kInput = kHonKanji + kFullWidthSpace2 + kMuryouKanji;
+    const std::string kFullWidthSpace2 = absl::StrCat(kFullWidthSpace, " ");
+    const std::string kInput =
+        absl::StrCat(kHonKanji, kFullWidthSpace2, kMuryouKanji);
     Segments segments;
     EXPECT_TRUE(converter->StartReverseConversion(&segments, kInput));
     ASSERT_EQ(segments.segments_size(), 3);
@@ -2539,6 +2548,62 @@ TEST_F(ConverterTest, Bugfix424676259) {
   EXPECT_EQ(candidate.content_value, "３：３０");
   EXPECT_EQ(candidate.inner_segment_boundary,
             results[0].inner_segment_boundary);
+}
+
+TEST_F(ConverterTest, CommitContext) {
+  auto mock_predictor = absl::make_unique<MockPredictor>();
+  auto mock_rewriter = absl::make_unique<MockRewriter>();
+
+  EXPECT_CALL(*mock_predictor, CommitContext(_)).WillOnce(Return());
+
+  std::unique_ptr<engine::Modules> modules =
+      engine::Modules::Create(std::make_unique<testing::MockDataManager>())
+          .value();
+
+  auto converter = std::make_unique<Converter>(
+      std::move(modules),
+      [](const engine::Modules& modules) {
+        return std::make_unique<ImmutableConverter>(modules);
+      },
+      [&mock_predictor](
+          const engine::Modules& modules, const ConverterInterface& converter,
+          const ImmutableConverterInterface& immutable_converter) {
+        return std::move(mock_predictor);
+      },
+      [&mock_rewriter](const engine::Modules& modules) {
+        return std::move(mock_rewriter);
+      });
+
+  const ConversionRequest convreq = ConversionRequestBuilder().Build();
+  converter->CommitContext(convreq);
+}
+
+TEST_F(ConverterTest, AddUserHistory) {
+  auto mock_predictor = absl::make_unique<MockPredictor>();
+  auto mock_rewriter = absl::make_unique<MockRewriter>();
+
+  EXPECT_CALL(*mock_predictor, AddHistoryEntry("key", "value"))
+      .WillOnce(Return(true));
+
+  std::unique_ptr<engine::Modules> modules =
+      engine::Modules::Create(std::make_unique<testing::MockDataManager>())
+          .value();
+
+  auto converter = std::make_unique<Converter>(
+      std::move(modules),
+      [](const engine::Modules& modules) {
+        return std::make_unique<ImmutableConverter>(modules);
+      },
+      [&mock_predictor](
+          const engine::Modules& modules, const ConverterInterface& converter,
+          const ImmutableConverterInterface& immutable_converter) {
+        return std::move(mock_predictor);
+      },
+      [&mock_rewriter](const engine::Modules& modules) {
+        return std::move(mock_rewriter);
+      });
+
+  EXPECT_TRUE(converter->AddUserHistory("key", "value"));
 }
 
 }  // namespace converter

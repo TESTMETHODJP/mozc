@@ -30,32 +30,30 @@
 #ifndef MOZC_CONVERTER_NODE_ALLOCATOR_H_
 #define MOZC_CONVERTER_NODE_ALLOCATOR_H_
 
-#include <cstddef>
-
 #include "absl/log/check.h"
-#include "base/container/freelist.h"
+#include "base/container/arena.h"
 #include "converter/node.h"
 
 namespace mozc {
 
 class NodeAllocator {
  public:
-  NodeAllocator() : node_freelist_(1024) {}
+  NodeAllocator() : node_arena_(1024) {}
   NodeAllocator(const NodeAllocator&) = delete;
   NodeAllocator& operator=(const NodeAllocator&) = delete;
 
   Node* NewNode() {
-    Node* node = node_freelist_.Alloc();
+    Node* node = node_arena_.Alloc();
     DCHECK(node);
     node->Init();
     return node;
   }
 
   // Frees all nodes allocateed by NewNode().
-  void Free() { node_freelist_.Free(); }
+  void Free() { node_arena_.Clear(); }
 
  private:
-  FreeList<Node> node_freelist_;
+  Arena<Node> node_arena_;
 };
 
 }  // namespace mozc

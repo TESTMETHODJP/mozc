@@ -81,7 +81,8 @@ bool FillAnnotation(const converter::Candidate& candidate_value,
     is_modified = true;
   }
   if (candidate_value.attributes &
-      converter::Attribute::USER_HISTORY_PREDICTION) {
+          converter::Attribute::USER_HISTORY_PREDICTION &&
+      !(candidate_value.attributes & converter::Attribute::NO_DELETABLE)) {
     annotation->set_deletable(true);
     is_modified = true;
   }
@@ -114,6 +115,9 @@ void FillCandidateWord(const converter::Candidate& segment_candidate,
   if (segment_candidate.attributes &
       converter::Attribute::USER_HISTORY_PREDICTION) {
     candidate_word_proto->add_attributes(commands::USER_HISTORY);
+    if (!(segment_candidate.attributes & converter::Attribute::NO_DELETABLE)) {
+      candidate_word_proto->add_attributes(commands::DELETABLE);
+    }
   }
   if (segment_candidate.attributes &
       converter::Attribute::SPELLING_CORRECTION) {
@@ -285,7 +289,7 @@ void FillUsages(const Segment& segment, const CandidateList& cand_list,
 
   commands::InformationList* usages = candidate_window_proto->mutable_usages();
 
-  if (TargetIsAndroid()) {
+  if (port::IsAndroid()) {
     usages->set_delay(1000);
   }
 
@@ -385,16 +389,15 @@ bool FillFooter(const commands::Category category,
         }
         if (cand.has_annotation() && cand.annotation().deletable()) {
           // TODO(noriyukit): Change the message depending on user's keymap.
-#if defined(__APPLE__)
-          constexpr absl::string_view kDeleteInstruction =
-              "control+fn+deleteで履歴から削除";
-#elif defined(OS_CHROMEOS)
-          constexpr absl::string_view kDeleteInstruction =
-              "ctrl+search+backspaceで履歴から削除";
-#else   // !__APPLE__ && !OS_CHROMEOS
-          constexpr absl::string_view kDeleteInstruction =
-              "Ctrl+Delで履歴から削除";
-#endif  // __APPLE__ || OS_CHROMEOS
+          const absl::string_view kDeleteInstruction = []() {
+            if constexpr (port::IsAppleBase()) {
+              return "control+fn+deleteで履歴から削除";
+            } else if constexpr (port::IsChromeos()) {
+              return "ctrl+search+backspaceで履歴から削除";
+            } else {
+              return "Ctrl+Delで履歴から削除";
+            }
+          }();
           footer->set_label(kDeleteInstruction);
           show_build_number = false;
         }
@@ -466,14 +469,14 @@ void FillConversion(const Segments& segments, const size_t segment_index,
   const Segment& current_segment = conversion_segments[segment_index];
   for (const Segment& segment : conversion_segments) {
     if (&segment == &current_segment) {
-      const std::string& value = segment.candidate(candidate_id).value;
+      absl::string_view value = segment.candidate(candidate_id).value;
       if (AddSegment(segment.key(), value, kBaseType | FOCUSED, preedit) &&
           (!preedit->has_highlighted_position())) {
         preedit->set_highlighted_position(cursor);
       }
       cursor += Util::CharsLen(value);
     } else {
-      const std::string& value = segment.candidate(0).value;
+      absl::string_view value = segment.candidate(0).value;
       AddSegment(segment.key(), value, kBaseType, preedit);
       cursor += Util::CharsLen(value);
     }

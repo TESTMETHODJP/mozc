@@ -45,6 +45,7 @@
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/random/random.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -504,9 +505,13 @@ bool Converter::ResizeSegments(Segments* segments,
   return true;
 }
 
+void Converter::CommitContext(const ConversionRequest& request) const {
+  predictor_->CommitContext(request);
+}
+
 void Converter::ApplyConversion(Segments* segments,
                                 const ConversionRequest& request) const {
-  if (!immutable_converter_->Convert(request, segments)) {
+  if (!immutable_converter_->Convert(request.options(), segments)) {
     // Conversion can fail for keys like "12". Even in such cases, rewriters
     // (e.g., number and variant rewriters) can populate some candidates.
     // Therefore, this is not an error.
@@ -554,7 +559,7 @@ void Converter::CompletePosIds(Candidate* candidate) const {
             })
             .Build();
     // In order to complete PosIds, call ImmutableConverter again.
-    if (!immutable_converter_->Convert(request, &segments)) {
+    if (!immutable_converter_->Convert(request.options(), &segments)) {
       LOG(ERROR) << "ImmutableConverter::Convert() failed";
       return;
     }
@@ -657,19 +662,48 @@ bool Converter::Wait() {
   return predictor().Wait();
 }
 
-std::optional<std::string> Converter::GetReading(absl::string_view text) const {
+bool Converter::AddUserHistory(absl::string_view key, absl::string_view value) {
+  value = absl::StripAsciiWhitespace(value);
+  key = absl::StripAsciiWhitespace(key);
+
+  static constexpr int kMaxValueSize = 128;
+  if (value.empty() || value.size() >= kMaxValueSize) {
+    return false;
+  }
+
+  // When key is empty, use reverse conversion.
+  std::string reading;
+  if (key.empty()) {
+    auto result = GetReading(value, /* multi_segment */ true);
+    if (!result.has_value()) return false;
+    reading = std::move(result.value());
+    key = reading;
+  }
+
+  return predictor().AddHistoryEntry(key, value);
+}
+
+std::optional<std::string> Converter::GetReading(absl::string_view text,
+                                                 bool multi_segment) const {
   Segments segments;
   if (!StartReverseConversion(&segments, text)) {
     LOG(ERROR) << "Reverse conversion failed to get the reading of " << text;
     return std::nullopt;
   }
-  if (segments.conversion_segments_size() != 1 ||
-      segments.conversion_segment(0).candidates_size() == 0) {
+
+  if (segments.conversion_segments_size() == 0 ||
+      (!multi_segment && segments.conversion_segments_size() > 1)) {
     LOG(ERROR) << "Reverse conversion returned an invalid result for " << text;
     return std::nullopt;
   }
-  return std::move(
-      segments.mutable_conversion_segment(0)->mutable_candidate(0)->value);
+
+  std::string reading;
+  for (const Segment& segment : segments) {
+    if (segment.candidates_size() == 0) return std::nullopt;
+    absl::StrAppend(&reading, segment.candidate(0).value);
+  }
+
+  return reading;
 }
 
 void Converter::PopulateReadingOfCommittedCandidateIfMissing(
@@ -738,7 +772,7 @@ bool Converter::PredictForRequestWithSegments(const ConversionRequest& request,
     candidate->rid = result.rid;
     candidate->wcost = result.wcost;
     candidate->cost = result.cost;
-    candidate->attributes = result.candidate_attributes;
+    candidate->attributes = result.attributes;
     candidate->consumed_key_size = result.consumed_key_size;
     candidate->inner_segment_boundary = result.inner_segment_boundary;
 
@@ -778,7 +812,7 @@ std::vector<prediction::Result> Converter::MakeLearningResults(
       result.rid = candidate->rid;
       result.wcost = candidate->wcost;
       result.cost = candidate->cost;
-      result.candidate_attributes = candidate->attributes;
+      result.attributes = candidate->attributes;
       result.consumed_key_size = candidate->consumed_key_size;
       result.inner_segment_boundary = candidate->inner_segment_boundary;
       // Force to set inner_segment_boundary from key/content_key.
@@ -805,7 +839,7 @@ std::vector<prediction::Result> Converter::MakeLearningResults(
       const Candidate& candidate = segment.candidate(0);
       absl::StrAppend(&result.key, candidate.key);
       absl::StrAppend(&result.value, candidate.value);
-      result.candidate_attributes |= candidate.attributes;
+      result.attributes |= candidate.attributes;
       result.wcost += candidate.wcost;
       result.cost += candidate.cost;
       builder.Add(candidate.key.size(), candidate.value.size(),
@@ -837,7 +871,7 @@ prediction::Result Converter::MakeHistoryResult(const Segments& segments) {
     const Candidate& candidate = segment.candidate(0);
     absl::StrAppend(&result.key, candidate.key);
     absl::StrAppend(&result.value, candidate.value);
-    result.candidate_attributes |= candidate.attributes;
+    result.attributes |= candidate.attributes;
     builder.Add(candidate.key.size(), candidate.value.size(),
                 candidate.content_key.size(), candidate.content_value.size());
   }

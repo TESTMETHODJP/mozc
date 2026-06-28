@@ -52,6 +52,7 @@
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "request/conversion_request.h"
+#include "request/options.h"
 #include "rewriter/rewriter_interface.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
@@ -113,16 +114,17 @@ Matcher<const converter::Candidate*> ValueAndDescAre(absl::string_view value,
 // An action that invokes a DictionaryInterface::Callback with the token whose
 // value is set to the given one.
 struct InvokeCallbackWithUserDictionaryToken {
-  template <class T>
-  void operator()(absl::string_view key, T,
+  void operator()(absl::string_view key, const ConversionOptions& options,
                   DictionaryInterface::Callback* callback) {
-    const Token token(key, value, MockDictionary::kDefaultCost,
-                      MockDictionary::kDefaultPosId,
-                      MockDictionary::kDefaultPosId, Token::USER_DICTIONARY);
-    callback->OnToken(key, key, token);
+    for (absl::string_view value : values) {
+      const Token token(key, value, MockDictionary::kDefaultCost,
+                        MockDictionary::kDefaultPosId,
+                        MockDictionary::kDefaultPosId, Token::USER_DICTIONARY);
+      callback->OnToken(key, key, token);
+    }
   }
 
-  std::string value;
+  std::vector<std::string> values;
 };
 
 }  // namespace
@@ -1128,16 +1130,19 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsInsertPositionWithHistory) {
   ASSERT_LT(3, segments.conversion_segment(0).candidates_size());
 }
 
-TEST_F(DateRewriterTest, ExtraFormatTest) {
+TEST_F(DateRewriterTest, ExtraDateFormatTest) {
   ClockMock clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
   Clock::SetClockForUnitTest(&clock);
 
   MockDictionary dictionary;
   EXPECT_CALL(dictionary,
-              LookupExact(StrEq(DateRewriter::kExtraFormatKey), _, _))
-      .WillOnce(InvokeCallbackWithUserDictionaryToken{"{YEAR}{MONTH}{DATE}"});
+              LookupExact(StrEq(DateRewriter::kExtraDateFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{
+          {"{YEAR}{MONTH}{DATE}", "{YEAR}_{MONTH}_{DATE}"}});
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDatetimeFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{{}});
 
-  MockConverter converter;
   DateRewriter rewriter(dictionary);
 
   Segments segments;
@@ -1151,13 +1156,120 @@ TEST_F(DateRewriterTest, ExtraFormatTest) {
   EXPECT_THAT(segments.segment(0),
               CandidatesAreArray({
                   ValueAndDescAre("今日", ""),
-                  ValueAndDescAre("20110418", kDesc),  // Custom format
+                  ValueAndDescAre("20110418", kDesc),    // Custom format
+                  ValueAndDescAre("2011_04_18", kDesc),  // Custom format
                   ValueAndDescAre("2011/04/18", kDesc),
                   ValueAndDescAre("2011-04-18", kDesc),
                   ValueAndDescAre("20110418", kDesc),
                   ValueAndDescAre("2011年4月18日", kDesc),
                   ValueAndDescAre("平成23年4月18日", kDesc),
                   ValueAndDescAre("月曜日", kDesc),
+              }));
+  Clock::SetClockForUnitTest(nullptr);
+}
+
+TEST_F(DateRewriterTest, ExtraDateFormatTest2) {
+  ClockMock clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
+  Clock::SetClockForUnitTest(&clock);
+
+  MockDictionary dictionary;
+  // {HOUR} and {MINUTE} are also available for the date format.
+  // However, they will be "00".
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDateFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{
+          {"{YEAR}_{MONTH}_{DATE}_{HOUR}_{MINUTE}"}});
+  // kExtraTimeFormatKey (i.e. TIME_FORMAT) is not used for date format.
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDatetimeFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{{"{HOUR}_{MINUTE}"}});
+
+  DateRewriter rewriter(dictionary);
+
+  Segments segments;
+  InitSegment("きょう", "今日", &segments);
+
+  const ConversionRequest request;
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+
+  ASSERT_EQ(segments.segments_size(), 1);
+  constexpr absl::string_view kDesc = "今日の日付";
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("今日", ""),
+                  ValueAndDescAre("2011_04_18_00_00", kDesc),  // Custom format
+                  ValueAndDescAre("2011/04/18", kDesc),
+                  ValueAndDescAre("2011-04-18", kDesc),
+                  ValueAndDescAre("2011年4月18日", kDesc),
+                  ValueAndDescAre("平成23年4月18日", kDesc),
+                  ValueAndDescAre("月曜日", kDesc),
+              }));
+  Clock::SetClockForUnitTest(nullptr);
+}
+
+TEST_F(DateRewriterTest, ExtraTimeFormatTest) {
+  ClockMock clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
+  Clock::SetClockForUnitTest(&clock);
+
+  MockDictionary dictionary;
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDateFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{{}});
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDatetimeFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{
+          {"{HOUR}{MINUTE}", "{HOUR}_{MINUTE}"}});
+
+  DateRewriter rewriter(dictionary);
+
+  Segments segments;
+  InitSegment("にちじ", "日時", &segments);
+
+  const ConversionRequest request;
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+
+  ASSERT_EQ(segments.segments_size(), 1);
+  constexpr absl::string_view kDesc = "現在の日時";
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("日時", ""),
+                  ValueAndDescAre("1506", kDesc),   // Custom format
+                  ValueAndDescAre("15_06", kDesc),  // Custom format
+                  ValueAndDescAre("2011/04/18 15:06", kDesc),
+              }));
+  Clock::SetClockForUnitTest(nullptr);
+}
+
+TEST_F(DateRewriterTest, ExtraTimeFormatTest2) {
+  ClockMock clock(ParseTimeOrDie("2011-04-18T15:06:31Z"));
+  Clock::SetClockForUnitTest(&clock);
+
+  MockDictionary dictionary;
+  // kExtraDateFormatKey (i.e. DATE_FORMAT) is not used for time format.
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDateFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{{"{YEAR}{MONTH}{DATE}"}});
+  // {YEAR}, {MONTH} and {DATE} are also available for the time format.
+  EXPECT_CALL(dictionary,
+              LookupExact(StrEq(DateRewriter::kExtraDatetimeFormatKey), _, _))
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{
+          {"{YEAR}_{MONTH}_{DATE}_{HOUR}_{MINUTE}"}});
+
+  DateRewriter rewriter(dictionary);
+
+  Segments segments;
+  InitSegment("にちじ", "日時", &segments);
+
+  const ConversionRequest request;
+  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
+
+  ASSERT_EQ(segments.segments_size(), 1);
+  constexpr absl::string_view kDesc = "現在の日時";
+  EXPECT_THAT(segments.segment(0),
+              CandidatesAreArray({
+                  ValueAndDescAre("日時", ""),
+                  ValueAndDescAre("2011_04_18_15_06", kDesc),  // Custom format
+                  ValueAndDescAre("2011/04/18 15:06", kDesc),
               }));
   Clock::SetClockForUnitTest(nullptr);
 }
@@ -1170,8 +1282,11 @@ TEST_F(DateRewriterTest, ExtraFormatSyntaxTest) {
                         const absl::string_view output) {
     MockDictionary dictionary;
     EXPECT_CALL(dictionary,
-                LookupExact(StrEq(DateRewriter::kExtraFormatKey), _, _))
-        .WillOnce(InvokeCallbackWithUserDictionaryToken{std::string(input)});
+                LookupExact(StrEq(DateRewriter::kExtraDateFormatKey), _, _))
+        .WillOnce(InvokeCallbackWithUserDictionaryToken{{std::string(input)}});
+    EXPECT_CALL(dictionary,
+                LookupExact(StrEq(DateRewriter::kExtraDatetimeFormatKey), _, _))
+        .WillOnce(InvokeCallbackWithUserDictionaryToken{{}});
     MockConverter converter;
     DateRewriter rewriter(dictionary);
     Segments segments;

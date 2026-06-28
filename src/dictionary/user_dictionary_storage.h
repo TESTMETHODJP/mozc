@@ -80,24 +80,8 @@ class UserDictionaryStorage {
   using UserDictionary = user_dictionary::UserDictionary;
   using UserDictionaryEntry = user_dictionary::UserDictionary::Entry;
 
-  // Extended error code stored in absl::Status. We use the absl's canonical
-  // error code (absl::StatusCode) for general resource management. Extended
-  // Error code is mainly used for the dictionary management. When
-  // absl::IsUnknown(status) is true, we can access the extended error code
-  // via status.raw_code(). Otherwise, canonical error code is used.
-  enum ExtendedErrorCode : int {
-    OK = 0,  // default (absl::StatusCode::kOk)
-    // Reasonably big offset not to overwerap with canonical error code.
-    INVALID_DICTIONARY_ID = 100,
-    INVALID_CHARACTERS_IN_DICTIONARY_NAME,
-    EMPTY_DICTIONARY_NAME,
-    DUPLICATED_DICTIONARY_NAME,
-    TOO_LONG_DICTIONARY_NAME,
-    TOO_MANY_DICTIONARIES,
-    TOO_MANY_ENTRIES,
-    ERROR_TYPE_SIZE
-  };
-
+  // Uses the default file name.
+  UserDictionaryStorage();
   explicit UserDictionaryStorage(std::string filename);
   virtual ~UserDictionaryStorage();
 
@@ -127,31 +111,48 @@ class UserDictionaryStorage {
   // release the lock
   bool UnLock();
 
+  // Returns the default user dictionary filename.
+  static std::string GetDefaultUserDictionaryFileName();
+
   // Export a dictionary to a file in TSV format.
-  absl::Status ExportDictionary(uint64_t dic_id,
+  absl::Status ExportDictionary(uint64_t dictionary_id,
                                 absl::string_view filename) const;
+
+  // Returns true if the given storage hits the limit for the number of
+  // dictionaries.
+  bool IsStorageFull() const;
+
+  // Returns true if the given dictionary hits the limit for the number of
+  // entries.
+  static bool IsDictionaryFull(
+      const user_dictionary::UserDictionary& dictionary);
+
+  // return the index of dictionary_id.
+  // returns -1 if no dictionary is found.
+  int GetUserDictionaryIndex(uint64_t dictionary_id) const;
+
+  // returns mutable UserDictionary corresponding to dictionary_id.
+  // returns nullptr when no dictionary is found.
+  UserDictionary* GetUserDictionary(uint64_t dictionary_id);
+
+  // returns the dictionary id associated with the "dictionary_name".
+  absl::StatusOr<uint64_t> GetUserDictionaryId(
+      absl::string_view dictionary_name) const;
+
+  // Generates a new dictionary id, i.e. id which is not in the storage.
+  uint64_t CreateNewDictionaryId() const;
 
   // Create a new dictionary with a specified name. Returns the id of
   // the new instance. The returned status may return ExtendedErrorCode
   // when the StatusCode is Unknown.
-  absl::StatusOr<uint64_t> CreateDictionary(absl::string_view dic_name);
-
-  // Delete a dictionary.
-  absl::Status DeleteDictionary(uint64_t dic_id);
+  absl::StatusOr<uint64_t> CreateDictionary(absl::string_view dictionary_name);
 
   // Rename a dictionary.
-  absl::Status RenameDictionary(uint64_t dic_id, absl::string_view dic_name);
+  absl::Status RenameDictionary(uint64_t dictionary_id,
+                                absl::string_view dictionary_name);
 
-  // return the index of "dic_id"
-  // return -1 if no dictionary is found.
-  int GetUserDictionaryIndex(uint64_t dic_id) const;
-
-  // return mutable UserDictionary corresponding to dic_id
-  UserDictionary* GetUserDictionary(uint64_t dic_id);
-
-  // returns the dictionary id associated with the "dic_name".
-  absl::StatusOr<uint64_t> GetUserDictionaryId(
-      absl::string_view dic_name) const;
+  // Delete a dictionary.
+  absl::Status DeleteDictionary(uint64_t dictionary_id);
 
   // maximum number of dictionaries this storage can hold
   static size_t max_dictionary_size();

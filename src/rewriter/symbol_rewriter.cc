@@ -38,8 +38,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/japanese_util.h"
@@ -49,7 +51,6 @@
 #include "converter/attribute.h"
 #include "converter/candidate.h"
 #include "converter/segments.h"
-#include "data_manager/data_manager.h"
 #include "data_manager/serialized_dictionary.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
@@ -92,9 +93,9 @@ size_t GetOffset(const ConversionRequest& request, absl::string_view key) {
 // If the symbol has description and additional description,
 // Return merged description.
 // TODO(taku): allow us to define two descriptions in *.tsv file
-std::string GetDescription(
-    const absl::string_view value, const absl::string_view description,
-    const absl::string_view additional_description) {
+std::string GetDescription(const absl::string_view value,
+                           const absl::string_view description,
+                           const absl::string_view additional_description) {
   if (description.empty()) {
     return "";
   }
@@ -141,9 +142,8 @@ void ExpandSpace(Segment* segment) {
 }
 
 // Return true if two symbols are in same group
-bool InSameSymbolGroup(
-    SerializedDictionary::const_iterator lhs,
-    SerializedDictionary::const_iterator rhs) {
+bool InSameSymbolGroup(SerializedDictionary::const_iterator lhs,
+                       SerializedDictionary::const_iterator rhs) {
   // "矢印記号", "矢印記号"
   // "ギリシャ(大文字)", "ギリシャ(小文字)"
   if (lhs.description().empty() || rhs.description().empty()) {
@@ -153,8 +153,8 @@ bool InSameSymbolGroup(
 }
 
 // Add symbol desc to existing candidates
-void AddDescForCurrentCandidates(
-    const SerializedDictionary::IterRange& range, Segment* segment) {
+void AddDescForCurrentCandidates(const SerializedDictionary::IterRange& range,
+                                 Segment* segment) {
   for (size_t i = 0; i < segment->candidates_size(); ++i) {
     converter::Candidate* candidate = segment->mutable_candidate(i);
     std::string full_width_value =
@@ -173,6 +173,26 @@ void AddDescForCurrentCandidates(
       }
     }
   }
+}
+
+bool IsRareSymbolForDemotion(absl::string_view key,
+                             const SerializedDictionary::const_iterator& iter) {
+  // Special Kana variants are rarely used and should always be the bottom not
+  // to be shown over the single kanji.
+  // TODO(taku): Consider demoting other rare symbols.
+
+  // Demote Hieroglyphs symbols when user doesn't explicitly want Hieroglyphs.
+  if (absl::StrContains(iter.description(), "ヒエログリフ") &&
+      key != "ひえろぐりふ") {
+    return true;
+  }
+
+  static constexpr absl::string_view kSpecialKanaVariants[] = {
+      "変体仮名", "濁点付き仮名", "鼻濁音", "アイヌ語カナ"};
+
+  return absl::c_any_of(kSpecialKanaVariants, [&](absl::string_view s) {
+    return absl::StrContains(iter.description(), s);
+  });
 }
 
 // Insert Symbol into segment.
@@ -257,6 +277,12 @@ void InsertCandidates(size_t default_offset, int32_t promotion_size,
   candidates.reserve(range_size);
   SerializedDictionary::const_iterator iter = range.first;
   for (; iter != range.second; ++iter) {
+    // The `range` is ordered by the preference, once the `iter` is categorized
+    // as a rare symbol, the rest of candidates are also handled as rare symbols
+    if (IsRareSymbolForDemotion(candidate_key, iter)) {
+      break;
+    }
+
     candidates.emplace_back(create_candidate(iter));
 
     if (const int inserted_count = candidates.size();
@@ -370,9 +396,8 @@ SymbolRewriter::CheckResizeSegmentsRequest(const ConversionRequest& request,
   return resize_request;
 }
 
-SymbolRewriter::SymbolRewriter(const DataManager& data_manager) {
-  absl::string_view token_array_data, string_array_data;
-  data_manager.GetSymbolRewriterData(&token_array_data, &string_array_data);
+SymbolRewriter::SymbolRewriter(absl::string_view token_array_data,
+                               absl::string_view string_array_data) {
   DCHECK(SerializedDictionary::VerifyData(token_array_data, string_array_data));
   dictionary_ = std::make_unique<SerializedDictionary>(token_array_data,
                                                        string_array_data);

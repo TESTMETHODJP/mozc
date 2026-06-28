@@ -311,7 +311,7 @@ class EngineConverterTest : public testing::TestWithTempUserProfile {
     return segments;
   }
 
-  static void InsertASCIISequence(const std::string& text,
+  static void InsertASCIISequence(absl::string_view text,
                                   composer::Composer* composer) {
     for (size_t i = 0; i < text.size(); ++i) {
       commands::KeyEvent key;
@@ -486,6 +486,25 @@ TEST_F(EngineConverterTest, ConvertWithSpellingCorrection) {
     segments.mutable_conversion_segment(0)->mutable_candidate(0)->attributes |=
 
         converter::Attribute::SPELLING_CORRECTION;
+    EXPECT_CALL(*mock_converter, StartConversion(_, _))
+        .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+  }
+
+  composer_->InsertCharacterPreedit(kChars_Aiueo);
+  EXPECT_TRUE(converter.Convert(*composer_));
+  ASSERT_TRUE(converter.IsActive());
+  EXPECT_TRUE(IsCandidateListVisible(converter));
+}
+
+TEST_F(EngineConverterTest, ConvertWithA11yTalkbackEnabled) {
+  request_->set_is_a11y_talkback_enabled(true);
+  auto mock_converter = std::make_shared<MockConverter>();
+  EngineConverter converter(mock_converter, request_, config_);
+  {
+    Segments segments;
+    SetAiueo(&segments);
+    composer_->InsertCharacterPreedit("あいうえお");
+    FillT13Ns(&segments, composer_.get());
     EXPECT_CALL(*mock_converter, StartConversion(_, _))
         .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
   }
@@ -3891,5 +3910,14 @@ TEST_F(EngineConverterTest, ResultTokensWithInnerSegements) {
   EXPECT_EQ(output.result().tokens(2).lid(), -1);
   EXPECT_EQ(output.result().tokens(2).rid(), 201);
 }
+
+TEST_F(EngineConverterTest, CommitContext) {
+  auto mock_converter = std::make_shared<MockConverter>();
+  EngineConverter converter(mock_converter, request_, config_);
+
+  EXPECT_CALL(*mock_converter, CommitContext(_)).WillOnce(Return());
+  converter.CommitContext(*composer_, Context::default_instance());
+}
+
 }  // namespace engine
 }  // namespace mozc

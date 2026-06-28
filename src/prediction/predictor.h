@@ -38,8 +38,10 @@
 #include "absl/types/span.h"
 #include "converter/converter_interface.h"
 #include "converter/immutable_converter_interface.h"
+#include "dictionary/pos_matcher.h"
 #include "engine/modules.h"
 #include "prediction/predictor_interface.h"
+#include "prediction/realtime_decoder.h"
 #include "prediction/result.h"
 #include "request/conversion_request.h"
 
@@ -50,16 +52,24 @@ class Predictor : public PredictorInterface {
   Predictor() = default;
   Predictor(const engine::Modules& modules, const ConverterInterface& converter,
             const ImmutableConverterInterface& immutable_converters);
-  Predictor(std::unique_ptr<PredictorInterface> dictionary_predictor,
+
+  // Test only method.
+  Predictor(const engine::Modules& modules,
+            std::unique_ptr<PredictorInterface> dictionary_predictor,
             std::unique_ptr<PredictorInterface> user_history_predictor);
 
   std::vector<Result> Predict(const ConversionRequest& request) const;
+
+  std::vector<Result> Convert(const ConversionRequest& request) const;
 
   absl::string_view GetPredictorName() const override { return "Predictor"; }
 
   // Hook(s) for all mutable operations.
   void Finish(const ConversionRequest& request,
               absl::Span<const Result> results, uint32_t revert_id) override;
+
+  // Syncs user-modified context.
+  void CommitContext(const ConversionRequest& request) const override;
 
   // Reverts the last Finish operation.
   void Revert(uint32_t revert_id) override;
@@ -74,6 +84,9 @@ class Predictor : public PredictorInterface {
   bool ClearHistoryEntry(absl::string_view key,
                          absl::string_view value) override;
 
+  // Adds key/value to the user history storage.
+  bool AddHistoryEntry(absl::string_view key, absl::string_view value) override;
+
   // Syncs user history.
   bool Sync() override;
 
@@ -84,10 +97,25 @@ class Predictor : public PredictorInterface {
   bool Wait() override;
 
  private:
+  friend class PredictorTestPeer;
+
   std::vector<Result> PredictForDesktop(const ConversionRequest& request) const;
 
   std::vector<Result> PredictForMixedConversion(
       const ConversionRequest& request) const;
+
+  // Mix user_history_results and dictionary_results.
+  std::vector<Result> MixCandidates(
+      const ConversionRequest& request,
+      std::vector<Result> user_history_results,
+      std::vector<Result> dictionary_results) const;
+
+  // The results with WEAK_USER_HISTORY_PREDICTION are demoted so that they
+  // are not ranked at the top.
+  static void DemoteWeakUserHistory(absl::Span<Result> results);
+
+  // Shared by dictionary_predictor and user_history_predictor.
+  std::unique_ptr<RealtimeDecoder> realtime_decoder_;
 
   std::unique_ptr<PredictorInterface> dictionary_predictor_;
   std::unique_ptr<PredictorInterface> user_history_predictor_;

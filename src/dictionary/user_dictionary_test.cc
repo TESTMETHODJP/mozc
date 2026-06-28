@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -44,10 +45,12 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "base/container/tuple.h"
 #include "base/file/temp_dir.h"
 #include "base/file_util.h"
 #include "base/random.h"
-#include "config/config_handler.h"
+#include "base/system_util.h"
+#include "base/thread.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_mock.h"
@@ -55,10 +58,9 @@
 #include "dictionary/dictionary_token.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/user_dictionary_storage.h"
+#include "dictionary/user_dictionary_util.h"
 #include "dictionary/user_pos.h"
-#include "protocol/config.pb.h"
 #include "protocol/user_dictionary_storage.pb.h"
-#include "request/conversion_request.h"
 #include "testing/gmock.h"
 #include "testing/gunit.h"
 #include "testing/mozctest.h"
@@ -132,9 +134,6 @@ void PushBackToken(absl::string_view key, absl::string_view value, uint16_t id,
 // inflection.
 class UserPosMock : public UserPos {
  public:
-  // This method returns true if the given pos is "noun" or "verb".
-  bool IsValidPos(absl::string_view pos) const override { return true; }
-
   // Given a verb, this method expands it to three different forms,
   // i.e. base form (the word itself), "-ed" form and "-ing" form. For
   // example, if the given word is "play", the method returns "play",
@@ -147,54 +146,43 @@ class UserPosMock : public UserPos {
   //  verb (base form) | 200 | 200
   //  verb (-ed form)  | 210 | 210
   //  verb (-ing form) | 220 | 220
-  bool GetTokens(absl::string_view key, absl::string_view value,
-                 absl::string_view pos, absl::string_view locale,
-                 std::vector<UserPos::Token>* tokens) const override {
-    if (key.empty() || value.empty() || pos.empty() || tokens == nullptr) {
-      return false;
+  std::vector<UserPos::Token> GetTokens(
+      absl::string_view key, absl::string_view value,
+      user_dictionary::UserDictionary::PosType pos_type,
+      absl::string_view locale) const override {
+    std::vector<UserPos::Token> tokens;
+    if (key.empty() || value.empty()) {
+      return tokens;
     }
 
-    tokens->clear();
-    if (pos == kNoun) {
-      PushBackToken(key, value, 100, tokens);
-      return true;
-    } else if (pos == kVerb) {
-      PushBackToken(key, value, 200, tokens);
+    if (pos_type == kNoun) {
+      PushBackToken(key, value, 100, &tokens);
+    } else if (pos_type == kVerb) {
+      PushBackToken(key, value, 200, &tokens);
       PushBackToken(absl::StrCat(key, "ed"), absl::StrCat(value, "ed"), 210,
-                    tokens);
+                    &tokens);
       PushBackToken(absl::StrCat(key, "ing"), absl::StrCat(value, "ing"), 220,
-                    tokens);
-      return true;
-    } else {
-      return false;
+                    &tokens);
     }
+
+    return tokens;
   }
 
-  std::vector<std::string> GetPosList() const override {
-    return {{kNoun.data(), kNoun.size()}};
-  }
+  std::vector<std::string> GetPosList() const override { return {"名詞"}; }
   int GetPosListDefaultIndex() const override { return 0; }
 
-  bool GetPosIds(absl::string_view pos, uint16_t* id) const override {
-    return false;
+  std::optional<uint16_t> GetPosIds(absl::string_view pos) const override {
+    return std::nullopt;
   }
 
-  static constexpr absl::string_view kNoun = "名詞";
-  static constexpr absl::string_view kVerb = "動詞ワ行五段";
+  static constexpr user_dictionary::UserDictionary::PosType kNoun =
+      user_dictionary::UserDictionary::NOUN;
+  static constexpr user_dictionary::UserDictionary::PosType kVerb =
+      user_dictionary::UserDictionary::WA_GROUP1_VERB;
 };
 
 class UserDictionaryTest : public testing::TestWithTempUserProfile {
  protected:
-  UserDictionaryTest() { config::ConfigHandler::GetDefaultConfig(&config_); }
-
-  ~UserDictionaryTest() override {
-    // This config initialization will be removed once ConversionRequest can
-    // take config as an injected argument.
-    config::Config config;
-    config::ConfigHandler::GetDefaultConfig(&config);
-    config::ConfigHandler::SetConfig(config);
-  }
-
   // Workaround for the constructor of UserDictionary being protected.
   // Creates a user dictionary with mock pos data.
   std::unique_ptr<UserDictionary> CreateDictionaryWithMockPos() {
@@ -206,20 +194,16 @@ class UserDictionaryTest : public testing::TestWithTempUserProfile {
   // Creates a user dictionary with actual pos data.
   std::unique_ptr<UserDictionary> CreateDictionary() {
     return std::make_unique<UserDictionary>(
-        UserPos::CreateFromDataManager(mock_data_manager_),
+        make_unique_from_tuples<UserPos>(mock_data_manager_.GetUserPosData()),
         dictionary::PosMatcher(mock_data_manager_.GetPosMatcherData()));
   }
 
   std::unique_ptr<UserDictionary> CreateDictionaryWithFilename(
       std::string filename) {
     return std::make_unique<UserDictionary>(
-        UserPos::CreateFromDataManager(mock_data_manager_),
+        make_unique_from_tuples<UserPos>(mock_data_manager_.GetUserPosData()),
         dictionary::PosMatcher(mock_data_manager_.GetPosMatcherData()),
         std::move(filename));
-  }
-
-  ConversionRequest ConvReq(const config::Config& config) {
-    return ConversionRequestBuilder().SetConfig(config).Build();
   }
 
   struct Entry {
@@ -264,39 +248,32 @@ class UserDictionaryTest : public testing::TestWithTempUserProfile {
   std::vector<Entry> LookupPredictive(absl::string_view key,
                                       const UserDictionary& dic) {
     EntryCollector collector;
-    const ConversionRequest convreq = ConvReq(config_);
-    dic.LookupPredictive(key, convreq, &collector);
+    dic.LookupPredictive(key, &collector);
     return std::move(collector).entries();
   }
 
   std::vector<Entry> LookupPrefix(absl::string_view key,
                                   const UserDictionary& dic) {
     EntryCollector collector;
-    const ConversionRequest convreq = ConvReq(config_);
-    dic.LookupPrefix(key, convreq, &collector);
+    dic.LookupPrefix(key, &collector);
     return std::move(collector).entries();
   }
 
   std::vector<Entry> LookupExact(absl::string_view key,
                                  const UserDictionary& dic) {
     EntryCollector collector;
-    const ConversionRequest convreq = ConvReq(config_);
-    dic.LookupExact(key, convreq, &collector);
+    dic.LookupExact(key, &collector);
     return std::move(collector).entries();
   }
 
-  static void LoadFromString(const std::string& contents,
+  static void LoadFromString(absl::string_view contents,
                              UserDictionaryStorage* storage) {
-    std::istringstream is(contents);
-    CHECK(is.good());
-
     storage->GetProto().Clear();
     UserDictionaryStorage::UserDictionary* dic =
         storage->GetProto().add_dictionaries();
     CHECK(dic);
 
-    std::string line;
-    while (!std::getline(is, line).fail()) {
+    for (absl::string_view line : absl::StrSplit(contents, '\n')) {
       if (line.empty() || line[0] == '#') {
         continue;
       }
@@ -322,12 +299,9 @@ class UserDictionaryTest : public testing::TestWithTempUserProfile {
   std::string LookupComment(const UserDictionary& dic, absl::string_view key,
                             absl::string_view value) {
     std::string comment;
-    const ConversionRequest convreq = ConvReq(config_);
-    dic.LookupComment(key, value, convreq, &comment);
+    dic.LookupComment(key, value, &comment);
     return comment;
   }
-
-  config::Config config_;
 
  private:
   const testing::MockDataManager mock_data_manager_;
@@ -363,8 +337,7 @@ TEST_F(UserDictionaryTest, TestLookupPredictiveCallback) {
       .Times(1)
       .WillRepeatedly(Return(DictionaryInterface::Callback::TRAVERSE_CONTINUE));
 
-  const ConversionRequest convreq = ConvReq(config_);
-  dic->LookupPredictive("start", convreq, &mock_callback);
+  dic->LookupPredictive("start", &mock_callback);
 }
 
 TEST_F(UserDictionaryTest, TestLookupExactCallback) {
@@ -389,8 +362,7 @@ TEST_F(UserDictionaryTest, TestLookupExactCallback) {
       .Times(1)
       .WillRepeatedly(Return(DictionaryInterface::Callback::TRAVERSE_CONTINUE));
 
-  const ConversionRequest convreq = ConvReq(config_);
-  dic->LookupExact("start", convreq, &mock_callback);
+  dic->LookupExact("start", &mock_callback);
 }
 
 TEST_F(UserDictionaryTest, TestLookupPrefixCallback) {
@@ -423,8 +395,7 @@ TEST_F(UserDictionaryTest, TestLookupPrefixCallback) {
       .Times(1)
       .WillRepeatedly(Return(DictionaryInterface::Callback::TRAVERSE_CONTINUE));
 
-  const ConversionRequest convreq = ConvReq(config_);
-  dic->LookupPrefix("start", convreq, &mock_callback);
+  dic->LookupPrefix("start", &mock_callback);
 }
 
 TEST_F(UserDictionaryTest, TestLookupPredictive) {
@@ -616,7 +587,7 @@ TEST_F(UserDictionaryTest, TestLookupExactWithSuggestionOnlyWords) {
               ElementsAre(Entry{"key", "noun", kNounId, kNounId}));
 }
 
-TEST_F(UserDictionaryTest, TestLookupWithShortCut) {
+TEST_F(UserDictionaryTest, TestLookupWithNoPos) {
   std::unique_ptr<UserDictionary> user_dic(CreateDictionary());
   user_dic->WaitForReloader();
 
@@ -638,13 +609,13 @@ TEST_F(UserDictionaryTest, TestLookupWithShortCut) {
     entry->set_value("noun");
     entry->set_pos(user_dictionary::UserDictionary::NOUN);
 
-    // SUGGESTION ONLY word is handled as SHORTCUT word.
+    // SUGGESTION ONLY word is handled as NO_POS word.
     entry = dic->add_entries();
     entry->set_key("key");
     entry->set_value("suggest_only");
     entry->set_pos(user_dictionary::UserDictionary::SUGGESTION_ONLY);
 
-    // NO POS word is handled as SHORTCUT word.
+    // NO POS word is handled as NO_POS word.
     entry = dic->add_entries();
     entry->set_key("key");
     entry->set_value("no_pos");
@@ -653,7 +624,7 @@ TEST_F(UserDictionaryTest, TestLookupWithShortCut) {
     user_dic->Load(storage.GetProto());
   }
 
-  // shortcut words are looked up.
+  // NO_POS words are looked up.
   const testing::MockDataManager mock_data_manager;
   const dictionary::PosMatcher pos_matcher(
       mock_data_manager.GetPosMatcherData());
@@ -662,7 +633,6 @@ TEST_F(UserDictionaryTest, TestLookupWithShortCut) {
   const Entry kExpected2[] = {
       {"key", "noun", kNounId, kNounId},
       {"key", "no_pos", kUnknownId, kUnknownId},
-      {"key", "suggest_only", kUnknownId, kUnknownId},
   };
   const Entry kExpectedPrediction[] = {
       {"key", "noun", kNounId, kNounId},
@@ -705,7 +675,7 @@ TEST_F(UserDictionaryTest, TestKeyNormalization) {
     entry->set_value("Google");
     entry->set_pos(user_dictionary::UserDictionary::NOUN);
 
-    // NO POS word is handled as SHORTCUT word.
+    // NO POS word is handled as NO_POS word.
     // voiced sound mark in「う゛」 will be normalized to be 「ゔ」.
     entry = dic->add_entries();
     entry->set_key("う゛ぃくとりー");
@@ -734,26 +704,6 @@ TEST_F(UserDictionaryTest, TestKeyNormalization) {
 
   EXPECT_EQ(LookupExact("じーぼーど", *user_dic).size(), 1);
   EXPECT_EQ(LookupExact("ジーボード", *user_dic).size(), 0);
-}
-
-TEST_F(UserDictionaryTest, IncognitoModeTest) {
-  config_.set_incognito_mode(true);
-  std::unique_ptr<UserDictionary> dic(CreateDictionaryWithMockPos());
-  // Wait for async reload called from the constructor.
-  dic->WaitForReloader();
-
-  {
-    UserDictionaryStorage storage("");
-    UserDictionaryTest::LoadFromString(kUserDictionary0, &storage);
-    dic->Load(storage.GetProto());
-  }
-
-  EXPECT_THAT(LookupPrefix("star", *dic), IsEmpty());
-  EXPECT_THAT(LookupPredictive("s", *dic), IsEmpty());
-
-  config_.set_incognito_mode(false);
-  EXPECT_THAT(LookupPrefix("start", *dic), Not(IsEmpty()));
-  EXPECT_THAT(LookupPredictive("s", *dic), Not(IsEmpty()));
 }
 
 TEST_F(UserDictionaryTest, AsyncLoadTest) {
@@ -795,8 +745,7 @@ TEST_F(UserDictionaryTest, AsyncLoadTest) {
       dic->Reload();
       for (int i = 0; i < 1000; ++i) {
         CollectTokenCallback callback;
-        const ConversionRequest convreq = ConvReq(config_);
-        dic->LookupPrefix(keys[i], convreq, &callback);
+        dic->LookupPrefix(keys[i], &callback);
         EXPECT_FALSE(callback.tokens().empty());
       }
     }
@@ -908,15 +857,13 @@ TEST_F(UserDictionaryTest, TestSuggestionOnlyWord) {
   {
     constexpr char kKey[] = "key0123";
     CollectTokenCallback callback;
-    const ConversionRequest convreq = ConvReq(config_);
-    user_dic->LookupPrefix(kKey, convreq, &callback);
+    user_dic->LookupPrefix(kKey, &callback);
     EXPECT_THAT(callback.tokens(), Each(Field(&Token::value, Eq("default"))));
   }
   {
     constexpr char kKey[] = "key";
     CollectTokenCallback callback;
-    const ConversionRequest convreq = ConvReq(config_);
-    user_dic->LookupPredictive(kKey, convreq, &callback);
+    user_dic->LookupPredictive(kKey, &callback);
     EXPECT_THAT(
         callback.tokens(),
         Each(Field(&Token::value, AnyOf(Eq("suggest_only"), Eq("default")))));
@@ -937,25 +884,20 @@ TEST_F(UserDictionaryTest, LookupComment) {
   // Entry is in user dictionary but has no comment.
   std::string comment;
   comment = "prev comment";
-  const ConversionRequest convreq = ConvReq(config_);
-  EXPECT_FALSE(
-      dic->LookupComment("comment_key1", "comment_value2", convreq, &comment));
+  EXPECT_FALSE(dic->LookupComment("comment_key1", "comment_value2", &comment));
   EXPECT_EQ(comment, "prev comment");
 
   // Usual case: single key-value pair with comment.
-  EXPECT_TRUE(
-      dic->LookupComment("comment_key2", "comment_value2", convreq, &comment));
+  EXPECT_TRUE(dic->LookupComment("comment_key2", "comment_value2", &comment));
   EXPECT_EQ(comment, "comment");
 
   // There exist two entries having the same key, value and POS.  Since POS is
   // irrelevant to comment lookup, the first nonempty comment should be found.
-  EXPECT_TRUE(
-      dic->LookupComment("comment_key3", "comment_value3", convreq, &comment));
+  EXPECT_TRUE(dic->LookupComment("comment_key3", "comment_value3", &comment));
   EXPECT_EQ(comment, "comment1");
 
   // White-space only comments should be cleared.
-  EXPECT_FALSE(
-      dic->LookupComment("comment_key4", "comment_value4", convreq, &comment));
+  EXPECT_FALSE(dic->LookupComment("comment_key4", "comment_value4", &comment));
   // The previous comment should remain.
   EXPECT_EQ(comment, "comment1");
 
@@ -981,7 +923,10 @@ TEST_F(UserDictionaryTest, TestPopulateTokenFromUserPosToken) {
       mock_data_manager.GetPosMatcherData());
 
   UserPos::Token user_token{.key = "key", .value = "value", .id = 10};
+  user_token.set_pos_type(user_dictionary::UserDictionary::
+                              SA_IRREGULAR_CONJUGATION_NOUN);  // 名詞サ変
 
+  const int expected_cost = UserPos::GetCostFromPosType(user_token.pos_type());
   Token token;
 
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
@@ -990,7 +935,7 @@ TEST_F(UserDictionaryTest, TestPopulateTokenFromUserPosToken) {
   EXPECT_EQ(token.value, "value");
   EXPECT_EQ(token.lid, 10);
   EXPECT_EQ(token.rid, 10);
-  EXPECT_EQ(token.cost, 5000);
+  EXPECT_EQ(token.cost, expected_cost);
   EXPECT_EQ(token.attributes, Token::USER_DICTIONARY);
 
   user_token.add_attribute(UserPos::Token::NON_JA_LOCALE);
@@ -999,59 +944,151 @@ TEST_F(UserDictionaryTest, TestPopulateTokenFromUserPosToken) {
   EXPECT_EQ(token.cost, 10000);
 
   user_token.attributes = 0;
-  user_token.add_attribute(UserPos::Token::ISOLATED_WORD);
+  user_token.set_pos_type(user_dictionary::UserDictionary::ABBREVIATION);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
                                      &token);
   EXPECT_EQ(token.cost, 200);
 
   user_token.attributes = 0;
-  user_token.add_attribute(UserPos::Token::SUGGESTION_ONLY);
+  user_token.set_pos_type(user_dictionary::UserDictionary::SUGGESTION_ONLY);
   dic->PopulateTokenFromUserPosToken(
       user_token, UserDictionary::UserDictionary::PREFIX, &token);
   EXPECT_EQ(token.lid, pos_matcher.GetUnknownId());
   EXPECT_EQ(token.rid, pos_matcher.GetUnknownId());
-  EXPECT_EQ(token.cost, 5000);
+  EXPECT_EQ(token.cost, expected_cost);
 
   user_token.attributes = 0;
-  user_token.add_attribute(UserPos::Token::SHORTCUT);
+  user_token.set_pos_type(user_dictionary::UserDictionary::NO_POS);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREDICTIVE,
                                      &token);
-  EXPECT_EQ(token.lid, pos_matcher.GetUnknownId());
-  EXPECT_EQ(token.rid, pos_matcher.GetUnknownId());
-  EXPECT_EQ(token.cost, 5000);
+  // NO_POS id is set via user_pos.def.
+  EXPECT_EQ(token.cost, expected_cost);
 
   user_token.attributes = 0;
+  user_token.set_pos_type(user_dictionary::UserDictionary::NO_POS);
 
   user_token.key = "a";  // one char
-  user_token.add_attribute(UserPos::Token::SHORTCUT);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
                                      &token);
-  EXPECT_EQ(token.cost, 5000 + 2000 * 3);
+  EXPECT_EQ(token.cost, expected_cost + 2000 * 3);
 
   user_token.key = "aa";
-  user_token.add_attribute(UserPos::Token::SHORTCUT);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
                                      &token);
-  EXPECT_EQ(token.cost, 5000 + 2000 * 2);
+  EXPECT_EQ(token.cost, expected_cost + 2000 * 2);
 
   user_token.key = "aaa";
-  user_token.add_attribute(UserPos::Token::SHORTCUT);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
                                      &token);
-  EXPECT_EQ(token.cost, 5000 + 2000);
+  EXPECT_EQ(token.cost, expected_cost + 2000);
 
   user_token.key = "aaaa";
-  user_token.add_attribute(UserPos::Token::SHORTCUT);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
                                      &token);
-  EXPECT_EQ(token.cost, 5000);
+  EXPECT_EQ(token.cost, expected_cost);
 
   user_token.key = "aaaaaaa";
-  user_token.add_attribute(UserPos::Token::SHORTCUT);
   dic->PopulateTokenFromUserPosToken(user_token, UserDictionary::PREFIX,
                                      &token);
-  EXPECT_EQ(token.cost, 5000);
+  EXPECT_EQ(token.cost, expected_cost);
 }
+
+TEST_F(UserDictionaryTest, AsyncImportTest) {
+  const std::string filename = FileUtil::JoinPath(
+      SystemUtil::GetUserProfileDirectory(), "async_import_test.db");
+
+  const testing::MockDataManager mock_data_manager;
+
+  auto make_dic = [&]() {
+    return UserDictionary(
+        make_unique_from_tuples<UserPos>(mock_data_manager.GetUserPosData()),
+        PosMatcher(mock_data_manager.GetPosMatcherData()), filename);
+  };
+
+  auto dic = make_dic();
+
+  constexpr int kThreadsSize = 100;
+  constexpr int kEntrySize = 1000;
+
+  auto make_tsv_dic = [](int i) {
+    std::string tsv;
+    for (int n = 0; n < kEntrySize; ++n) {
+      absl::StrAppendFormat(&tsv, "key_%2.2d%4.4d\tvalue_%2.2d%4.4d\t名詞\n", i,
+                            n, i, n);
+    }
+    // Adds one invalid line.
+    absl::StrAppendFormat(&tsv, "__INVALID__");
+    return tsv;
+  };
+
+  {
+    // Import TSV dictionary asynchronously.
+    user_dictionary::AsyncUserDictionaryImporter importer(dic);
+
+    std::vector<Thread> threads;
+    for (int i = 0; i < kThreadsSize; ++i) {
+      threads.emplace_back([&, i]() {
+        importer.Import(absl::StrCat("dic", i), make_tsv_dic(i));
+      });
+    }
+
+    for (auto& thread : threads) {
+      thread.Join();
+    }
+
+    // The importing process is canceled in destructor so we need to call
+    // Wait() explicitly.
+    importer.Wait();
+  }
+
+  EXPECT_OK(FileUtil::FileExists(filename));
+
+  auto check_entries = [](const UserDictionary& dic) {
+    for (int i = 0; i < kThreadsSize; ++i) {
+      for (int n = 0; n < kEntrySize; ++n) {
+        const std::string key = absl::StrFormat("key_%2.2d%4.4d", i, n);
+        MockCallback mock_callback;
+        EXPECT_CALL(mock_callback, OnKey(Eq(key)))
+            .Times(1)
+            .WillRepeatedly(
+                Return(DictionaryInterface::Callback::TRAVERSE_CONTINUE));
+        EXPECT_CALL(mock_callback, OnActualKey(_, _, _))
+            .Times(1)
+            .WillRepeatedly(
+                Return(DictionaryInterface::Callback::TRAVERSE_CONTINUE));
+        EXPECT_CALL(mock_callback, OnToken(_, _, _))
+            .WillRepeatedly(
+                Return(DictionaryInterface::Callback::TRAVERSE_CONTINUE));
+        dic.LookupExact(key, &mock_callback);
+      }
+    }
+  };
+
+  check_entries(dic);
+
+  auto dic_reloaded = make_dic();
+
+  // reload data.
+  {
+    dic_reloaded.Reload();
+    dic_reloaded.WaitForReloader();
+    check_entries(dic_reloaded);
+  }
+
+  // Clear dictionary with empty TSV.
+  {
+    user_dictionary::AsyncUserDictionaryImporter importer(dic_reloaded);
+
+    importer.Import("dic0", "");
+    importer.Wait();
+
+    mozc::UserDictionaryStorage storage(filename);
+    EXPECT_OK(storage.Load());
+    EXPECT_FALSE(storage.GetUserDictionaryId("dic0").ok());
+    EXPECT_TRUE(storage.GetUserDictionaryId("dic1").ok());
+  }
+}
+
 }  // namespace
 }  // namespace dictionary
 }  // namespace mozc

@@ -33,8 +33,10 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 
 #include "absl/log/check.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "config/config_handler.h"
 #include "converter/candidate.h"
@@ -50,26 +52,37 @@
 namespace mozc {
 namespace {
 
-void AddSegment(const absl::string_view key, const absl::string_view value,
-                Segments* segments) {
+void InitSegment(const absl::string_view key, const absl::string_view value,
+                 Segments* segments) {
   segments->Clear();
   Segment* seg = segments->push_back_segment();
   seg->set_key(key);
   converter::Candidate* candidate = seg->add_candidate();
-  candidate->value = std::string(key);
-  candidate->content_key = std::string(key);
-  candidate->content_value = std::string(value);
+  candidate->value = key;
+  candidate->content_key = key;
+  candidate->content_value = value;
+
+  // Fills other default candidates.
+  for (int i = 0; i < 100; ++i) {
+    converter::Candidate* candidate = seg->add_candidate();
+    candidate->value = absl::StrCat("value", i);
+    candidate->key = absl::StrCat("key", i);
+  }
 }
 
-bool HasEmoticon(const Segments& segments) {
+int GetEmoticonIndex(const Segments& segments) {
   CHECK_EQ(segments.segments_size(), 1);
   for (size_t i = 0; i < segments.segment(0).candidates_size(); ++i) {
     const converter::Candidate& candidate = segments.segment(0).candidate(i);
     if (candidate.description.starts_with("顔文字")) {
-      return true;
+      return i;
     }
   }
-  return false;
+  return -1;
+}
+
+bool HasEmoticon(const Segments& segments) {
+  return GetEmoticonIndex(segments) >= 0;
 }
 
 class EmoticonRewriterTest : public testing::TestWithTempUserProfile {
@@ -78,8 +91,8 @@ class EmoticonRewriterTest : public testing::TestWithTempUserProfile {
 };
 
 TEST_F(EmoticonRewriterTest, BasicTest) {
-  std::unique_ptr<EmoticonRewriter> emoticon_rewriter =
-      EmoticonRewriter::CreateFromDataManager(mock_data_manager_);
+  const auto emoticon_rewriter = std::make_from_tuple<EmoticonRewriter>(
+      mock_data_manager_.GetEmoticonRewriterData());
 
   config::Config config = config::ConfigHandler::DefaultConfig();
   {
@@ -88,25 +101,29 @@ TEST_F(EmoticonRewriterTest, BasicTest) {
         ConversionRequestBuilder().SetConfig(config).Build();
 
     Segments segments;
-    AddSegment("test", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("test", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_FALSE(HasEmoticon(segments));
 
-    AddSegment("かお", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("かお", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_TRUE(HasEmoticon(segments));
+    EXPECT_GT(GetEmoticonIndex(segments), 6);
 
-    AddSegment("かおもじ", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("かおもじ", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_TRUE(HasEmoticon(segments));
+    EXPECT_GT(GetEmoticonIndex(segments), 6);
 
-    AddSegment("にこにこ", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("にこにこ", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_TRUE(HasEmoticon(segments));
+    EXPECT_LE(GetEmoticonIndex(segments), 6);
 
-    AddSegment("ふくわらい", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("ふくわらい", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_TRUE(HasEmoticon(segments));
+    EXPECT_LE(GetEmoticonIndex(segments), 6);
   }
 
   {
@@ -115,31 +132,31 @@ TEST_F(EmoticonRewriterTest, BasicTest) {
         ConversionRequestBuilder().SetConfig(config).Build();
 
     Segments segments;
-    AddSegment("test", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("test", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_FALSE(HasEmoticon(segments));
 
-    AddSegment("かお", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("かお", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_FALSE(HasEmoticon(segments));
 
-    AddSegment("かおもじ", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("かおもじ", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_FALSE(HasEmoticon(segments));
 
-    AddSegment("にこにこ", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("にこにこ", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_FALSE(HasEmoticon(segments));
 
-    AddSegment("ふくわらい", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("ふくわらい", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_FALSE(HasEmoticon(segments));
   }
 }
 
 TEST_F(EmoticonRewriterTest, RandomTest) {
-  std::unique_ptr<EmoticonRewriter> emoticon_rewriter =
-      EmoticonRewriter::CreateFromDataManager(mock_data_manager_);
+  const auto emoticon_rewriter = std::make_from_tuple<EmoticonRewriter>(
+      mock_data_manager_.GetEmoticonRewriterData());
 
   config::Config config = config::ConfigHandler::DefaultConfig();
   config.set_use_emoticon_conversion(true);
@@ -149,17 +166,18 @@ TEST_F(EmoticonRewriterTest, RandomTest) {
   std::set<std::string> variants;
   for (int i = 0; i < 100; ++i) {
     Segments segments;
-    AddSegment("ふくわらい", "test", &segments);
-    emoticon_rewriter->Rewrite(request, &segments);
+    InitSegment("ふくわらい", "test", &segments);
+    emoticon_rewriter.Rewrite(request, &segments);
     EXPECT_TRUE(HasEmoticon(segments));
-    variants.emplace(segments.segment(0).candidate(1).value);
+    // random candidate is inserted at 4-th position.
+    variants.emplace(segments.segment(0).candidate(4).value);
   }
   EXPECT_GT(variants.size(), 1);
 }
 
 TEST_F(EmoticonRewriterTest, MobileEnvironmentTest) {
-  std::unique_ptr<EmoticonRewriter> rewriter =
-      EmoticonRewriter::CreateFromDataManager(mock_data_manager_);
+  const auto emoticon_rewriter = std::make_from_tuple<EmoticonRewriter>(
+      mock_data_manager_.GetEmoticonRewriterData());
 
   commands::Request request;
 
@@ -167,14 +185,15 @@ TEST_F(EmoticonRewriterTest, MobileEnvironmentTest) {
     request.set_mixed_conversion(true);
     const ConversionRequest convreq =
         ConversionRequestBuilder().SetRequest(request).Build();
-    EXPECT_EQ(rewriter->capability(convreq), RewriterInterface::ALL);
+    EXPECT_EQ(emoticon_rewriter.capability(convreq), RewriterInterface::ALL);
   }
 
   {
     request.set_mixed_conversion(false);
     const ConversionRequest convreq =
         ConversionRequestBuilder().SetRequest(request).Build();
-    EXPECT_EQ(rewriter->capability(convreq), RewriterInterface::CONVERSION);
+    EXPECT_EQ(emoticon_rewriter.capability(convreq),
+              RewriterInterface::CONVERSION);
   }
 }
 

@@ -29,61 +29,70 @@
 
 #include "base/clock.h"
 
+#include <atomic>
+#include <ctime>
+
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "base/singleton.h"
 
-#if !(defined(OS_CHROMEOS) || defined(_WIN32))
-#define MOZC_USE_ABSL_TIME_ZONE
-#endif  // !(defined(OS_CHROMEOS) || defined(_WIN32))
+#if defined(OS_CHROMEOS) || defined(_WIN32)
+constexpr bool kUseAbslLocalTimeZone = false;
 
-#ifndef MOZC_USE_ABSL_TIME_ZONE
-#include <ctime>
-#endif  // MOZC_USE_ABSL_TIME_ZONE
+#else  // defined(OS_CHROMEOS) || defined(_WIN32)
+constexpr bool kUseAbslLocalTimeZone = true;
+
+#endif  // defined(OS_CHROMEOS) || defined(_WIN32)
 
 namespace mozc {
 namespace {
 
+constinit static std::atomic<ClockInterface*> g_mock = nullptr;
+
 absl::TimeZone GetLocalTimeZone() {
-#ifdef MOZC_USE_ABSL_TIME_ZONE
-  return absl::LocalTimeZone();
-#else   // MOZC_USE_ABSL_TIME_ZONE
-  // Do not use absl::LocalTimeZone() here because
-  // - on Chrome OS, it returns UTC: b/196271425
-  // - on Windows, it crashes: https://github.com/google/mozc/issues/856
-  const time_t epoch(24 * 60 * 60);  // 1970-01-02 00:00:00 UTC
-  const std::tm* offset = std::localtime(&epoch);
-  if (offset == nullptr) {
-    return absl::FixedTimeZone(9 * 60 * 60);  // JST as fallback
+  if constexpr (kUseAbslLocalTimeZone) {
+    return absl::LocalTimeZone();
+  } else {
+    // Do not use absl::LocalTimeZone() here because
+    // - on Chrome OS, it returns UTC: b/196271425
+    // - on Windows, it crashes: https://github.com/google/mozc/issues/856
+    const time_t epoch(24 * 60 * 60);  // 1970-01-02 00:00:00 UTC
+    const std::tm* offset = std::localtime(&epoch);
+    if (offset == nullptr) {
+      return absl::FixedTimeZone(9 * 60 * 60);  // JST as fallback
+    }
+    return absl::FixedTimeZone(
+        (offset->tm_mday - 2) * 24 * 60 * 60  // date offset from Jan 2.
+        + offset->tm_hour * 60 * 60           // hour offset from 00 am.
+        + offset->tm_min * 60);               // minute offset.
   }
-  return absl::FixedTimeZone(
-      (offset->tm_mday - 2) * 24 * 60 * 60  // date offset from Jan 2.
-      + offset->tm_hour * 60 * 60           // hour offset from 00 am.
-      + offset->tm_min * 60);               // minute offset.
-#endif  // MOZC_USE_ABSL_TIME_ZONE
 }
 
-class ClockImpl : public ClockInterface {
- public:
-  ClockImpl() = default;
-  ~ClockImpl() override = default;
-
-  absl::Time GetAbslTime() override { return absl::Now(); }
-
-  absl::TimeZone GetTimeZone() override { return GetLocalTimeZone(); }
-};
 }  // namespace
 
-using ClockSingleton = SingletonMockable<ClockInterface, ClockImpl>;
+// Macro to reduce boilerplate for mock delegation.
+// Each mockable method checks g_mock and delegates if non-null.
+#define MAYBE_INVOKE_MOCK_AND_RETURN(method, ...)                    \
+  if (ClockInterface* mock = g_mock.load(std::memory_order_acquire); \
+      mock != nullptr) {                                             \
+    return mock->method(__VA_ARGS__);                                \
+  }
 
-absl::Time Clock::GetAbslTime() { return ClockSingleton::Get()->GetAbslTime(); }
+absl::Time Clock::GetAbslTime() {
+  MAYBE_INVOKE_MOCK_AND_RETURN(GetAbslTime);
+
+  return absl::Now();
+}
 
 absl::TimeZone Clock::GetTimeZone() {
-  return ClockSingleton::Get()->GetTimeZone();
+  MAYBE_INVOKE_MOCK_AND_RETURN(GetTimeZone);
+
+  return GetLocalTimeZone();
 }
 
 void Clock::SetClockForUnitTest(ClockInterface* clock) {
-  ClockSingleton::SetMock(clock);
+  g_mock.store(clock, std::memory_order_release);
 }
+
+#undef MAYBE_INVOKE_MOCK_AND_RETURN
 
 }  // namespace mozc
